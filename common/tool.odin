@@ -14,15 +14,27 @@ Tool :: struct {
 	draw:         proc(data: rawptr, r: ^Renderer),
 	is_dirty:     proc(data: rawptr) -> bool,
 
+	enter:        proc(data: rawptr), // the tool just became the active one (frontends also call it once at startup)
+	take_exit:    proc(data: rawptr) -> bool, // true once when the tool wants to return to the main menu
+
 	// File IO, done by the frontend. A tool with files sets all of these.
+	file_name:    proc(data: rawptr) -> string, // optional; overrides default_file (the launcher uses it)
 	take_save:    proc(data: rawptr) -> (text: string, ok: bool), // ok only if a save was requested; text on the temp allocator
 	saved:        proc(data: rawptr), // after the frontend wrote the file
 	wants_load:   proc(data: rawptr) -> bool, // true once per load request
 	load:         proc(data: rawptr, bytes: []u8) -> bool, // false if the bytes are not valid
 }
 
+// The file the tool currently loads and saves ("" if it has none).
+tool_file_name :: proc(t: ^Tool) -> string {
+	if t.take_save == nil || t.wants_load == nil || t.load == nil {
+		return ""
+	}
+	return t.file_name != nil ? t.file_name(t.data) : t.default_file
+}
+
 tool_has_files :: proc(t: ^Tool) -> bool {
-	return t.take_save != nil && t.wants_load != nil && t.load != nil
+	return tool_file_name(t) != ""
 }
 
 tool_is_dirty :: proc(t: ^Tool) -> bool {
@@ -36,7 +48,7 @@ tool_update_pads :: proc(t: ^Tool, prev, now: ^Pads, m: ^Input_Map) {
 		pressed, _ := pad_edges(&prev[i], &now[i])
 		for idx in pressed {
 			if a, ok := action_for_pad_button(m, idx); ok {
-				t.handle_event(t.data, Command{a})
+				t.handle_event(t.data, Command{action = a, from_pad = true})
 			}
 		}
 	}

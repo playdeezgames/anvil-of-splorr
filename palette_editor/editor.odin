@@ -11,18 +11,21 @@ Request :: enum {
 	Load,
 }
 
-// Three modes give the eight commands enough meaning:
-//   Browse: d-pad moves between swatches; green starts editing the selected one; red copies the
-//           selected colour and enters Paste.
-//   Edit:   left/right change the value by 1, up/down by 16; green cycles R/G/B; red returns to Browse.
-//   Paste:  d-pad moves between swatches; green pastes the copied colour into the selected one
-//           (repeat for several); red returns to Browse.
-// Blue saves and yellow loads in every mode. The mouse works in all of them (COPY and PASTE
-// buttons) and switches mode itself.
+// Four modes give the eight commands enough meaning. Red always means "back":
+//   Browse: d-pad moves between swatches; green edits the selected one; yellow copies it and
+//           enters Paste; blue opens File; red leaves for the main menu (twice if there are
+//           unsaved changes).
+//   Edit:   left/right change the value by 1, up/down by 16; green cycles R/G/B; blue opens File;
+//           red returns to Browse.
+//   Paste:  d-pad moves; green pastes the copied colour into the selected swatch (repeat for
+//           several); yellow copies the selected one instead; blue opens File; red returns to Browse.
+//   File:   green saves, yellow loads, red or blue cancel; every choice returns to Browse.
+// The mouse works in all of them (COPY, PASTE, SAVE, LOAD and MENU buttons) and switches mode itself.
 Mode :: enum {
 	Browse,
 	Edit,
 	Paste,
+	File,
 }
 
 // Pure tool state. Frontends feed it events, call editor_draw, and service `requests` (file IO
@@ -35,6 +38,8 @@ Editor :: struct {
 	requests: bit_set[Request],
 	mode:     Mode,
 	clipboard: Maybe(cm.Color), // last copied colour
+	exit_requested: bool, // the tool wants to return to the main menu (see take_exit in tool.odin)
+	confirm_exit:   bool, // unsaved changes: the next exit request is the confirmation
 	labels:   ^cm.Input_Map, // source of on-screen command names; nil means the defaults
 	mouse:    [2]int,
 	drag:     Maybe(cm.Channel), // slider currently being dragged with the mouse
@@ -47,6 +52,14 @@ editor_init :: proc() -> Editor {
 // Frontend calls these after servicing a Request.
 editor_mark_saved :: proc(e: ^Editor) {
 	e.dirty = false
+}
+
+// Called each time the tool becomes the active one: start clean and load the saved palette.
+editor_enter :: proc(e: ^Editor) {
+	e.mode = .Browse
+	e.exit_requested, e.confirm_exit = false, false
+	e.drag = nil
+	e.requests += {.Load}
 }
 
 editor_set_palette :: proc(e: ^Editor, p: cm.Palette) {
@@ -73,6 +86,7 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 			}
 		}
 	case cm.Mouse_Wheel:
+		e.confirm_exit = false
 		// Over a slider: that channel. Elsewhere: the current channel.
 		ch := e.channel
 		if hit, ok := slider_at(e.mouse.x, e.mouse.y); ok {
@@ -85,42 +99,76 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 }
 
 editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
-	switch a {
-	case .Up, .Down, .Left, .Right:
-		if e.mode == .Edit {
-			#partial switch a {
-			case .Left:
-				adjust(e, e.channel, -cm.STEP_SMALL)
-			case .Right:
-				adjust(e, e.channel, cm.STEP_SMALL)
-			case .Up:
-				adjust(e, e.channel, cm.STEP_BIG)
-			case .Down:
-				adjust(e, e.channel, -cm.STEP_BIG)
-			}
-		} else {
+	if a != .Red {
+		e.confirm_exit = false // any other command cancels the "leave anyway?" prompt
+	}
+	switch e.mode {
+	case .Browse:
+		#partial switch a {
+		case .Up, .Down, .Left, .Right:
 			move_selection(e, a)
-		}
-	case .Green:
-		switch e.mode {
-		case .Browse:
+		case .Green:
 			e.mode = .Edit
-		case .Edit:
-			e.channel = cm.Channel((int(e.channel) + 1) % len(cm.Channel))
-		case .Paste:
-			paste(e)
-		}
-	case .Red:
-		if e.mode == .Browse {
+		case .Yellow:
 			copy_selected(e)
-		} else {
+		case .Blue:
+			e.mode = .File
+		case .Red:
+			request_exit(e)
+		}
+	case .Edit:
+		#partial switch a {
+		case .Left:
+			adjust(e, e.channel, -cm.STEP_SMALL)
+		case .Right:
+			adjust(e, e.channel, cm.STEP_SMALL)
+		case .Up:
+			adjust(e, e.channel, cm.STEP_BIG)
+		case .Down:
+			adjust(e, e.channel, -cm.STEP_BIG)
+		case .Green:
+			e.channel = cm.Channel((int(e.channel) + 1) % len(cm.Channel))
+		case .Blue:
+			e.mode = .File
+		case .Red:
 			e.mode = .Browse
 		}
-	case .Blue:
-		e.requests += {.Save}
-	case .Yellow:
-		e.requests += {.Load}
+	case .Paste:
+		#partial switch a {
+		case .Up, .Down, .Left, .Right:
+			move_selection(e, a)
+		case .Green:
+			paste(e)
+		case .Yellow:
+			copy_selected(e)
+		case .Blue:
+			e.mode = .File
+		case .Red:
+			e.mode = .Browse
+		}
+	case .File:
+		#partial switch a {
+		case .Green:
+			e.requests += {.Save}
+			e.mode = .Browse
+		case .Yellow:
+			e.requests += {.Load}
+			e.mode = .Browse
+		case .Red, .Blue:
+			e.mode = .Browse
+		}
 	}
+}
+
+// Leaving with unsaved changes needs a second request.
+@(private = "file")
+request_exit :: proc(e: ^Editor) {
+	if e.dirty && !e.confirm_exit {
+		e.confirm_exit = true
+		return
+	}
+	e.confirm_exit = false
+	e.exit_requested = true
 }
 
 // Remembers the selected colour and enters Paste mode so it can be stamped onto other swatches.
@@ -176,6 +224,9 @@ set_value :: proc(e: ^Editor, ch: cm.Channel, value: int) {
 
 @(private = "file")
 click :: proc(e: ^Editor, x, y: int) {
+	if !rect_contains(MENU_BUTTON, x, y) {
+		e.confirm_exit = false
+	}
 	if i, ok := swatch_at(x, y); ok {
 		e.selected = i
 		if e.mode != .Paste {
@@ -194,6 +245,8 @@ click :: proc(e: ^Editor, x, y: int) {
 		copy_selected(e)
 	} else if rect_contains(PASTE_BUTTON, x, y) {
 		paste(e)
+	} else if rect_contains(MENU_BUTTON, x, y) {
+		request_exit(e)
 	}
 }
 

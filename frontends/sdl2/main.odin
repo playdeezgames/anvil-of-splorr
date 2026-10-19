@@ -64,10 +64,8 @@ main :: proc() {
 	if tool.set_input_map != nil {
 		tool.set_input_map(tool.data, &imap)
 	}
-	has_files := cm.tool_has_files(&tool)
-	path := len(os.args) > 1 ? os.args[1] : tool.default_file
-	if has_files {
-		load_file(&tool, path, quiet_if_missing = true)
+	if tool.enter != nil {
+		tool.enter(tool.data) // standalone tools load their file here; the launcher does nothing
 	}
 
 	r := cm.Renderer {
@@ -97,15 +95,15 @@ main :: proc() {
 		}
 		poll_pads(&pads)
 		cm.tool_update_pads(&tool, &prev_pads, &pads, &imap)
-		if has_files {
-			service_files(&tool, path)
+		if path := cm.tool_file_name(&tool); path != "" {
+			service_files(&tool, path) // files live in the working directory, named by the running tool
 		}
 
 		tool.draw(tool.data, &r)
 
 		if dirty := cm.tool_is_dirty(&tool); dirty != shown_dirty {
 			shown_dirty = dirty
-			sdl.SetWindowTitle(window, fmt.ctprintf("%s - %s%s", tool.title, path, dirty ? " *" : ""))
+			sdl.SetWindowTitle(window, fmt.ctprintf("%s%s", tool.title, dirty ? " *" : ""))
 		}
 		sdl.Delay(8) // vsync is not guaranteed (software renderer)
 		free_all(context.temp_allocator)
@@ -121,7 +119,7 @@ handle_sdl_event :: proc(tool: ^cm.Tool, ev: ^sdl.Event) {
 		window_closed = true
 	case .KEYDOWN:
 		if a, ok := cm.action_for_key(&imap, key_code(ev.key.keysym.scancode)); ok {
-			handle(tool, cm.Command{a})
+			handle(tool, cm.Command{action = a})
 		}
 	case .MOUSEMOTION:
 		handle(tool, cm.Mouse_Move{int(ev.motion.x), int(ev.motion.y)})
@@ -328,12 +326,14 @@ service_files :: proc(tool: ^cm.Tool, path: string) {
 	}
 }
 
-load_file :: proc(tool: ^cm.Tool, path: string, quiet_if_missing := false) {
+// A missing file is normal (nothing saved yet) and silent; an unreadable or invalid one is reported.
+load_file :: proc(tool: ^cm.Tool, path: string) {
+	if !os.exists(path) {
+		return
+	}
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
-		if !quiet_if_missing {
-			fmt.eprintfln("load %s failed: %v", path, err)
-		}
+		fmt.eprintfln("load %s failed: %v", path, err)
 		return
 	}
 	defer delete(data)

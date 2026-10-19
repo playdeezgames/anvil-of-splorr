@@ -22,7 +22,7 @@
 <script src="odin.js"></script>
 <script>
 "use strict";
-const STORAGE_KEY = "anvil-of-splorr.@TOOL@";
+const STORAGE_PREFIX = "anvil-of-splorr.";
 const FILE_CAP = 4096; // must match FILE_CAP in web.odin
 
 const canvasEl = document.getElementById("canvas");
@@ -46,10 +46,10 @@ const imports = {
     },
   },
   host: {
-    // The palette JSON text is stored as-is; returns its byte length, or -1 if absent.
-    storage_get(ptr, cap) {
+    // Text stored per file name (the running tool's file); returns its byte length, or -1 if absent.
+    storage_get(keyPtr, keyLen, ptr, cap) {
       try {
-        const text = localStorage.getItem(STORAGE_KEY);
+        const text = localStorage.getItem(STORAGE_PREFIX + new TextDecoder().decode(bytesAt(keyPtr, keyLen)));
         if (text === null) return -1;
         const bytes = new TextEncoder().encode(text);
         if (bytes.length > cap) return bytes.length; // too big: Odin rejects by length
@@ -57,9 +57,10 @@ const imports = {
         return bytes.length;
       } catch (e) { return -1; }
     },
-    storage_set(ptr, len) {
+    storage_set(keyPtr, keyLen, ptr, len) {
+      const key = STORAGE_PREFIX + new TextDecoder().decode(bytesAt(keyPtr, keyLen));
       const text = new TextDecoder().decode(bytesAt(ptr, len));
-      try { localStorage.setItem(STORAGE_KEY, text); } catch (e) { /* storage unavailable */ }
+      try { localStorage.setItem(key, text); } catch (e) { /* storage unavailable */ }
     },
     download(ptr, len, namePtr, nameLen) {
       const blob = new Blob([bytesAt(ptr, len).slice()], { type: "application/json" });
@@ -102,9 +103,10 @@ async function loadInputMap() {
 odin.runWasm("app.wasm", null, imports, memory)
   .then(() => {
     loadInputMap();
-    if (memory.exports.tool_has_files && memory.exports.tool_has_files()) {
-      document.getElementById("open-label").hidden = false;
-    }
+    // The "open file" button follows the running tool: only tools with files can use it.
+    setInterval(() => {
+      document.getElementById("open-label").hidden = !memory.exports.tool_has_files();
+    }, 250);
   })
   .catch(e => say("Failed to start: " + e));
 </script>

@@ -18,9 +18,9 @@ foreign canvas {
 foreign import host "host"
 @(default_calling_convention = "contextless")
 foreign host {
-	// Returns the stored length, or -1 if nothing is stored. Stored text is the palette JSON.
-	storage_get :: proc(buf: [^]u8, cap: i32) -> i32 ---
-	storage_set :: proc(data: [^]u8, len: i32) ---
+	// Browser storage keyed by file name. get returns the stored length, or -1 if nothing is stored.
+	storage_get :: proc(key: [^]u8, key_len: i32, buf: [^]u8, cap: i32) -> i32 ---
+	storage_set :: proc(key: [^]u8, key_len: i32, data: [^]u8, len: i32) ---
 	// Offers data to the user as a file download.
 	download :: proc(data: [^]u8, len: i32, name: [^]u8, name_len: i32) ---
 }
@@ -47,8 +47,8 @@ main :: proc() {
 	if tool.set_input_map != nil {
 		tool.set_input_map(tool.data, &imap)
 	}
-	if cm.tool_has_files(&tool) {
-		restore_from_storage()
+	if tool.enter != nil {
+		tool.enter(tool.data) // standalone tools load their file here; the launcher does nothing
 	}
 
 	js.add_window_event_listener(.Key_Down, nil, on_key_down)
@@ -71,8 +71,8 @@ tool_has_files :: proc "c" () -> i32 {
 step :: proc(dt: f64, c: runtime.Context) -> bool {
 	context = ctx
 	poll_gamepads()
-	if cm.tool_has_files(&tool) {
-		service_files()
+	if name := cm.tool_file_name(&tool); name != "" {
+		service_files(name)
 	}
 	tool.draw(tool.data, &renderer)
 	free_all(context.temp_allocator)
@@ -144,25 +144,26 @@ file_loaded :: proc "c" (n: i32) -> i32 {
 	return ok ? 1 : 0
 }
 
-restore_from_storage :: proc() {
+restore_from_storage :: proc(name: string) {
 	buf: [FILE_CAP]u8
-	n := storage_get(&buf[0], len(buf))
+	key := name
+	n := storage_get(raw_data(key), i32(len(key)), &buf[0], len(buf))
 	if n < 0 || int(n) > len(buf) {
 		return
 	}
 	tool.load(tool.data, buf[:n])
 }
 
-service_files :: proc() {
+service_files :: proc(name: string) {
 	if text, ok := tool.take_save(tool.data); ok {
-		name := tool.default_file
-		storage_set(raw_data(text), i32(len(text)))
-		download(raw_data(text), i32(len(text)), raw_data(name), i32(len(name)))
+		key := name
+		storage_set(raw_data(key), i32(len(key)), raw_data(text), i32(len(text)))
+		download(raw_data(text), i32(len(text)), raw_data(key), i32(len(key)))
 		tool.saved(tool.data)
 	}
 	if tool.wants_load(tool.data) {
 		// Load restores the last save from browser storage; opening a file is the page's button.
-		restore_from_storage()
+		restore_from_storage(name)
 	}
 }
 
@@ -198,7 +199,7 @@ handle_key :: proc(e: js.Event, down: bool) {
 	if a, ok := cm.action_for_key(&imap, e.key.code); ok {
 		js.event_prevent_default() // Tab, arrows and space would otherwise move focus / scroll
 		if down {
-			tool.handle_event(tool.data, cm.Command{a})
+			tool.handle_event(tool.data, cm.Command{action = a})
 		}
 	}
 }

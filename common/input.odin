@@ -19,9 +19,11 @@ Action :: enum {
 STEP_SMALL :: 1
 STEP_BIG :: 16
 
-// A command from the keyboard or a gamepad, sent on press (and on key repeat).
+// A command from the keyboard or a gamepad, sent on press (and on key repeat). `from_pad` lets a
+// diagnostic tool tell the two apart; ordinary tools must not care.
 Command :: struct {
-	action: Action,
+	action:   Action,
+	from_pad: bool,
 }
 
 Mouse_Button :: enum {

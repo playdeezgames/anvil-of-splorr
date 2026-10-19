@@ -19,9 +19,19 @@ AXIS_X :: 120
 AXIS_BAR_W :: 100
 AXIS_BAR_X :: 156
 
+fill_rect :: proc(r: ^cm.Renderer, rc: [4]int, c: cm.Color) {
+	cm.renderer_fill_rect(r, rc[0], rc[1], rc[2], rc[3], c)
+}
+
 tester_draw :: proc(t: ^Tester, r: ^cm.Renderer) {
 	cm.renderer_clear(r, BG)
 	cm.draw_text(r, 8, 4, "GAMEPAD TESTER", HILITE)
+
+	// Way out: the MENU button (mouse) and the keyboard's red command.
+	fill_rect(r, MENU_BUTTON, PANEL)
+	cm.draw_text(r, MENU_BUTTON[0] + (MENU_BUTTON[2] - cm.text_width("MENU")) / 2, MENU_BUTTON[1] + 3, "MENU", TEXT)
+	hint := fmt.tprintf("KEYBOARD %s: MENU", cm.action_label(t.labels, .Red))
+	cm.draw_text(r, MENU_BUTTON[0] - 6 - cm.text_width(hint), MENU_BUTTON[1] + 3, hint, DIM)
 
 	n := connected_count(t)
 	if n == 0 {

@@ -9,6 +9,8 @@ Tester :: struct {
 	pads:     cm.Pads,
 	selected: int, // pad slot being displayed
 	last:     [cm.MAX_PADS]int, // 1 + index of the most recently pressed button per pad; 0 = none
+	exit_requested: bool,
+	labels:   ^cm.Input_Map, // for the on-screen name of the red command
 }
 
 tester_init :: proc() -> Tester {
@@ -63,12 +65,31 @@ select_next :: proc(t: ^Tester) {
 	}
 }
 
-// A click switches between connected pads. Commands are ignored on purpose: pressing a pad's
-// bound buttons while testing must not change which pad is shown.
+// A click switches between connected pads, or leaves via the MENU button. Pad commands are
+// ignored on purpose: pressing a pad's bound buttons while testing must neither switch pads nor
+// leave. The keyboard's red command (and the mouse) leave instead.
 tester_handle_event :: proc(t: ^Tester, ev: cm.Input_Event) {
-	if v, ok := ev.(cm.Mouse_Button_Event); ok && v.down && v.button == .Left {
-		select_next(t)
+	#partial switch v in ev {
+	case cm.Command:
+		if v.action == .Red && !v.from_pad {
+			t.exit_requested = true
+		}
+	case cm.Mouse_Button_Event:
+		if v.down && v.button == .Left {
+			if rect_contains(MENU_BUTTON, v.x, v.y) {
+				t.exit_requested = true
+			} else {
+				select_next(t)
+			}
+		}
 	}
+}
+
+// Rect in logical pixels.
+MENU_BUTTON :: [4]int{278, 168, 36, 10} // x, y, w, h
+
+rect_contains :: proc(r: [4]int, x, y: int) -> bool {
+	return x >= r[0] && y >= r[1] && x < r[0] + r[2] && y < r[1] + r[3]
 }
 
 tool :: proc(t: ^Tester) -> cm.Tool {
@@ -77,6 +98,13 @@ tool :: proc(t: ^Tester) -> cm.Tool {
 		data = t,
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {tester_handle_event((^Tester)(data), ev)},
 		update_pads = proc(data: rawptr, pads: ^cm.Pads) {tester_update_pads((^Tester)(data), pads)},
+		set_input_map = proc(data: rawptr, m: ^cm.Input_Map) {(^Tester)(data).labels = m},
+		enter = proc(data: rawptr) {(^Tester)(data).exit_requested = false},
+		take_exit = proc(data: rawptr) -> bool {
+			t := (^Tester)(data)
+			defer t.exit_requested = false
+			return t.exit_requested
+		},
 		draw = proc(data: rawptr, r: ^cm.Renderer) {tester_draw((^Tester)(data), r)},
 	}
 }

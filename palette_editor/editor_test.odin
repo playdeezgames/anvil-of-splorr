@@ -5,7 +5,7 @@ import cm "../common"
 import "core:testing"
 
 cmd :: proc(a: cm.Action) -> cm.Input_Event {
-	return cm.Command{a}
+	return cm.Command{action = a}
 }
 
 press :: proc(e: ^Editor, actions: ..cm.Action) {
@@ -84,16 +84,38 @@ test_edit_saturates_high_and_clean_when_unchanged :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_save_and_load_requests :: proc(t: ^testing.T) {
+test_blue_opens_file_mode_green_saves_yellow_loads :: proc(t: ^testing.T) {
 	e := editor_init()
 	press(&e, .Blue)
+	testing.expect_value(t, e.mode, Mode.File)
+	press(&e, .Green)
 	testing.expect(t, e.requests == {.Save})
-	press(&e, .Yellow)
-	testing.expect(t, e.requests == {.Save, .Load})
-	e.mode = .Edit
+	testing.expect_value(t, e.mode, Mode.Browse) // every choice returns to Browse
 	e.requests = {}
-	press(&e, .Yellow)
-	testing.expect(t, e.requests == {.Load}) // works in edit mode too
+	press(&e, .Blue, .Yellow)
+	testing.expect(t, e.requests == {.Load})
+	testing.expect_value(t, e.mode, Mode.Browse)
+}
+
+@(test)
+test_file_mode_cancel_and_isolation :: proc(t: ^testing.T) {
+	e := editor_init()
+	before := e.palette
+	for cancel in ([]cm.Action{.Red, .Blue}) {
+		press(&e, .Blue, cancel)
+		testing.expect_value(t, e.mode, Mode.Browse)
+		testing.expect(t, e.requests == {})
+	}
+	press(&e, .Blue, .Up, .Left, .Right, .Down) // d-pad does nothing in File mode
+	testing.expect_value(t, e.mode, Mode.File)
+	testing.expect(t, e.selected == 0 && e.palette == before && e.requests == {})
+	// File is reachable from Edit and Paste too.
+	e = editor_init()
+	press(&e, .Green, .Blue)
+	testing.expect_value(t, e.mode, Mode.File)
+	e = editor_init()
+	press(&e, .Yellow, .Blue)
+	testing.expect_value(t, e.mode, Mode.File)
 }
 
 @(test)
@@ -203,6 +225,7 @@ test_layout_fits_screen :: proc(t: ^testing.T) {
 	check(t, LOAD_BUTTON)
 	check(t, COPY_BUTTON)
 	check(t, PASTE_BUTTON)
+	check(t, MENU_BUTTON)
 	check(t, CLIP_CHIP)
 }
 
@@ -306,7 +329,7 @@ test_save_and_load_reachable_by_each_input :: proc(t: ^testing.T) {
 			e := editor_init()
 			switch m {
 			case .Commands:
-				press(&e, req == .Save ? .Blue : .Yellow)
+				press(&e, .Blue, req == .Save ? .Green : .Yellow) // File mode, then the choice
 			case .Mouse:
 				b := req == .Save ? SAVE_BUTTON : LOAD_BUTTON
 				click_at(&e, b.x + b.w / 2, b.y + b.h / 2)
@@ -323,13 +346,14 @@ test_help_uses_default_labels :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	e := editor_init()
 	lines, n := help_lines(&e)
-	testing.expect_value(t, n, 5)
+	testing.expect_value(t, n, 4)
 	testing.expect_value(t, lines[0], "UP/DOWN/LEFT/RIGHT: MOVE")
-	testing.expect_value(t, lines[1], "GREEN: EDIT COLOR")
+	testing.expect_value(t, lines[1], "GREEN: EDIT COLOR  YELLOW: COPY COLOR")
+	testing.expect_value(t, lines[2], "BLUE: SAVE / LOAD  RED: MAIN MENU")
 	testing.expect_value(t, banner_text(&e), "BROWSING   GREEN: EDIT")
 	e.mode = .Edit
 	lines, _ = help_lines(&e)
-	testing.expect_value(t, lines[3], "BLUE: SAVE  YELLOW: LOAD")
+	testing.expect_value(t, lines[3], "BLUE: SAVE / LOAD")
 	testing.expect_value(t, banner_text(&e), "EDITING   RED: DONE")
 }
 
@@ -342,7 +366,7 @@ test_help_follows_edited_labels :: proc(t: ^testing.T) {
 	e := editor_init()
 	e.labels = &m
 	lines, _ := help_lines(&e)
-	testing.expect_value(t, lines[1], "SPACE: EDIT COLOR")
+	testing.expect_value(t, lines[1], "SPACE: EDIT COLOR  YELLOW: COPY COLOR")
 	testing.expect_value(t, banner_text(&e), "BROWSING   SPACE: EDIT")
 	e.mode = .Edit
 	testing.expect_value(t, banner_text(&e), "EDITING   ESC: DONE")
@@ -376,9 +400,10 @@ test_help_block_clears_the_readouts :: proc(t: ^testing.T) {
 	testing.expect(t, HELP_Y > READOUT_Y + cm.GLYPH_H)
 	testing.expect(t, READOUT_Y > PREVIEW.y + PREVIEW.h)
 	testing.expect(t, HELP_Y > swatch_rect(15).y + CELL) // below the swatch grid
+	testing.expect(t, HELP_Y >= MENU_BUTTON.y + MENU_BUTTON.h)
 	testing.expect(t, HELP_Y > LOAD_BUTTON.y + LOAD_BUTTON.h)
 	// Buttons do not overlap each other or the clipboard chip.
-	rects := [?]Rect{SAVE_BUTTON, LOAD_BUTTON, COPY_BUTTON, PASTE_BUTTON, PREVIEW, BANNER}
+	rects := [?]Rect{SAVE_BUTTON, LOAD_BUTTON, COPY_BUTTON, PASTE_BUTTON, MENU_BUTTON, PREVIEW, BANNER}
 	for a, i in rects {
 		for b, j in rects {
 			if i < j {
@@ -393,10 +418,10 @@ test_help_block_clears_the_readouts :: proc(t: ^testing.T) {
 // --- Copy and paste ---
 
 @(test)
-test_red_copies_and_enters_paste_mode :: proc(t: ^testing.T) {
+test_yellow_copies_and_enters_paste_mode :: proc(t: ^testing.T) {
 	e := editor_init()
 	e.selected = 3 // (0,170,170)
-	press(&e, .Red)
+	press(&e, .Yellow)
 	testing.expect_value(t, e.mode, Mode.Paste)
 	c, has := e.clipboard.?
 	testing.expect(t, has && c == cm.Color{0, 170, 170})
@@ -407,7 +432,7 @@ test_red_copies_and_enters_paste_mode :: proc(t: ^testing.T) {
 test_paste_stamps_onto_several_swatches :: proc(t: ^testing.T) {
 	e := editor_init()
 	e.selected = 3
-	press(&e, .Red, .Right, .Green, .Right, .Green) // copy 3, paste onto 0 (wrapped), then 1
+	press(&e, .Yellow, .Right, .Green, .Right, .Green) // copy 3, paste onto 0 (wrapped), then 1
 	testing.expect_value(t, e.mode, Mode.Paste)
 	testing.expect(t, e.palette[0] == e.palette[3])
 	testing.expect(t, e.palette[1] == e.palette[3])
@@ -421,7 +446,7 @@ test_paste_stamps_onto_several_swatches :: proc(t: ^testing.T) {
 @(test)
 test_red_leaves_paste_mode_and_clipboard_survives :: proc(t: ^testing.T) {
 	e := editor_init()
-	press(&e, .Red) // copy swatch 0, enter paste
+	press(&e, .Yellow) // copy swatch 0, enter paste
 	press(&e, .Red) // done
 	testing.expect_value(t, e.mode, Mode.Browse)
 	_, has := e.clipboard.?
@@ -437,7 +462,7 @@ test_red_leaves_paste_mode_and_clipboard_survives :: proc(t: ^testing.T) {
 @(test)
 test_paste_of_identical_colour_is_not_a_change :: proc(t: ^testing.T) {
 	e := editor_init()
-	press(&e, .Red, .Green) // paste onto the swatch it was copied from
+	press(&e, .Yellow, .Green) // paste onto the swatch it was copied from
 	testing.expect(t, !e.dirty)
 }
 
@@ -480,7 +505,7 @@ test_copy_paste_reachable_by_each_input :: proc(t: ^testing.T) {
 				switch m {
 				case .Commands:
 					select_swatch_via(&e, m, src)
-					press(&e, .Red) // copy
+					press(&e, .Yellow) // copy
 					// Walk to dst in paste mode: back to 0 first, then across and down.
 					e.selected = 0
 					for _ in 0 ..< dst % GRID_COLS {
@@ -499,6 +524,135 @@ test_copy_paste_reachable_by_each_input :: proc(t: ^testing.T) {
 				}
 				testing.expectf(t, e.palette[dst] == (cm.Color{11, 22, 33}), "%v: copy %d -> paste %d failed", m, src, dst)
 			}
+		}
+	}
+}
+
+// --- Leaving for the main menu ---
+
+take_exit :: proc(e: ^Editor) -> bool {
+	tool := tool(e)
+	return tool.take_exit(tool.data)
+}
+
+@(test)
+test_red_in_browse_exits_when_clean :: proc(t: ^testing.T) {
+	e := editor_init()
+	press(&e, .Red)
+	testing.expect(t, take_exit(&e))
+	testing.expect(t, !take_exit(&e)) // consumed
+}
+
+@(test)
+test_red_in_edit_and_paste_only_goes_back :: proc(t: ^testing.T) {
+	e := editor_init()
+	press(&e, .Green, .Red)
+	testing.expect_value(t, e.mode, Mode.Browse)
+	testing.expect(t, !take_exit(&e))
+	press(&e, .Yellow, .Red)
+	testing.expect_value(t, e.mode, Mode.Browse)
+	testing.expect(t, !take_exit(&e))
+	press(&e, .Red) // now in Browse: leaves
+	testing.expect(t, take_exit(&e))
+}
+
+@(test)
+test_unsaved_changes_need_a_second_red :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := editor_init()
+	press(&e, .Green, .Up, .Red) // edit something, back to Browse
+	testing.expect(t, e.dirty)
+	press(&e, .Red)
+	testing.expect(t, !take_exit(&e))
+	testing.expect(t, e.confirm_exit)
+	testing.expect_value(t, banner_text(&e), "UNSAVED   RED: LEAVE ANYWAY")
+	press(&e, .Red)
+	testing.expect(t, take_exit(&e))
+	testing.expect(t, !e.confirm_exit)
+
+	// Any other command cancels the prompt.
+	press(&e, .Red) // confirm again (still dirty)
+	testing.expect(t, e.confirm_exit)
+	press(&e, .Down)
+	testing.expect(t, !e.confirm_exit)
+	press(&e, .Red)
+	testing.expect(t, !take_exit(&e)) // asks again instead of leaving
+
+	// Saving clears dirty, so leaving is then immediate.
+	press(&e, .Blue, .Green)
+	editor_mark_saved(&e)
+	press(&e, .Red)
+	testing.expect(t, take_exit(&e))
+}
+
+@(test)
+test_menu_button_exits_with_the_same_guard :: proc(t: ^testing.T) {
+	e := editor_init()
+	click_at(&e, MENU_BUTTON.x + 2, MENU_BUTTON.y + 2)
+	testing.expect(t, take_exit(&e))
+	e.dirty = true
+	click_at(&e, MENU_BUTTON.x + 2, MENU_BUTTON.y + 2)
+	testing.expect(t, !take_exit(&e) && e.confirm_exit)
+	r := swatch_rect(4)
+	click_at(&e, r.x + 2, r.y + 2) // any other click cancels the prompt
+	testing.expect(t, !e.confirm_exit)
+	click_at(&e, MENU_BUTTON.x + 2, MENU_BUTTON.y + 2)
+	click_at(&e, MENU_BUTTON.x + 2, MENU_BUTTON.y + 2)
+	testing.expect(t, take_exit(&e))
+}
+
+@(test)
+test_enter_starts_clean_and_loads :: proc(t: ^testing.T) {
+	e := editor_init()
+	e.mode = .Edit
+	e.confirm_exit = true
+	e.exit_requested = true
+	tl := tool(&e)
+	tl.enter(tl.data)
+	testing.expect_value(t, e.mode, Mode.Browse)
+	testing.expect(t, !e.confirm_exit && !e.exit_requested)
+	testing.expect(t, e.requests == {.Load}) // loads the saved palette each time it opens
+	testing.expect(t, tl.wants_load(tl.data) && !tl.wants_load(tl.data))
+}
+
+@(test)
+test_paste_mode_yellow_recopies :: proc(t: ^testing.T) {
+	e := editor_init()
+	e.selected = 3
+	press(&e, .Yellow, .Left, .Yellow) // copy 3, move to 2, copy 2 instead
+	c, _ := e.clipboard.?
+	testing.expect(t, c == e.palette[2])
+	testing.expect_value(t, e.mode, Mode.Paste)
+}
+
+@(test)
+test_leaving_is_reachable_by_each_input :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		e := editor_init()
+		switch m {
+		case .Commands:
+			press(&e, .Red)
+		case .Mouse:
+			click_at(&e, MENU_BUTTON.x + 2, MENU_BUTTON.y + 2)
+		}
+		testing.expectf(t, take_exit(&e), "%v could not leave", m)
+	}
+}
+
+@(test)
+test_banner_fits_in_every_state_with_longest_labels :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	m := cm.default_input_map()
+	for a in cm.Action {
+		cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
+	}
+	e := editor_init()
+	e.labels = &m
+	for mode in Mode {
+		e.mode = mode
+		for confirm in ([]bool{false, true}) {
+			e.confirm_exit = confirm
+			testing.expectf(t, cm.text_width(banner_text(&e)) + 8 <= BANNER.w, "banner too wide: %v confirm=%v", mode, confirm)
 		}
 	}
 }

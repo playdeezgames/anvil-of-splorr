@@ -10,6 +10,12 @@ tool :: proc(e: ^Editor) -> cm.Tool {
 		data = e,
 		set_input_map = proc(data: rawptr, m: ^cm.Input_Map) {(^Editor)(data).labels = m},
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {editor_handle_event((^Editor)(data), ev)},
+		enter = proc(data: rawptr) {editor_enter((^Editor)(data))},
+		take_exit = proc(data: rawptr) -> bool {
+			e := (^Editor)(data)
+			defer e.exit_requested = false
+			return e.exit_requested
+		},
 		draw = proc(data: rawptr, r: ^cm.Renderer) {editor_draw((^Editor)(data), r)},
 		is_dirty = proc(data: rawptr) -> bool {return (^Editor)(data).dirty},
 		take_save = proc(data: rawptr) -> (string, bool) {

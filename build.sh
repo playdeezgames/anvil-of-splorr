@@ -5,13 +5,14 @@
 #   run [tool] [file]       build and run natively
 #   web [tool]              build/web/<tool>/
 #   serve [tool] [port]     web + http.server (default port 8000)
-# Tools live in apps/<tool>/ (default: palette_editor).
+# Builds select what to include with apps/<name>/: "suite" (default) is the main menu plus every
+# editor; "palette_editor" and "gamepad_tester" build a single tool on its own.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 target="${1:-test}"
 [ $# -gt 0 ] && shift
-tool=palette_editor
+tool=suite
 if [ $# -gt 0 ] && [ -d "apps/$1" ]; then
 	tool="$1"
 	shift
@@ -26,19 +27,19 @@ build_web() {
 	# A link, not a copy: the repo-root input_map.json is the one file to edit, and a rebuild must
 	# never overwrite edits made through the served path.
 	ln -sfn ../../../input_map.json "$out/input_map.json"
-	sed -e "s/@TITLE@/$(cat "apps/$tool/title.txt")/" -e "s/@TOOL@/$tool/" frontends/web/index.html > "$out/index.html"
+	sed -e "s/@TITLE@/$(cat "apps/$tool/title.txt")/" frontends/web/index.html > "$out/index.html"
 }
 
 case "$target" in
 	check)
-		for pkg in common palette_editor gamepad_tester; do odin check "$pkg" -no-entry-point; done
+		for pkg in common palette_editor gamepad_tester launcher; do odin check "$pkg" -no-entry-point; done
 		for t in apps/*/; do
 			t="$(basename "$t")"
 			odin check frontends/sdl2 "-collection:app=apps/$t"
 			odin check frontends/web -target:js_wasm32 "-collection:app=apps/$t"
 		done ;;
 	test)
-		for pkg in common palette_editor gamepad_tester; do odin test "$pkg"; done ;;
+		for pkg in common palette_editor gamepad_tester launcher; do odin test "$pkg"; done ;;
 	native) mkdir -p build && odin build frontends/sdl2 "$coll" -out:"build/$tool" ;;
 	run)    "$0" native "$tool" && "./build/$tool" "$@" ;;
 	web)    build_web ;;
