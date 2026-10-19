@@ -1,5 +1,5 @@
 {
-  "_note": "Gamepad values are standard-layout button indices (the Gamepad Tester shows them); keyboard values are KeyboardEvent.code names such as KeyR or ArrowUp. Use null to unbind a command; a command left out keeps its default.",
+  "_note": "Gamepad values are standard-layout button indices (the Gamepad Tester shows them); keyboard values are KeyboardEvent.code names such as KeyR or ArrowUp. Use null to unbind a command; a command left out keeps its default. Labels are what the tools call each command on screen (max 12 characters), e.g. SPACE or A BUTTON.",
   "gamepad": {
     "up": 12,
     "down": 13,
@@ -19,5 +19,15 @@
     "red": "Escape",
     "blue": "Enter",
     "yellow": "Tab"
+  },
+  "labels": {
+    "up": "UP",
+    "down": "DOWN",
+    "left": "LEFT",
+    "right": "RIGHT",
+    "green": "GREEN",
+    "red": "RED",
+    "blue": "BLUE",
+    "yellow": "YELLOW"
   }
 }

@@ -8,6 +8,7 @@ tool :: proc(e: ^Editor) -> cm.Tool {
 		title = "Palette Editor",
 		default_file = "palette.json",
 		data = e,
+		set_input_map = proc(data: rawptr, m: ^cm.Input_Map) {(^Editor)(data).labels = m},
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {editor_handle_event((^Editor)(data), ev)},
 		draw = proc(data: rawptr, r: ^cm.Renderer) {editor_draw((^Editor)(data), r)},
 		is_dirty = proc(data: rawptr) -> bool {return (^Editor)(data).dirty},

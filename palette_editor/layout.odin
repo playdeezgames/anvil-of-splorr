@@ -20,9 +20,11 @@ SLIDER_H :: 12
 SLIDER_PITCH :: 24
 
 BANNER :: Rect{134, 5, 160, 11}
-PREVIEW :: Rect{134, 104, 84, 40}
-SAVE_BUTTON :: Rect{232, 104, 40, 14}
-LOAD_BUTTON :: Rect{232, 124, 40, 14}
+PREVIEW :: Rect{134, 94, 84, 28}
+SAVE_BUTTON :: Rect{232, 94, 40, 12}
+LOAD_BUTTON :: Rect{232, 110, 40, 12}
+READOUT_Y :: 126 // "05 #AA5500 *" under the preview
+HELP_Y :: 136 // help block, full width, packed at the font's line pitch
 
 rect_contains :: proc(r: Rect, x, y: int) -> bool {
 	return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h

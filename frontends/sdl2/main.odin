@@ -61,6 +61,9 @@ main :: proc() {
 	imap = cm.default_input_map()
 	load_input_map()
 	tool := app.make_tool()
+	if tool.set_input_map != nil {
+		tool.set_input_map(tool.data, &imap)
+	}
 	has_files := cm.tool_has_files(&tool)
 	path := len(os.args) > 1 ? os.args[1] : tool.default_file
 	if has_files {

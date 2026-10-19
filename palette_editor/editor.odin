@@ -29,6 +29,7 @@ Editor :: struct {
 	dirty:    bool, // palette changed since the last save/load
 	requests: bit_set[Request],
 	mode:     Mode,
+	labels:   ^cm.Input_Map, // source of on-screen command names; nil means the defaults
 	mouse:    [2]int,
 	drag:     Maybe(cm.Channel), // slider currently being dragged with the mouse
 }

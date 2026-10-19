@@ -8,6 +8,7 @@ Tool :: struct {
 	title:        string,
 	default_file: string, // "" if the tool has no file
 	data:         rawptr,
+	set_input_map: proc(data: rawptr, m: ^Input_Map), // frontend gives the live map once; its labels may change later
 	handle_event: proc(data: rawptr, ev: Input_Event),
 	update_pads:  proc(data: rawptr, pads: ^Pads), // full per-frame snapshot, for tools that show raw pads
 	draw:         proc(data: rawptr, r: ^Renderer),

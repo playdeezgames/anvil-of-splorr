@@ -8,14 +8,16 @@ import "core:strings"
 // user can edit by hand:
 //
 //   { "gamepad":  { "up": 12, "red": 0, ... },       standard-layout button index (see the Gamepad Tester)
-//     "keyboard": { "up": "ArrowUp", "red": "KeyR" } KeyboardEvent.code names, see KNOWN below
+//     "keyboard": { "up": "ArrowUp", "red": "KeyR" }, KeyboardEvent.code names, see KNOWN below
+//     "labels":   { "green": "SPACE", ... }          what the tools call each command on screen
 //   }
 //
-// A command left out keeps its default; null unbinds it. Keys starting with "_" are ignored
+// A command left out keeps its default; null unbinds it (for a label, null means the command name). Keys starting with "_" are ignored
 // (use them for notes). Loading is strict: unknown commands, bad values and two commands on one
 // input are errors, and the caller falls back to the defaults.
 
 KEY_NAME_CAP :: 24
+LABEL_CAP :: 12 // longest label; keeps the editors' help lines on screen
 
 Key_Name :: struct {
 	buf: [KEY_NAME_CAP]u8,
@@ -25,8 +27,9 @@ Key_Name :: struct {
 NO_BUTTON :: -1
 
 Input_Map :: struct {
-	pad:  [Action]int, // standard-layout button index, or NO_BUTTON
-	keys: [Action]Key_Name,
+	pad:    [Action]int, // standard-layout button index, or NO_BUTTON
+	keys:   [Action]Key_Name,
+	labels: [Action]Key_Name, // on-screen name of each command; empty means the default (the command name)
 }
 
 ACTION_NAMES := [Action]string {
@@ -38,6 +41,18 @@ ACTION_NAMES := [Action]string {
 	.Red    = "red",
 	.Blue   = "blue",
 	.Yellow = "yellow",
+}
+
+// What tools call each command on screen unless input_map.json says otherwise.
+DEFAULT_LABELS := [Action]string {
+	.Up     = "UP",
+	.Down   = "DOWN",
+	.Left   = "LEFT",
+	.Right  = "RIGHT",
+	.Green  = "GREEN",
+	.Red    = "RED",
+	.Blue   = "BLUE",
+	.Yellow = "YELLOW",
 }
 
 // Every key name a binding may use. These are browser KeyboardEvent.code values (layout
@@ -70,6 +85,7 @@ key_name :: proc(k: ^Key_Name) -> string {
 }
 
 set_key_name :: proc(k: ^Key_Name, s: string) {
+	k^ = {} // no stale bytes, so equal maps compare equal
 	k.len = min(len(s), KEY_NAME_CAP)
 	copy(k.buf[:], s[:k.len])
 }
@@ -98,8 +114,17 @@ default_input_map :: proc() -> (m: Input_Map) {
 	for a in Action {
 		m.pad[a] = pad[a]
 		set_key_name(&m.keys[a], keys[a])
+		set_key_name(&m.labels[a], DEFAULT_LABELS[a])
 	}
 	return
+}
+
+// The text to show for a command. A nil map gives the defaults (handy in tests).
+action_label :: proc(m: ^Input_Map, a: Action) -> string {
+	if m == nil || m.labels[a].len == 0 {
+		return DEFAULT_LABELS[a]
+	}
+	return key_name(&m.labels[a])
 }
 
 action_for_pad_button :: proc(m: ^Input_Map, index: int) -> (Action, bool) {
@@ -123,7 +148,7 @@ action_for_key :: proc(m: ^Input_Map, code: string) -> (Action, bool) {
 	return {}, false
 }
 
-NOTE :: "Gamepad values are standard-layout button indices (the Gamepad Tester shows them); keyboard values are KeyboardEvent.code names such as KeyR or ArrowUp. Use null to unbind a command; a command left out keeps its default."
+NOTE :: "Gamepad values are standard-layout button indices (the Gamepad Tester shows them); keyboard values are KeyboardEvent.code names such as KeyR or ArrowUp. Use null to unbind a command; a command left out keeps its default. Labels are what the tools call each command on screen (max 12 characters), e.g. SPACE or A BUTTON."
 
 input_map_to_json :: proc(map_in: Input_Map, allocator := context.temp_allocator) -> string {
 	m := map_in
@@ -145,6 +170,11 @@ input_map_to_json :: proc(map_in: Input_Map, allocator := context.temp_allocator
 		} else {
 			fmt.sbprintf(&b, "    \"%s\": \"%s\"%s\n", ACTION_NAMES[a], key_name(&m.keys[a]), sep)
 		}
+	}
+	strings.write_string(&b, "  },\n  \"labels\": {\n")
+	for a in Action {
+		sep := a == max(Action) ? "" : ","
+		fmt.sbprintf(&b, "    \"%s\": \"%s\"%s\n", ACTION_NAMES[a], action_label(&m, a), sep)
 	}
 	strings.write_string(&b, "  }\n}\n")
 	return strings.to_string(b)
@@ -181,9 +211,17 @@ input_map_from_json :: proc(data: []u8) -> (m: Input_Map, err: string) {
 			if e := read_key_section(&m, obj); e != "" {
 				return {}, e
 			}
+		case "labels":
+			obj, ok := section.(json.Object)
+			if !ok {
+				return {}, `"labels" must be an object`
+			}
+			if e := read_label_section(&m, obj); e != "" {
+				return {}, e
+			}
 		case:
 			if !strings.has_prefix(name, "_") {
-				return {}, fmt.tprintf(`unknown section "%s" (expected "gamepad" or "keyboard")`, name)
+				return {}, fmt.tprintf(`unknown section "%s" (expected "gamepad", "keyboard" or "labels")`, name)
 			}
 		}
 	}
@@ -259,6 +297,31 @@ read_key_section :: proc(m: ^Input_Map, obj: json.Object) -> string {
 			set_key_name(&m.keys[a], x)
 		case:
 			return fmt.tprintf(`keyboard "%s": expected a key name or null`, name)
+		}
+	}
+	return ""
+}
+
+@(private = "file")
+read_label_section :: proc(m: ^Input_Map, obj: json.Object) -> string {
+	for name, v in obj {
+		if strings.has_prefix(name, "_") {
+			continue
+		}
+		a, ok := action_from_name(name)
+		if !ok {
+			return fmt.tprintf(`labels: unknown command "%s"`, name)
+		}
+		#partial switch x in v {
+		case json.Null:
+			m.labels[a] = {}
+		case json.String:
+			if len(x) > LABEL_CAP {
+				return fmt.tprintf(`labels "%s": "%s" is longer than %d characters`, name, x, LABEL_CAP)
+			}
+			set_key_name(&m.labels[a], x)
+		case:
+			return fmt.tprintf(`labels "%s": expected text or null`, name)
 		}
 	}
 	return ""

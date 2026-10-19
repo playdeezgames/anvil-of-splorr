@@ -44,6 +44,9 @@ main :: proc() {
 	ctx = context
 	imap = cm.default_input_map()
 	tool = app.make_tool()
+	if tool.set_input_map != nil {
+		tool.set_input_map(tool.data, &imap)
+	}
 	if cm.tool_has_files(&tool) {
 		restore_from_storage()
 	}

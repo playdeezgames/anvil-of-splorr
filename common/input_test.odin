@@ -123,3 +123,50 @@ test_swapping_two_commands_is_valid :: proc(t: ^testing.T) {
 	testing.expect_value(t, m.pad[.Red], 1)
 	testing.expect_value(t, m.pad[.Green], 0)
 }
+
+@(test)
+test_default_labels_are_command_names :: proc(t: ^testing.T) {
+	m := default_input_map()
+	for a in Action {
+		testing.expect_value(t, action_label(&m, a), DEFAULT_LABELS[a])
+	}
+	testing.expect_value(t, action_label(&m, .Green), "GREEN")
+	testing.expect_value(t, action_label(nil, .Yellow), "YELLOW") // no map: defaults
+}
+
+@(test)
+test_label_editing :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	m, err := parse(`{"labels": {"green": "SPACE / A", "red": null, "blue": ""}}`)
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, action_label(&m, .Green), "SPACE / A")
+	testing.expect_value(t, action_label(&m, .Red), "RED") // null falls back to the command name
+	testing.expect_value(t, action_label(&m, .Blue), "BLUE") // so does empty text
+	testing.expect_value(t, action_label(&m, .Up), "UP") // untouched
+	// Shorter label after a longer default leaves no stale bytes: equal maps compare equal.
+	m2, _ := parse(`{"labels": {"green": "X"}}`)
+	m3 := default_input_map()
+	set_key_name(&m3.labels[.Green], "X")
+	testing.expect(t, m2 == m3)
+	// Custom labels survive a round trip through JSON.
+	text := input_map_to_json(m)
+	back, err2 := parse(text)
+	testing.expectf(t, err2 == "", "round trip: %s", err2)
+	testing.expect_value(t, action_label(&back, .Green), "SPACE / A")
+	testing.expect_value(t, action_label(&back, .Red), "RED")
+}
+
+@(test)
+test_label_errors :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	_, err := parse(`{"labels": {"green": "THIRTEEN CHARS"}}`)
+	testing.expect(t, strings.contains(err, "longer than 12"))
+	_, err = parse(`{"labels": {"green": "TWELVE CHARS"}}`)
+	testing.expect_value(t, err, "") // exactly 12 is fine
+	_, err = parse(`{"labels": {"gren": "X"}}`)
+	testing.expect(t, strings.contains(err, `unknown command "gren"`))
+	_, err = parse(`{"labels": {"green": 5}}`)
+	testing.expect(t, strings.contains(err, "expected text or null"))
+	_, err = parse(`{"labels": []}`)
+	testing.expect(t, strings.contains(err, `"labels" must be an object`))
+}

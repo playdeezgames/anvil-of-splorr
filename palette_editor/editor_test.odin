@@ -314,3 +314,66 @@ test_save_and_load_reachable_by_each_input :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+// --- Labels: help and banner text come from input_map.json. ---
+
+@(test)
+test_help_uses_default_labels :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := editor_init()
+	lines, n := help_lines(&e)
+	testing.expect_value(t, n, 5)
+	testing.expect_value(t, lines[0], "UP/DOWN/LEFT/RIGHT: MOVE")
+	testing.expect_value(t, lines[1], "GREEN: EDIT COLOR")
+	testing.expect_value(t, banner_text(&e), "BROWSING   GREEN: EDIT")
+	e.mode = .Edit
+	lines, _ = help_lines(&e)
+	testing.expect_value(t, lines[3], "BLUE: SAVE  YELLOW: LOAD")
+	testing.expect_value(t, banner_text(&e), "EDITING   RED: DONE")
+}
+
+@(test)
+test_help_follows_edited_labels :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	m := cm.default_input_map()
+	cm.set_key_name(&m.labels[.Green], "SPACE")
+	cm.set_key_name(&m.labels[.Red], "ESC")
+	e := editor_init()
+	e.labels = &m
+	lines, _ := help_lines(&e)
+	testing.expect_value(t, lines[1], "SPACE: EDIT COLOR")
+	testing.expect_value(t, banner_text(&e), "BROWSING   SPACE: EDIT")
+	e.mode = .Edit
+	testing.expect_value(t, banner_text(&e), "EDITING   ESC: DONE")
+	// The map is read live: changing it later (web loads the file after start) shows up.
+	cm.set_key_name(&m.labels[.Red], "B")
+	testing.expect_value(t, banner_text(&e), "EDITING   B: DONE")
+}
+
+@(test)
+test_longest_labels_still_fit :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	m := cm.default_input_map()
+	for a in cm.Action {
+		cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW") // 12 chars, the maximum
+	}
+	e := editor_init()
+	e.labels = &m
+	for mode in Mode {
+		e.mode = mode
+		lines, n := help_lines(&e)
+		for line in lines[:n] {
+			testing.expectf(t, 8 + cm.text_width(line) <= cm.SCREEN_W - 8, "help line too wide: %s", line)
+		}
+		testing.expectf(t, cm.text_width(banner_text(&e)) + 8 <= BANNER.w, "banner too wide in %v", mode)
+		testing.expect(t, HELP_Y + n * cm.LINE_ADVANCE <= cm.SCREEN_H)
+	}
+}
+
+@(test)
+test_help_block_clears_the_readouts :: proc(t: ^testing.T) {
+	testing.expect(t, HELP_Y > READOUT_Y + cm.GLYPH_H)
+	testing.expect(t, READOUT_Y > PREVIEW.y + PREVIEW.h)
+	testing.expect(t, HELP_Y > swatch_rect(15).y + CELL) // below the swatch grid
+	testing.expect(t, HELP_Y > LOAD_BUTTON.y + LOAD_BUTTON.h)
+}
