@@ -45,7 +45,7 @@ tool :: proc(e: ^Editor) -> cm.Tool {
 			// go back to the grid rather than keep editing something that may be gone.
 			e.dirty = false
 			e.mode, e.back = .Pick, .Pick
-			e.paint = nil
+			e.paint, e.confirm_delete = nil, false
 			clamp_cursor(e)
 			return true
 		},

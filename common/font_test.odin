@@ -79,3 +79,15 @@ test_font_has_and_drawable :: proc(t: ^testing.T) {
 	testing.expect(t, !text_is_drawable("A; B"))
 	testing.expect(t, text_is_drawable(""))
 }
+
+@(test)
+test_font_has_agrees_with_glyph_for :: proc(t: ^testing.T) {
+	for c in 0 ..< 256 {
+		ch := rune(c)
+		// A character is missing exactly when it draws as the fallback box; '0' is the one real
+		// glyph that happens to look the same.
+		looks_like_fallback := glyph_for(ch) == FALLBACK_GLYPH && ch != '0'
+		testing.expectf(t, font_has(ch) == !looks_like_fallback, "font_has(%d) disagrees with glyph_for", c)
+	}
+	testing.expect(t, font_has('0') && text_is_drawable("CLIP: 10 0"))
+}

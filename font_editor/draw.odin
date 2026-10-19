@@ -21,6 +21,9 @@ label :: proc(e: ^Editor, a: cm.Action) -> string {
 
 // Strings are on the temp allocator: valid until the frontend's next free_all.
 banner_text :: proc(e: ^Editor) -> string {
+	if e.confirm_delete {
+		return fmt.tprintf("DELETE?  %s: CONFIRM", label(e, .Green))
+	}
 	if e.confirm_exit {
 		return fmt.tprintf("UNSAVED  %s: LEAVE ANYWAY", label(e, .Red))
 	}
@@ -44,23 +47,23 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	case .Pick:
 		lines = {
 			move,
-			fmt.tprintf("%s: EDIT GLYPH  %s: SETUP", l(e, .Green), l(e, .Yellow)),
+			fmt.tprintf("%s: EDIT GLYPH  %s: SETUP / COPY / DELETE", l(e, .Green), l(e, .Yellow)),
 			fmt.tprintf("%s: SAVE / LOAD  %s: MAIN MENU", l(e, .Blue), l(e, .Red)),
 			"MOUSE: CLICK A CELL, AGAIN TO EDIT",
 		}
 	case .Edit:
 		lines = {
 			move,
-			fmt.tprintf("%s: TOGGLE PIXEL  %s: SETUP", l(e, .Green), l(e, .Yellow)),
+			fmt.tprintf("%s: TOGGLE PIXEL  %s: SETUP / COPY / DELETE", l(e, .Green), l(e, .Yellow)),
 			fmt.tprintf("%s: SAVE / LOAD  %s: BACK TO GRID", l(e, .Blue), l(e, .Red)),
 			"MOUSE: CLICK OR DRAG TO PAINT",
 		}
 	case .Setup:
 		lines = {
-			fmt.tprintf("%s/%s: CHOOSE SETTING", l(e, .Up), l(e, .Down)),
+			fmt.tprintf("%s/%s: CHOOSE SETTING OR ACTION", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s/%s: CHANGE VALUE", l(e, .Left), l(e, .Right)),
+			fmt.tprintf("%s: RUN COPY / PASTE / DELETE", l(e, .Green)),
 			fmt.tprintf("%s: DONE  %s: SAVE / LOAD", l(e, .Red), l(e, .Blue)),
-			"MOUSE: - + AND YES/NO BUTTONS",
 		}
 	case .File:
 		lines = {fmt.tprintf("%s: SAVE  %s: LOAD", l(e, .Green), l(e, .Yellow)), fmt.tprintf("%s: CANCEL", l(e, .Red)), "", ""}
@@ -171,8 +174,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	}
 
 	// Banner and the selected character.
-	fill(r, BANNER, e.confirm_exit ? WARN : (e.mode == .Pick ? PANEL : HILITE))
-	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, banner_text(e), (e.confirm_exit || e.mode != .Pick) ? BG : TEXT)
+	warning := e.confirm_exit || e.confirm_delete
+	fill(r, BANNER, warning ? WARN : (e.mode == .Pick ? PANEL : HILITE))
+	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, banner_text(e), (warning || e.mode != .Pick) ? BG : TEXT)
 	cm.draw_text(r, INFO_X, INFO_Y, fmt.tprintf("CODE %d  $%02X  %s%s", e.code, e.code, char_name(e.code), e.dirty ? "  *" : ""), TEXT)
 
 	// Setting rows. The selected one is marked and highlighted while Setup is the active mode.
@@ -222,6 +226,13 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.draw_text(r, COVER_X, COVER_Y + 16, fmt.tprintf("MISSING %d", total - defined), WARN)
 	}
 
+	// Clipboard.
+	if e.has_clip {
+		cm.draw_text(r, COVER_X, CLIP_Y, fmt.tprintf("CLIP: %d %s", e.clip_code, char_name(e.clip_code)), TEXT)
+	} else {
+		cm.draw_text(r, COVER_X, CLIP_Y, "CLIP: NONE", DIM)
+	}
+
 	draw_sample(e, r)
 
 	// Buttons.
@@ -232,6 +243,20 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}, {EDIT_BUTTON, edit_label}, {MENU_BUTTON, "MENU"}}) {
 		fill(r, btn.rc, PANEL)
 		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.txt, TEXT)
+	}
+
+	// Glyph actions: the one the Setup row is on is lit; Paste is dim with nothing to paste, and
+	// Copy and Delete are dim on a character that has no glyph.
+	for btn in ([3]struct {
+			rc:      Rect,
+			txt:     string,
+			row:     Setup_Row,
+			enabled: bool,
+		}{{COPY_BUTTON, "COPY", .Copy, present(e)}, {PASTE_BUTTON, "PASTE", .Paste, e.has_clip}, {DELETE_BUTTON, "DEL", .Delete, present(e)}}) {
+		lit := e.mode == .Setup && e.row == btn.row
+		fill(r, btn.rc, lit ? HILITE : PANEL)
+		text_color := lit ? BG : (btn.enabled ? TEXT : DIM)
+		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + 3, btn.txt, text_color)
 	}
 
 	// Help.

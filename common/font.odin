@@ -64,9 +64,16 @@ glyph_for :: proc(ch: rune) -> Glyph {
 // Drawn for any character the font does not have: a hollow box.
 FALLBACK_GLYPH :: Glyph{0b111, 0b101, 0b101, 0b101, 0b111}
 
-// False if drawing ch would show the fallback box.
+// False if drawing ch would show the fallback box. (Not "glyph differs from the fallback": the
+// digit 0 looks exactly like the fallback box. Keep this list in step with glyph_for; a test checks.)
 font_has :: proc(ch: rune) -> bool {
-	return glyph_for(ch) != FALLBACK_GLYPH
+	switch ch {
+	case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9':
+		return true
+	case ' ', '.', ':', '-', '+', '=', '#', '/', '<', '>', '!', '?', '_', ',', '(', ')', '[', ']', '*':
+		return true
+	}
+	return false
 }
 
 // True if every character of s is in the font. Tools' static text should pass this.

@@ -228,3 +228,92 @@ test_largest_font_round_trips :: proc(t: ^testing.T) {
 	}
 	testing.expectf(t, len(text) < 1_500_000, "worst-case file is %d bytes", len(text)) // fits the web buffers
 }
+
+@(test)
+test_delete_clears_everything :: proc(t: ^testing.T) {
+	f := new_font()
+	defer free(f)
+	pixel_font_set_present(f, 'A', true)
+	pixel_font_set_width(f, 'A', 12)
+	bitmap_set(&f.glyphs['A'], 3, 3, true)
+	bitmap_set(&f.glyphs['A'], 11, 7, true)
+	pixel_font_set_height(f, 4) // pixel (3,3) stays visible, (11,7) row is hidden
+	testing.expect(t, pixel_font_delete(f, 'A'))
+	testing.expect(t, !f.present['A'] && f.glyphs['A'].width == DEFAULT_GLYPH_WIDTH && f.glyphs['A'].height == 4)
+	pixel_font_set_height(f, 8) // growing back finds no hidden pixels either
+	for y in 0 ..< 8 {
+		for x in 0 ..< 64 {
+			testing.expect(t, !f.glyphs['A'].bits[y][x])
+		}
+	}
+	testing.expect(t, !pixel_font_delete(f, 'A')) // nothing left to delete
+	testing.expect(t, !pixel_font_delete(f, 300) && !pixel_font_delete(f, -1))
+	// Hiding (present = no) is different: it keeps the pixels.
+	pixel_font_set_present(f, 'B', true)
+	bitmap_set(&f.glyphs['B'], 1, 1, true)
+	pixel_font_set_present(f, 'B', false)
+	testing.expect(t, f.glyphs['B'].bits[1][1])
+}
+
+@(test)
+test_copy_and_paste_glyphs :: proc(t: ^testing.T) {
+	f := new_font()
+	defer free(f)
+	clip: Bitmap
+	testing.expect(t, !pixel_font_copy_glyph(f, 'A', &clip)) // absent: nothing to copy
+	pixel_font_set_present(f, 'A', true)
+	pixel_font_set_width(f, 'A', 5)
+	bitmap_set(&f.glyphs['A'], 4, 7, true)
+	bitmap_set(&f.glyphs['A'], 0, 0, true)
+	testing.expect(t, pixel_font_copy_glyph(f, 'A', &clip))
+	testing.expect(t, clip.width == 5 && clip.height == 8 && clip.bits[7][4])
+	testing.expect(t, !pixel_font_copy_glyph(f, 256, &clip) && !pixel_font_copy_glyph(f, -1, &clip))
+
+	// Pasting creates the target with the same width and pixels, and does not touch the source.
+	testing.expect(t, pixel_font_paste_glyph(f, 'B', &clip))
+	testing.expect(t, f.present['B'] && f.glyphs['B'].width == 5 && f.glyphs['B'].bits[7][4] && f.glyphs['B'].bits[0][0])
+	testing.expect(t, f.present['A'] && f.glyphs['A'].bits[7][4])
+	// Pasting again changes nothing; editing the copy leaves the original alone.
+	testing.expect(t, !pixel_font_paste_glyph(f, 'B', &clip))
+	bitmap_toggle(&f.glyphs['B'], 4, 7)
+	testing.expect(t, f.glyphs['A'].bits[7][4] && !f.glyphs['B'].bits[7][4])
+	testing.expect(t, pixel_font_paste_glyph(f, 'B', &clip)) // restores: a change
+	// Pasting over a different glyph replaces its width too.
+	pixel_font_set_present(f, 'C', true)
+	pixel_font_set_width(f, 'C', 9)
+	testing.expect(t, pixel_font_paste_glyph(f, 'C', &clip) && f.glyphs['C'].width == 5)
+	testing.expect(t, !pixel_font_paste_glyph(f, 300, &clip))
+}
+
+@(test)
+test_paste_fits_the_clipboard_to_the_current_height :: proc(t: ^testing.T) {
+	f := new_font()
+	defer free(f)
+	pixel_font_set_present(f, 'A', true)
+	bitmap_set(&f.glyphs['A'], 2, 1, true)
+	clip: Bitmap
+	pixel_font_copy_glyph(f, 'A', &clip)
+	pixel_font_set_height(f, 12) // the font grew after the copy
+	testing.expect(t, pixel_font_paste_glyph(f, 'B', &clip))
+	testing.expect(t, f.glyphs['B'].height == 12 && f.glyphs['B'].bits[1][2])
+	pixel_font_set_height(f, 3) // and shrank
+	testing.expect(t, pixel_font_paste_glyph(f, 'C', &clip))
+	testing.expect(t, f.glyphs['C'].height == 3 && f.glyphs['C'].bits[1][2])
+	for c in 0 ..< PIXEL_FONT_CHARS {
+		testing.expect(t, f.glyphs[c].height == f.height)
+	}
+}
+
+@(test)
+test_visible_equal_ignores_hidden_bits :: proc(t: ^testing.T) {
+	a, b := bitmap_make(4, 4), bitmap_make(4, 4)
+	bitmap_set(&a, 1, 1, true)
+	bitmap_set(&b, 1, 1, true)
+	testing.expect(t, bitmap_visible_equal(&a, &b))
+	a.bits[10][10] = true // outside the visible 4 x 4
+	testing.expect(t, bitmap_visible_equal(&a, &b))
+	bitmap_set(&b, 2, 2, true)
+	testing.expect(t, !bitmap_visible_equal(&a, &b))
+	c := bitmap_make(4, 5)
+	testing.expect(t, !bitmap_visible_equal(&a, &c)) // different size
+}

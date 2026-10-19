@@ -2,6 +2,7 @@
 package font_editor
 
 import cm "../common"
+import "core:fmt"
 import "core:testing"
 
 // The editor is about 1 MB: always heap allocated, freed by the test.
@@ -206,9 +207,11 @@ test_setup_row_selection_wraps :: proc(t: ^testing.T) {
 	e := new_editor()
 	defer free(e)
 	press(e, .Yellow, .Up)
-	testing.expect_value(t, e.row, Setup_Row.Present)
+	testing.expect_value(t, e.row, Setup_Row.Delete) // wrapped from the first row
 	press(e, .Down)
 	testing.expect_value(t, e.row, Setup_Row.Width)
+	press(e, .Up, .Up, .Up) // Delete, Paste, Copy
+	testing.expect_value(t, e.row, Setup_Row.Copy)
 }
 
 @(test)
@@ -467,7 +470,7 @@ test_enter_starts_blank_and_loads :: proc(t: ^testing.T) {
 @(test)
 test_layout_fits_and_does_not_overlap :: proc(t: ^testing.T) {
 	grid := Rect{GRID_X - 1, GRID_Y - 1, GRID_SIDE * GRID_PITCH + 1, GRID_SIDE * GRID_PITCH + 1}
-	rects := [?]Rect{grid, BANNER, WIDTH_MINUS, WIDTH_PLUS, HEIGHT_MINUS, HEIGHT_PLUS, PRESENT_BUTTON, GLYPH_FRAME, SAMPLE_FRAME, SAVE_BUTTON, LOAD_BUTTON, EDIT_BUTTON, MENU_BUTTON}
+	rects := [?]Rect{grid, BANNER, WIDTH_MINUS, WIDTH_PLUS, HEIGHT_MINUS, HEIGHT_PLUS, PRESENT_BUTTON, GLYPH_FRAME, SAMPLE_FRAME, SAVE_BUTTON, LOAD_BUTTON, EDIT_BUTTON, MENU_BUTTON, COPY_BUTTON, PASTE_BUTTON, DELETE_BUTTON}
 	for a, i in rects {
 		testing.expectf(t, a.x >= 0 && a.y >= 0 && a.x + a.w <= cm.SCREEN_W && a.y + a.h <= cm.SCREEN_H, "rect %d off screen", i)
 		for b, j in rects {
@@ -485,6 +488,9 @@ test_layout_fits_and_does_not_overlap :: proc(t: ^testing.T) {
 	testing.expect(t, ROW_LABEL_X + cm.text_width("HEIGHT") < HEIGHT_MINUS.x)
 	testing.expect(t, ROW_VALUE_X > HEIGHT_PLUS.x + HEIGHT_PLUS.w && ROW_VALUE_X + cm.text_width("64") <= cm.SCREEN_W)
 	testing.expect(t, ROW_MARKER_X + cm.text_width(">") < ROW_LABEL_X)
+	testing.expect(t, COPY_BUTTON.x > PRESENT_BUTTON.x + PRESENT_BUTTON.w && DELETE_BUTTON.x + DELETE_BUTTON.w <= cm.SCREEN_W)
+	testing.expect(t, cm.text_width("PASTE") < PASTE_BUTTON.w && cm.text_width("COPY") < COPY_BUTTON.w && cm.text_width("DEL") < DELETE_BUTTON.w)
+	testing.expect(t, COVER_X + cm.text_width("CLIP: 255 W") <= cm.SCREEN_W && CLIP_Y + cm.GLYPH_H < GLYPH_FRAME.y + GLYPH_FRAME.h)
 	testing.expect(t, COVER_X > GLYPH_FRAME.x + GLYPH_FRAME.w && COVER_X + cm.text_width("DEFINED 96/96") <= cm.SCREEN_W)
 	testing.expect(t, INFO_Y > BANNER.y + BANNER.h && SAMPLE_FRAME.y + SAMPLE_FRAME.h <= SAVE_BUTTON.y)
 	testing.expect(t, HELP_Y >= SAVE_BUTTON.y + SAVE_BUTTON.h)
@@ -832,4 +838,272 @@ test_loading_returns_to_the_grid :: proc(t: ^testing.T) {
 	testing.expect(t, tl.load(tl.data, transmute([]u8)cm.pixel_font_to_json(&blank.font)))
 	testing.expect(t, e.mode == .Pick && e.back == .Pick && !e.font.present[0])
 	testing.expect(t, !showing_canvas(e))
+}
+
+// --- Delete, copy and paste ---
+
+// Opens Setup and moves to a row from wherever the editor is (always starts Width -> row).
+goto_row :: proc(e: ^Editor, row: Setup_Row) {
+	press(e, .Yellow)
+	for e.row != row {
+		press(e, .Down)
+	}
+}
+
+@(test)
+test_delete_needs_two_greens_and_removes_the_glyph_for_good :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	goto_code(e, 'A')
+	press(e, .Green, .Green, .Red) // create A, draw a pixel, back to the grid
+	editor_mark_saved(e)
+	goto_row(e, .Delete)
+	press(e, .Green)
+	testing.expect(t, e.confirm_delete && e.font.present['A'] && !e.dirty) // armed only
+	testing.expect_value(t, banner_text(e), "DELETE?  GREEN: CONFIRM")
+	press(e, .Green)
+	testing.expect(t, !e.confirm_delete && !e.font.present['A'] && e.dirty)
+	testing.expect(t, !e.font.glyphs['A'].bits[0][0]) // pixels gone, not just hidden
+	testing.expect_value(t, e.font.glyphs['A'].width, 8)
+	// Making it present again gives a blank glyph (unlike the Present row, which keeps pixels).
+	press(e, .Up, .Up, .Up, .Right) // Present row (Delete -> Paste -> Copy -> Present), yes
+	testing.expect(t, e.font.present['A'] && !e.font.glyphs['A'].bits[0][0])
+}
+
+@(test)
+test_anything_else_cancels_a_pending_delete :: proc(t: ^testing.T) {
+	e := new_editor()
+	defer free(e)
+	cm.pixel_font_set_present(&e.font, 0, true)
+	goto_row(e, .Delete)
+	for other in ([]cm.Action{.Up, .Down, .Left, .Right, .Red, .Blue, .Yellow}) {
+		press(e, .Green)
+		testing.expect(t, e.confirm_delete)
+		press(e, other)
+		testing.expectf(t, !e.confirm_delete, "%v did not cancel", other)
+		testing.expect(t, e.font.present[0])
+		e.mode, e.row = .Setup, .Delete // put it back for the next round
+	}
+}
+
+@(test)
+test_delete_of_a_missing_glyph_does_nothing :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	goto_row(e, .Delete)
+	press(e, .Green, .Green)
+	testing.expect(t, !e.confirm_delete && !e.dirty)
+	testing.expect(t, cm.text_is_drawable(banner_text(e)))
+}
+
+@(test)
+test_delete_while_editing_falls_back_to_the_grid :: proc(t: ^testing.T) {
+	e := new_editor()
+	defer free(e)
+	press(e, .Green, .Yellow) // edit char 0; Setup opened from Edit
+	for e.row != .Delete {
+		press(e, .Down)
+	}
+	press(e, .Green, .Green)
+	testing.expect(t, !e.font.present[0] && !showing_canvas(e)) // canvas hidden: nothing left to edit
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Pick)
+}
+
+@(test)
+test_delete_does_not_touch_other_glyphs :: proc(t: ^testing.T) {
+	e := new_editor()
+	defer free(e)
+	for c in ([]int{64, 65, 66}) {
+		cm.pixel_font_set_present(&e.font, c, true)
+		cm.bitmap_set(&e.font.glyphs[c], 2, 2, true)
+	}
+	goto_code(e, 65)
+	goto_row(e, .Delete)
+	press(e, .Green, .Green)
+	testing.expect(t, !e.font.present[65] && e.font.present[64] && e.font.present[66])
+	testing.expect(t, e.font.glyphs[64].bits[2][2] && e.font.glyphs[66].bits[2][2])
+}
+
+@(test)
+test_copy_then_paste_makes_a_second_character :: proc(t: ^testing.T) {
+	e := new_editor()
+	defer free(e)
+	cm.pixel_font_set_present(&e.font, 'A', true)
+	cm.pixel_font_set_width(&e.font, 'A', 5)
+	cm.bitmap_set(&e.font.glyphs['A'], 4, 7, true)
+	goto_code(e, 'A')
+	goto_row(e, .Copy)
+	press(e, .Green)
+	testing.expect(t, e.has_clip && e.clip_code == 'A' && !e.dirty) // copying changes nothing
+	press(e, .Red, .Right) // to B
+	goto_row(e, .Paste)
+	press(e, .Green)
+	testing.expect(t, e.font.present['B'] && e.font.glyphs['B'].width == 5 && e.font.glyphs['B'].bits[7][4] && e.dirty)
+	// Stamp it on another character too.
+	press(e, .Red, .Right) // to C
+	press(e, .Yellow, .Green) // Setup is still on the Paste row
+	testing.expect(t, e.font.present['C'] && e.font.glyphs['C'] == e.font.glyphs['B'])
+	testing.expect(t, e.font.present['A']) // the source is untouched
+}
+
+@(test)
+test_paste_with_nothing_copied_and_copy_of_a_missing_glyph :: proc(t: ^testing.T) {
+	e := new_editor()
+	defer free(e)
+	goto_row(e, .Paste)
+	press(e, .Green)
+	testing.expect(t, !e.font.present[0] && !e.dirty)
+	for e.row != .Copy {
+		press(e, .Up)
+	}
+	press(e, .Green) // copy of an absent glyph: nothing happens
+	testing.expect(t, !e.has_clip)
+	// The clipboard survives later edits of the source, and deleting it.
+	cm.pixel_font_set_present(&e.font, 0, true)
+	press(e, .Green)
+	testing.expect(t, e.has_clip)
+	cm.bitmap_set(&e.font.glyphs[0], 1, 1, true)
+	cm.pixel_font_delete(&e.font, 0)
+	e.code = 9
+	goto_row(e, .Paste)
+	press(e, .Green)
+	testing.expect(t, e.font.present[9] && !e.font.glyphs[9].bits[1][1]) // the copy, not the later edit
+}
+
+@(test)
+test_paste_adapts_to_a_height_change :: proc(t: ^testing.T) {
+	e := new_editor()
+	defer free(e)
+	cm.pixel_font_set_present(&e.font, 0, true)
+	goto_row(e, .Copy)
+	press(e, .Green)
+	press(e, .Up, .Up, .Up, .Up) // Height row? (Copy -> Present -> Height): see below
+	e.row = .Height
+	press(e, .Right, .Right) // font is now 10 high
+	e.code = 1
+	e.row = .Paste
+	press(e, .Green)
+	testing.expect(t, e.font.glyphs[1].height == 10 && e.font.height == 10)
+}
+
+@(test)
+test_pasting_the_same_glyph_again_is_not_a_change :: proc(t: ^testing.T) {
+	e := new_editor()
+	defer free(e)
+	cm.pixel_font_set_present(&e.font, 0, true)
+	goto_row(e, .Copy)
+	press(e, .Green)
+	e.code = 1
+	e.row = .Paste
+	press(e, .Green)
+	testing.expect(t, e.dirty)
+	editor_mark_saved(e)
+	press(e, .Green)
+	testing.expect(t, !e.dirty)
+}
+
+@(test)
+test_mouse_copy_paste_delete_buttons :: proc(t: ^testing.T) {
+	e := new_editor()
+	defer free(e)
+	cm.pixel_font_set_present(&e.font, 'A', true)
+	cm.bitmap_set(&e.font.glyphs['A'], 3, 3, true)
+	click_cell(e, 'A')
+	click_rect(e, COPY_BUTTON)
+	testing.expect(t, e.has_clip && e.row == .Copy && e.mode == .Setup)
+	click_cell(e, 'Z')
+	click_rect(e, PASTE_BUTTON)
+	testing.expect(t, e.font.present['Z'] && e.font.glyphs['Z'].bits[3][3] && e.row == .Paste)
+	// Delete needs two clicks; any other click cancels.
+	click_rect(e, DELETE_BUTTON)
+	testing.expect(t, e.confirm_delete && e.font.present['Z'])
+	click_cell(e, 'Z')
+	testing.expect(t, !e.confirm_delete)
+	click_rect(e, DELETE_BUTTON)
+	click_rect(e, DELETE_BUTTON)
+	testing.expect(t, !e.font.present['Z'] && !e.confirm_delete)
+	// Delete of a missing glyph never arms.
+	click_rect(e, DELETE_BUTTON)
+	testing.expect(t, !e.confirm_delete)
+}
+
+@(test)
+test_a_load_cancels_a_pending_delete :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	cm.pixel_font_set_present(&e.font, 0, true)
+	goto_row(e, .Delete)
+	press(e, .Green)
+	testing.expect(t, e.confirm_delete)
+	tl := tool(e)
+	blank := new_editor()
+	defer free(blank)
+	testing.expect(t, tl.load(tl.data, transmute([]u8)cm.pixel_font_to_json(&blank.font)))
+	testing.expect(t, !e.confirm_delete)
+}
+
+@(test)
+test_clipboard_text_is_drawable :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	for code in 0 ..< 256 {
+		text := fmt.tprintf("CLIP: %d %s", code, char_name(code))
+		testing.expectf(t, cm.text_is_drawable(text), "code %d: %q", code, text)
+	}
+	e.confirm_delete = true
+	for mode in Mode {
+		e.mode = mode
+		testing.expect(t, cm.text_is_drawable(banner_text(e)))
+	}
+	// Longest labels keep the delete prompt inside the banner.
+	m := cm.default_input_map()
+	for a in cm.Action {
+		cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
+	}
+	e.labels = &m
+	testing.expect(t, cm.text_width(banner_text(e)) + 8 <= BANNER.w)
+}
+
+@(test)
+test_delete_and_copy_paste_reachable_by_each_input :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		for src in ([]int{0, 65, 200, 255}) {
+			for dst in ([]int{1, 66, 254}) {
+				e := new_editor()
+				cm.pixel_font_set_present(&e.font, src, true)
+				cm.pixel_font_set_width(&e.font, src, 6)
+				cm.bitmap_set(&e.font.glyphs[src], 5, 2, true)
+				switch m {
+				case .Commands:
+					goto_code(e, src)
+					goto_row(e, .Copy)
+					press(e, .Green, .Red)
+					e.code = 0
+					goto_code(e, dst)
+					goto_row(e, .Paste)
+					press(e, .Green)
+					press(e, .Down, .Green, .Green) // Delete row, armed, confirmed
+				case .Mouse:
+					click_cell(e, src)
+					if e.mode == .Edit { 	// character 0 starts selected: the first click edits it
+						click_rect(e, EDIT_BUTTON) // GRID: back to the grid
+					}
+					click_rect(e, COPY_BUTTON)
+					click_cell(e, dst)
+					click_rect(e, PASTE_BUTTON)
+					testing.expect(t, e.font.glyphs[dst].width == 6 && e.font.glyphs[dst].bits[2][5])
+					click_rect(e, DELETE_BUTTON)
+					click_rect(e, DELETE_BUTTON)
+				}
+				ok := !e.font.present[dst] && e.font.present[src]
+				free(e)
+				testing.expectf(t, ok, "%v: copy %d -> %d, delete", m, src, dst)
+			}
+		}
+	}
 }

@@ -50,6 +50,21 @@ bitmap_toggle :: proc(g: ^Bitmap, x, y: int) -> bool {
 	return g.bits[y][x]
 }
 
+// True if both bitmaps have the same size and the same visible pixels (hidden bits are ignored).
+bitmap_visible_equal :: proc(a, b: ^Bitmap) -> bool {
+	if a.width != b.width || a.height != b.height {
+		return false
+	}
+	for y in 0 ..< a.height {
+		for x in 0 ..< a.width {
+			if a.bits[y][x] != b.bits[y][x] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // Sizes are clamped to BITMAP_MIN..BITMAP_MAX. Returns true if the size changed.
 bitmap_resize :: proc(g: ^Bitmap, width, height: int) -> bool {
 	w, h := clamp(width, BITMAP_MIN, BITMAP_MAX), clamp(height, BITMAP_MIN, BITMAP_MAX)

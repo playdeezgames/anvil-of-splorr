@@ -36,11 +36,17 @@ HEIGHT_MINUS :: Rect{186, 40, 12, 10}
 HEIGHT_PLUS :: Rect{200, 40, 12, 10}
 PRESENT_BUTTON :: Rect{186, 52, 32, 10}
 
+// Glyph actions, on the same line as PRESENT: copy this glyph, paste the copy here, delete this glyph.
+COPY_BUTTON :: Rect{222, 52, 28, 10}
+PASTE_BUTTON :: Rect{252, 52, 32, 10}
+DELETE_BUTTON :: Rect{286, 52, 28, 10}
+
 // The selected glyph, scaled to fit, and how much of the printable range (32..127) is covered.
 GLYPH_FRAME :: Rect{156, 66, 48, 48}
 GLYPH_INNER :: Rect{157, 67, 46, 46}
 COVER_X :: 210
-COVER_Y :: 68
+COVER_Y :: 68 // three coverage lines, then the clipboard line at COVER_Y + 24
+CLIP_Y :: COVER_Y + 24
 
 // Sample text in the font being edited.
 SAMPLE_FRAME :: Rect{156, 116, 160, 23}

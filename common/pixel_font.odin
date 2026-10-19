@@ -73,6 +73,45 @@ pixel_font_set_width :: proc(f: ^Pixel_Font, code, width: int) -> bool {
 	return g != nil && bitmap_resize(g, width, f.height)
 }
 
+// Removes a glyph for good: not present, every pixel cleared (including hidden ones) and the width
+// back to the default. Unlike pixel_font_set_present(false), nothing is kept. Returns true if
+// the glyph was present.
+pixel_font_delete :: proc(f: ^Pixel_Font, code: int) -> bool {
+	g := pixel_font_glyph(f, code)
+	if g == nil {
+		return false
+	}
+	was := f.present[code]
+	g^ = {}
+	g.width, g.height = DEFAULT_GLYPH_WIDTH, f.height
+	f.present[code] = false
+	return was
+}
+
+// Copies a present glyph into dst. Returns false (leaving dst alone) if there is no such glyph.
+pixel_font_copy_glyph :: proc(f: ^Pixel_Font, code: int, dst: ^Bitmap) -> bool {
+	if code < 0 || code >= PIXEL_FONT_CHARS || !f.present[code] {
+		return false
+	}
+	dst^ = f.glyphs[code]
+	return true
+}
+
+// Makes `code` a copy of src (creating it if absent). src may come from a time when the font was
+// a different height: it is fitted to the current height first. Returns true if anything visible
+// changed (presence, width or pixels).
+pixel_font_paste_glyph :: proc(f: ^Pixel_Font, code: int, src: ^Bitmap) -> bool {
+	if code < 0 || code >= PIXEL_FONT_CHARS {
+		return false
+	}
+	fitted := src^
+	bitmap_resize(&fitted, fitted.width, f.height)
+	changed := !f.present[code] || !bitmap_visible_equal(&f.glyphs[code], &fitted)
+	f.glyphs[code] = fitted
+	f.present[code] = true
+	return changed
+}
+
 // How many of the printable characters (32..127) are defined, out of PRINTABLE_COUNT.
 pixel_font_coverage :: proc(f: ^Pixel_Font) -> (defined, total: int) {
 	for c in PRINTABLE_FIRST ..= PRINTABLE_LAST {

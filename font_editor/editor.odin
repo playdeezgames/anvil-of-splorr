@@ -14,8 +14,10 @@ Request :: enum {
 //          File; red leaves for the main menu (twice if there are unsaved changes).
 //   Edit:  the pixel canvas for one glyph. D-pad moves the cursor; green toggles the pixel; yellow
 //          opens Setup; blue opens File; red returns to the grid.
-//   Setup: up/down choose a setting (this glyph's width, the font's height, whether this glyph is
-//          present), left/right change it; blue opens File; red returns to where it was opened.
+//   Setup: up/down choose a row, left/right change it (this glyph's width, the font's height,
+//          whether this glyph is present); green runs the action rows: Copy (remember this glyph),
+//          Paste (make this character a copy of the remembered one) and Delete (remove this glyph
+//          for good; green twice). Blue opens File; red returns to where it was opened.
 //   File:  green saves, yellow loads, red or blue cancel; every choice returns to where it was opened.
 // The mouse works in all modes and switches mode itself (click a grid cell to select it and again
 // to edit; paint on the canvas; - and + buttons; the YES/NO button; SAVE, LOAD, EDIT/GRID, MENU).
@@ -30,6 +32,9 @@ Setup_Row :: enum {
 	Width,
 	Height,
 	Present,
+	Copy,
+	Paste,
+	Delete,
 }
 
 // State for the font editor. About 1 MB because of the font: create it as a global or with new(),
@@ -46,6 +51,10 @@ Editor :: struct {
 	exit_requested: bool,
 	confirm_exit:   bool, // unsaved changes: the next exit request is the confirmation
 	paint:          Maybe(bool), // mouse drag in progress: the value being painted
+	clipboard:      cm.Bitmap, // the last copied glyph (when has_clip)
+	has_clip:       bool,
+	clip_code:      int, // which character it was copied from, for display
+	confirm_delete: bool, // Delete was run once: the next Delete is the confirmation
 	labels:         ^cm.Input_Map,
 }
 
@@ -136,8 +145,58 @@ change_setting :: proc(e: ^Editor, row: Setup_Row, delta: int) {
 		if cm.pixel_font_set_present(&e.font, e.code, delta > 0) {
 			e.dirty = true
 		}
+	case .Copy, .Paste, .Delete:
+		// Actions, not values: green runs them.
 	}
 	clamp_cursor(e)
+}
+
+// Remembers the selected glyph. Only glyphs that exist can be copied.
+@(private = "file")
+copy_selected :: proc(e: ^Editor) {
+	if cm.pixel_font_copy_glyph(&e.font, e.code, &e.clipboard) {
+		e.has_clip = true
+		e.clip_code = e.code
+	}
+}
+
+// Makes the selected character a copy of the remembered glyph (creating it if absent).
+@(private = "file")
+paste :: proc(e: ^Editor) {
+	if e.has_clip && cm.pixel_font_paste_glyph(&e.font, e.code, &e.clipboard) {
+		e.dirty = true
+		clamp_cursor(e)
+	}
+}
+
+// The first call arms the deletion (the banner asks for confirmation); the next one deletes. A
+// character with no glyph has nothing to delete and is never armed.
+@(private = "file")
+delete_selected :: proc(e: ^Editor) {
+	if !present(e) {
+		e.confirm_delete = false
+		return
+	}
+	if !e.confirm_delete {
+		e.confirm_delete = true
+		return
+	}
+	e.confirm_delete = false
+	cm.pixel_font_delete(&e.font, e.code)
+	e.dirty = true
+	clamp_cursor(e)
+}
+
+@(private = "file")
+run_action_row :: proc(e: ^Editor) {
+	#partial switch e.row {
+	case .Copy:
+		copy_selected(e)
+	case .Paste:
+		paste(e)
+	case .Delete:
+		delete_selected(e)
+	}
 }
 
 @(private = "file")
@@ -174,6 +233,9 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 	if a != .Red {
 		e.confirm_exit = false // any other command cancels the "leave anyway?" prompt
+	}
+	if !(e.mode == .Setup && e.row == .Delete && a == .Green) {
+		e.confirm_delete = false // so does anything but running Delete again
 	}
 	switch e.mode {
 	case .Pick:
@@ -226,6 +288,8 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 			change_setting(e, e.row, -1)
 		case .Right:
 			change_setting(e, e.row, 1)
+		case .Green:
+			run_action_row(e)
 		case .Blue:
 			e.mode = .File
 		case .Red:
@@ -271,6 +335,9 @@ click :: proc(e: ^Editor, x, y: int) {
 	if !rect_contains(MENU_BUTTON, x, y) {
 		e.confirm_exit = false
 	}
+	if !rect_contains(DELETE_BUTTON, x, y) {
+		e.confirm_delete = false
+	}
 	// The same ± buttons work from any mode; they open Setup on the row they change.
 	setting :: proc(e: ^Editor, row: Setup_Row, delta: int) {
 		open_side_mode(e, .Setup)
@@ -307,6 +374,18 @@ click :: proc(e: ^Editor, x, y: int) {
 		setting(e, .Height, 1)
 	case rect_contains(PRESENT_BUTTON, x, y):
 		setting(e, .Present, present(e) ? -1 : 1) // toggles
+	case rect_contains(COPY_BUTTON, x, y):
+		open_side_mode(e, .Setup)
+		e.row = .Copy
+		copy_selected(e)
+	case rect_contains(PASTE_BUTTON, x, y):
+		open_side_mode(e, .Setup)
+		e.row = .Paste
+		paste(e)
+	case rect_contains(DELETE_BUTTON, x, y):
+		open_side_mode(e, .Setup)
+		e.row = .Delete
+		delete_selected(e) // a second click confirms
 	case rect_contains(EDIT_BUTTON, x, y):
 		if e.mode == .Edit {
 			e.mode = .Pick
