@@ -54,12 +54,14 @@ editor_mark_saved :: proc(e: ^Editor) {
 	e.dirty = false
 }
 
-// Called each time the tool becomes the active one: start clean and load the saved palette.
+// Called each time the tool becomes the active one: start from the default palette (so unsaved
+// edits do not survive leaving) and ask the frontend to load the saved file over it.
 editor_enter :: proc(e: ^Editor) {
-	e.mode = .Browse
-	e.exit_requested, e.confirm_exit = false, false
-	e.drag = nil
-	e.requests += {.Load}
+	e^ = Editor {
+		palette  = cm.default_palette(),
+		labels   = e.labels,
+		requests = {.Load},
+	}
 }
 
 editor_set_palette :: proc(e: ^Editor, p: cm.Palette) {

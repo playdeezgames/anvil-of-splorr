@@ -607,10 +607,14 @@ test_enter_starts_clean_and_loads :: proc(t: ^testing.T) {
 	e.mode = .Edit
 	e.confirm_exit = true
 	e.exit_requested = true
+	e.palette[4] = {1, 2, 3} // an unsaved edit from the previous visit
+	e.dirty = true
+	e.selected = 7
 	tl := tool(&e)
 	tl.enter(tl.data)
 	testing.expect_value(t, e.mode, Mode.Browse)
 	testing.expect(t, !e.confirm_exit && !e.exit_requested)
+	testing.expect(t, e.palette == cm.default_palette() && !e.dirty && e.selected == 0) // unsaved edits are dropped
 	testing.expect(t, e.requests == {.Load}) // loads the saved palette each time it opens
 	testing.expect(t, tl.wants_load(tl.data) && !tl.wants_load(tl.data))
 }
