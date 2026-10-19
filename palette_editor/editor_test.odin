@@ -199,6 +199,7 @@ test_layout_fits_screen :: proc(t: ^testing.T) {
 	for ch in cm.Channel {
 		check(t, slider_rect(ch))
 	}
+	check(t, BANNER)
 	check(t, PREVIEW)
 	check(t, SAVE_BUTTON)
 	check(t, LOAD_BUTTON)

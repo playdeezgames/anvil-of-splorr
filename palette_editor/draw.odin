@@ -36,6 +36,11 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		fill(r, rc, e.palette[i])
 	}
 
+	// Mode banner: a bright bar while editing, a quiet one while browsing.
+	editing := e.mode == .Edit
+	fill(r, Rect{BANNER.x, BANNER.y, BANNER.w, BANNER.h}, editing ? HILITE : PANEL)
+	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, editing ? "EDITING   RED: DONE" : "BROWSING   GREEN: EDIT", editing ? BG : TEXT)
+
 	// Channel sliders.
 	cur := e.palette[e.selected]
 	for ch in cm.Channel {
