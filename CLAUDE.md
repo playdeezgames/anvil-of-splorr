@@ -4,12 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status and commands
 
-Only the platform-independent `common/` package exists so far (palette model, `Renderer` interface, built-in 3x5 font). No frontends or palette-editor logic yet. `BACKLOG.md` lists deliberately deferred features (undo, copy/paste, import/export); don't build them unasked.
+Platform-independent code only; no frontends yet.
+
+- `common/`: palette model, `Renderer` interface (frontends implement `clear`/`fill_rect`/`present` on a 320x180 logical surface), built-in 3x5 font, and input (`Input_Event` union plus `key_to_action`/`pad_to_action`, the single place keyboard and gamepad bindings live).
+- `palette_editor/`: `Editor` state, `editor_handle_event`, `editor_draw`, and `layout.odin` (rects shared by drawing and mouse hit-testing). File IO is not done here: the editor sets `requests` (Save/Load) and `quit` for the frontend to service, then the frontend calls `editor_set_palette`/`editor_mark_saved`.
+
+A frontend's whole job: convert native events to `Input_Event` (pointer coords in logical pixels), call `editor_handle_event`/`editor_draw`, and service requests. Gamepad quit is the Guide button; Select_R/G/B are keyboard-only (gamepad cycles channels). A test asserts every action has a keyboard binding and every other action a gamepad binding; mouse covers all but quit, which is the window close.
+
+`BACKLOG.md` lists deliberately deferred features (undo, copy/paste, import/export); don't build them unasked.
 
 ```bash
-./build.sh check   # odin check common
-./build.sh test    # odin test common (default target)
-odin test common -define:ODIN_TEST_NAMES=common.test_bytes_round_trip   # single test
+./build.sh check   # odin check common and palette_editor
+./build.sh test    # odin test both packages (default target)
+odin test palette_editor -define:ODIN_TEST_NAMES=palette_editor.test_wheel   # single test
 ```
 
 SDL2 dev headers and libs are installed, so `vendor:sdl2` will link. `build.sh` gains `native`/`web` targets when those frontends are written.
