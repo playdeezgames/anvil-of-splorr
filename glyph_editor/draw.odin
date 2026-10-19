@@ -63,49 +63,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.renderer_fill_rect(r, rc.x, rc.y, rc.w, rc.h, c)
 	}
 	b := &e.bitmap
-	c := cell_size(b.width, b.height)
 
-	// Canvas: clear pixels, then set pixels. With cells of 3+ pixels each gets a 1 px gap so the
-	// grid shows; smaller cells are merged into horizontal runs.
-	fill(r, Rect{CANVAS.x, CANVAS.y, b.width * c, b.height * c}, OFF)
-	gap := c >= 3 ? 1 : 0
-	for y in 0 ..< b.height {
-		x := 0
-		for x < b.width {
-			if !b.bits[y][x] {
-				x += 1
-				continue
-			}
-			if gap == 1 {
-				cr := cell_rect(b.width, b.height, x, y)
-				fill(r, Rect{cr.x, cr.y, c - 1, c - 1}, ON)
-				x += 1
-			} else {
-				start := x
-				for x < b.width && b.bits[y][x] {
-					x += 1
-				}
-				cr := cell_rect(b.width, b.height, start, y)
-				fill(r, Rect{cr.x, cr.y, (x - start) * c, c}, ON)
-			}
-		}
-	}
-	if gap == 1 { 	// grid lines on the clear pixels' gaps
-		for x in 1 ..< b.width {
-			fill(r, Rect{CANVAS.x + x * c - 1, CANVAS.y, 1, b.height * c}, BG)
-		}
-		for y in 1 ..< b.height {
-			fill(r, Rect{CANVAS.x, CANVAS.y + y * c - 1, b.width * c, 1}, BG)
-		}
-	}
-
-	// Cursor: a 1 px outline just outside its cell, so it shows on any pixel colour.
-	cr := cell_rect(b.width, b.height, e.cx, e.cy)
-	cc := e.mode == .Draw ? HILITE : DIM
-	fill(r, Rect{cr.x - 1, cr.y - 1, cr.w + 2, 1}, cc)
-	fill(r, Rect{cr.x - 1, cr.y + cr.h, cr.w + 2, 1}, cc)
-	fill(r, Rect{cr.x - 1, cr.y, 1, cr.h}, cc)
-	fill(r, Rect{cr.x + cr.w, cr.y, 1, cr.h}, cc)
+	// Canvas and cursor (the cursor is dimmed while a setup or file mode is active).
+	cm.canvas_draw(r, CANVAS, b, e.cx, e.cy, {on = ON, off = OFF, grid = BG, cursor = e.mode == .Draw ? HILITE : DIM})
 
 	// Banner.
 	fill(r, BANNER, e.confirm_exit ? WARN : (e.mode == .Draw ? PANEL : HILITE))

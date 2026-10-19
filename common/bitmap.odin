@@ -60,6 +60,46 @@ bitmap_resize :: proc(g: ^Bitmap, width, height: int) -> bool {
 	return true
 }
 
+// Rows are written as JSON strings, '#' for a set pixel and '.' for a clear one, one per line at
+// `indent`, comma separated, with no trailing newline after the last row.
+bitmap_write_rows :: proc(b: ^strings.Builder, g: ^Bitmap, indent: string) {
+	for y in 0 ..< g.height {
+		strings.write_string(b, indent)
+		strings.write_byte(b, '"')
+		for x in 0 ..< g.width {
+			strings.write_byte(b, g.bits[y][x] ? '#' : '.')
+		}
+		strings.write_string(b, y + 1 < g.height ? "\",\n" : "\"")
+	}
+}
+
+// Fills g (already sized width x height, cleared) from JSON rows. Returns an error message, or "".
+// Error text is on the temp allocator.
+bitmap_read_rows :: proc(g: ^Bitmap, rows: json.Array, width, height: int) -> string {
+	if len(rows) != height {
+		return fmt.tprintf(`"rows" has %d entries but the height is %d`, len(rows), height)
+	}
+	for row, y in rows {
+		text, is_str := row.(json.String)
+		if !is_str {
+			return fmt.tprintf("row %d is not a string", y)
+		}
+		if len(text) != width {
+			return fmt.tprintf("row %d has %d characters but the width is %d", y, len(text), width)
+		}
+		for i in 0 ..< len(text) {
+			switch text[i] {
+			case '#':
+				g.bits[y][i] = true
+			case '.':
+			case:
+				return fmt.tprintf(`row %d: only "#" and "." are allowed`, y)
+			}
+		}
+	}
+	return ""
+}
+
 // File format (JSON), '#' is a set pixel and '.' a clear one, one string per row:
 //   { "width": 3, "height": 2, "rows": [ "#.#", ".#." ] }
 // Loading requires sizes within BITMAP_MIN..BITMAP_MAX and exactly `height` rows of `width`
@@ -67,14 +107,8 @@ bitmap_resize :: proc(g: ^Bitmap, width, height: int) -> bool {
 bitmap_to_json :: proc(g: ^Bitmap, allocator := context.temp_allocator) -> string {
 	b := strings.builder_make(allocator)
 	fmt.sbprintf(&b, "{{\n  \"width\": %d,\n  \"height\": %d,\n  \"rows\": [\n", g.width, g.height)
-	for y in 0 ..< g.height {
-		strings.write_string(&b, "    \"")
-		for x in 0 ..< g.width {
-			strings.write_byte(&b, g.bits[y][x] ? '#' : '.')
-		}
-		strings.write_string(&b, y + 1 < g.height ? "\",\n" : "\"\n")
-	}
-	strings.write_string(&b, "  ]\n}\n")
+	bitmap_write_rows(&b, g, "    ")
+	strings.write_string(&b, "\n  ]\n}\n")
 	return strings.to_string(b)
 }
 
@@ -101,27 +135,9 @@ bitmap_from_json :: proc(data: []u8) -> (g: Bitmap, err: string) {
 	if !rows_ok {
 		return {}, `"rows" must be a list of strings`
 	}
-	if len(rows) != int(h) {
-		return {}, fmt.tprintf(`"rows" has %d entries but "height" is %d`, len(rows), h)
-	}
 	g = bitmap_make(int(w), int(h))
-	for row, y in rows {
-		text, is_str := row.(json.String)
-		if !is_str {
-			return {}, fmt.tprintf("row %d is not a string", y)
-		}
-		if len(text) != int(w) {
-			return {}, fmt.tprintf("row %d has %d characters but \"width\" is %d", y, len(text), w)
-		}
-		for i in 0 ..< len(text) {
-			switch text[i] {
-			case '#':
-				g.bits[y][i] = true
-			case '.':
-			case:
-				return {}, fmt.tprintf(`row %d: only "#" and "." are allowed`, y)
-			}
-		}
+	if e := bitmap_read_rows(&g, rows, int(w), int(h)); e != "" {
+		return {}, e
 	}
 	return g, ""
 }

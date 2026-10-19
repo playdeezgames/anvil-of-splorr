@@ -89,8 +89,10 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	return true
 }
 
-// JS copies a chosen file's bytes into file_buffer (FILE_CAP bytes) and then calls file_loaded(len).
-FILE_CAP :: 4096
+// One static buffer for every file transfer (page-chosen files and browser-storage reads). It is
+// big enough for the largest font file and must stay off the stack. JS copies a chosen file's
+// bytes into file_buffer and then calls file_loaded(len).
+FILE_CAP :: 2 * 1024 * 1024
 file_buf: [FILE_CAP]u8
 
 @(export)
@@ -155,24 +157,24 @@ file_loaded :: proc "c" (n: i32) -> i32 {
 }
 
 restore_from_storage :: proc(name: string) {
-	buf: [FILE_CAP]u8
 	key := name
-	n := storage_get(raw_data(key), i32(len(key)), &buf[0], len(buf))
-	if n < 0 || int(n) > len(buf) {
+	n := storage_get(raw_data(key), i32(len(key)), &file_buf[0], len(file_buf))
+	if n < 0 || int(n) > len(file_buf) {
 		return
 	}
-	tool.load(tool.data, buf[:n])
+	tool.load(tool.data, file_buf[:n])
+	free_all(context.temp_allocator)
 }
 
 // The tool's read-only second file comes from browser storage, where its owner tool saved it.
 restore_aux :: proc(name: string) {
-	buf: [FILE_CAP]u8
 	key := name
-	n := storage_get(raw_data(key), i32(len(key)), &buf[0], len(buf))
-	if n < 0 || int(n) > len(buf) {
+	n := storage_get(raw_data(key), i32(len(key)), &file_buf[0], len(file_buf))
+	if n < 0 || int(n) > len(file_buf) {
 		return
 	}
-	tool.load_aux(tool.data, buf[:n])
+	tool.load_aux(tool.data, file_buf[:n])
+	free_all(context.temp_allocator)
 }
 
 service_files :: proc(name: string) {

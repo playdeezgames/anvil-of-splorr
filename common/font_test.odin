@@ -3,12 +3,12 @@ package common
 
 import "core:testing"
 
-Rect :: struct {
+Drawn_Rect :: struct {
 	x, y, w, h: int,
 }
 
 Recorder :: struct {
-	rects:    [dynamic]Rect,
+	rects:    [dynamic]Drawn_Rect,
 	cleared:  int,
 	presents: int,
 }
@@ -18,7 +18,7 @@ recorder_renderer :: proc(rec: ^Recorder) -> Renderer {
 		data = rec,
 		clear = proc(data: rawptr, c: Color) {(^Recorder)(data).cleared += 1},
 		fill_rect = proc(data: rawptr, x, y, w, h: int, c: Color) {
-			append(&(^Recorder)(data).rects, Rect{x, y, w, h})
+			append(&(^Recorder)(data).rects, Drawn_Rect{x, y, w, h})
 		},
 		present = proc(data: rawptr) {(^Recorder)(data).presents += 1},
 	}
@@ -46,7 +46,7 @@ test_draw_text_merges_runs :: proc(t: ^testing.T) {
 	// '-' is a single 3-wide row at y offset 2.
 	draw_text(&r, 10, 20, "-", {255, 255, 255}, 2)
 	testing.expect_value(t, len(rec.rects), 1)
-	testing.expect(t, rec.rects[0] == Rect{10, 24, 6, 2})
+	testing.expect(t, rec.rects[0] == Drawn_Rect{10, 24, 6, 2})
 }
 
 @(test)
@@ -57,8 +57,8 @@ test_draw_text_advances_per_glyph :: proc(t: ^testing.T) {
 	draw_text(&r, 0, 0, "..", {1, 2, 3})
 	// '.' is a single pixel at column 1, row 4; the second glyph is shifted by GLYPH_ADVANCE.
 	testing.expect_value(t, len(rec.rects), 2)
-	testing.expect(t, rec.rects[0] == Rect{1, 4, 1, 1})
-	testing.expect(t, rec.rects[1] == Rect{1 + GLYPH_ADVANCE, 4, 1, 1})
+	testing.expect(t, rec.rects[0] == Drawn_Rect{1, 4, 1, 1})
+	testing.expect(t, rec.rects[1] == Drawn_Rect{1 + GLYPH_ADVANCE, 4, 1, 1})
 }
 
 @(test)

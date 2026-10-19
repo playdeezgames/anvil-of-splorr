@@ -2,6 +2,7 @@
 package app
 
 import cm "../../../common"
+import fe "../../../font_editor"
 import ge "../../../glyph_editor"
 import gt "../../../gamepad_tester"
 import launcher "../../../launcher"
@@ -9,17 +10,20 @@ import pe "../../../palette_editor"
 
 editor: pe.Editor
 glyphs: ge.Editor
+fonts: fe.Editor // about 1 MB: a global, initialised in place
 tester: gt.Tester
-entries: [3]launcher.Entry
+entries: [4]launcher.Entry
 menu: launcher.Launcher
 
 make_tool :: proc() -> cm.Tool {
 	editor = pe.editor_init()
 	glyphs = ge.editor_init()
+	fe.editor_init(&fonts)
 	tester = gt.tester_init()
 	entries = {
 		{title = "PALETTE EDITOR", tool = pe.tool(&editor)},
 		{title = "GLYPH EDITOR", tool = ge.tool(&glyphs)},
+		{title = "FONT EDITOR", tool = fe.tool(&fonts)},
 		{title = "GAMEPAD TESTER", tool = gt.tool(&tester)},
 	}
 	menu = launcher.launcher_init("ANVIL OF SPLORR!!", entries[:])
