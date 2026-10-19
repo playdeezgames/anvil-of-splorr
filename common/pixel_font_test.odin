@@ -384,22 +384,19 @@ test_builtin_font_converts_faithfully :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_the_committed_default_font_file_is_in_step_with_the_builtin_font :: proc(t: ^testing.T) {
+test_the_committed_default_font_file_is_a_valid_font :: proc(t: ^testing.T) {
+	// default-font.json is hand drawn and the user's to edit, so it only has to be a valid font
+	// file (it is no longer generated from the built-in font).
 	defer free_all(context.temp_allocator)
-	f := new_font()
-	defer free(f)
-	pixel_font_load_builtin(f)
-	want := pixel_font_to_json(f)
-	have := string(#load("../default-font.json"))
-	testing.expectf(t, have == want, "default-font.json is out of date: run ./build.sh default-font")
-	// And it is a valid font file that loads back to the same thing.
 	loaded := new(Pixel_Font)
 	defer free(loaded)
-	testing.expect_value(t, pixel_font_from_json(transmute([]u8)have, loaded), "")
-	testing.expect(t, loaded.present == f.present && loaded.height == f.height)
-	for code in 0 ..< PIXEL_FONT_CHARS {
-		if f.present[code] {
-			testing.expect(t, loaded.glyphs[code] == f.glyphs[code])
+	err := pixel_font_from_json(#load("../default-font.json"), loaded)
+	testing.expectf(t, err == "", "default-font.json is invalid: %s", err)
+	if err == "" {
+		defined, total := pixel_font_coverage(loaded)
+		testing.expectf(t, defined > 0 && total == 96, "default-font.json has no printable glyphs (%d/%d)", defined, total)
+		for code in 0 ..< PIXEL_FONT_CHARS {
+			testing.expect(t, loaded.glyphs[code].height == loaded.height) // every glyph shares the font's height
 		}
 	}
 }

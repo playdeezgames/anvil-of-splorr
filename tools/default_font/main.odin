@@ -1,5 +1,5 @@
-// Writes the built-in editor font as a font file: `./build.sh default-font` (output: default-font.json
-// in the repo root). A test in common keeps the committed file in step with the built-in font.
+// Writes the built-in editor font as a font file: `./build.sh builtin-font` (output:
+// build/builtin-font.json). The repo's default-font.json is hand drawn and is never written by this.
 package main
 
 import cm "../../common"
@@ -7,7 +7,7 @@ import "core:fmt"
 import "core:os"
 
 main :: proc() {
-	path := len(os.args) > 1 ? os.args[1] : "default-font.json"
+	path := len(os.args) > 1 ? os.args[1] : "build/builtin-font.json"
 	f := new(cm.Pixel_Font) // about 1 MB: not on the stack
 	cm.pixel_font_load_builtin(f)
 	text := cm.pixel_font_to_json(f, context.allocator)
