@@ -52,7 +52,7 @@ parse :: proc(s: string) -> (Input_Map, string) {
 }
 
 @(test)
-test_json_round_trip_and_committed_file :: proc(t: ^testing.T) {
+test_json_round_trip_and_committed_file_is_valid :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	m := default_input_map()
 	text := input_map_to_json(m)
@@ -60,10 +60,9 @@ test_json_round_trip_and_committed_file :: proc(t: ^testing.T) {
 	testing.expectf(t, err == "", "round trip failed: %s", err)
 	testing.expect(t, got == m)
 
-	// The repo's input_map.json must be valid and equal the defaults it documents.
-	file, ferr := input_map_from_json(#load("../input_map.json"))
-	testing.expectf(t, ferr == "", "input_map.json: %s", ferr)
-	testing.expect(t, file == m)
+	// The repo's input_map.json is user-edited, so it only has to be valid (not equal the defaults).
+	_, ferr := input_map_from_json(#load("../input_map.json"))
+	testing.expectf(t, ferr == "", "input_map.json is invalid: %s", ferr)
 
 	// Unbinding survives a round trip.
 	m.pad[.Blue] = NO_BUTTON
