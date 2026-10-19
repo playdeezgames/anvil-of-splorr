@@ -29,16 +29,3 @@ test_every_key_has_a_code :: proc(t: ^testing.T) {
 		}
 	}
 }
-
-@(test)
-test_every_pad_button_reachable :: proc(t: ^testing.T) {
-	seen: bit_set[cm.Pad_Button]
-	for i in 0 ..< 17 {
-		if b, ok := pad_button_for_index(i); ok {
-			seen += {b}
-		}
-	}
-	for b in cm.Pad_Button {
-		testing.expectf(t, b in seen, "no standard-mapping index gives %v", b)
-	}
-}

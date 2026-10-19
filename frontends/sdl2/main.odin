@@ -1,13 +1,12 @@
 package main
 
 import cm "../../common"
-import pe "../../palette_editor"
+import app "app:app"
 import "core:fmt"
 import "core:os"
 import sdl "vendor:sdl2"
 
 SCALE :: 4
-DEFAULT_FILE :: "palette.json"
 
 Gamepad :: struct {
 	handle: ^sdl.GameController,
@@ -15,6 +14,7 @@ Gamepad :: struct {
 }
 
 gamepads: [dynamic]Gamepad
+window_closed: bool // the window's close button; separate from the tool's own Quit
 
 main :: proc() {
 	if sdl.Init({.VIDEO, .GAMECONTROLLER}) != 0 {
@@ -24,7 +24,7 @@ main :: proc() {
 	defer sdl.Quit()
 
 	window := sdl.CreateWindow(
-		"Palette Editor",
+		"Asset Tool",
 		sdl.WINDOWPOS_CENTERED,
 		sdl.WINDOWPOS_CENTERED,
 		cm.SCREEN_W * SCALE,
@@ -57,9 +57,15 @@ main :: proc() {
 		sdl.GameControllerClose(g.handle)
 	}
 
-	path := len(os.args) > 1 ? os.args[1] : DEFAULT_FILE
-	editor := pe.editor_init()
-	load(&editor, path, quiet_if_missing = true)
+	tool := app.make_tool()
+	if tool.configure != nil {
+		tool.configure(tool.data, {can_quit = true})
+	}
+	has_files := cm.tool_has_files(&tool)
+	path := len(os.args) > 1 ? os.args[1] : tool.default_file
+	if has_files {
+		load_file(&tool, path, quiet_if_missing = true)
+	}
 
 	r := cm.Renderer {
 		data      = renderer,
@@ -79,33 +85,40 @@ main :: proc() {
 		},
 	}
 
-	shown_dirty := !editor.dirty // forces the first title update
-	for !editor.quit {
+	shown_dirty := !cm.tool_is_dirty(&tool) // forces the first title update
+	pads, prev_pads: cm.Pads
+	for !window_closed && !cm.tool_wants_quit(&tool) {
 		ev: sdl.Event
 		for sdl.PollEvent(&ev) {
-			handle_sdl_event(&editor, &ev)
+			handle_sdl_event(&tool, &ev)
 		}
-		service_requests(&editor, path)
+		poll_pads(&pads)
+		cm.tool_update_pads(&tool, &prev_pads, &pads)
+		if has_files {
+			service_files(&tool, path)
+		}
 
-		pe.editor_draw(&editor, &r)
+		tool.draw(tool.data, &r)
 
-		if editor.dirty != shown_dirty {
-			shown_dirty = editor.dirty
-			title := fmt.ctprintf("Palette Editor - %s%s", path, shown_dirty ? " *" : "")
-			sdl.SetWindowTitle(window, title)
+		if dirty := cm.tool_is_dirty(&tool); dirty != shown_dirty {
+			shown_dirty = dirty
+			sdl.SetWindowTitle(window, fmt.ctprintf("%s - %s%s", tool.title, path, dirty ? " *" : ""))
 		}
 		sdl.Delay(8) // vsync is not guaranteed (software renderer)
 		free_all(context.temp_allocator)
 	}
 }
 
-handle_sdl_event :: proc(editor: ^pe.Editor, ev: ^sdl.Event) {
+handle_sdl_event :: proc(tool: ^cm.Tool, ev: ^sdl.Event) {
+	handle :: proc(tool: ^cm.Tool, e: cm.Input_Event) {
+		tool.handle_event(tool.data, e)
+	}
 	#partial switch ev.type {
 	case .QUIT:
-		editor.quit = true
+		window_closed = true
 	case .KEYDOWN, .KEYUP:
-		pe.editor_handle_event(
-			editor,
+		handle(
+			tool,
 			cm.Key_Event {
 				key = translate_key(ev.key.keysym.scancode),
 				shift = .LSHIFT in ev.key.keysym.mod || .RSHIFT in ev.key.keysym.mod,
@@ -113,7 +126,7 @@ handle_sdl_event :: proc(editor: ^pe.Editor, ev: ^sdl.Event) {
 			},
 		)
 	case .MOUSEMOTION:
-		pe.editor_handle_event(editor, cm.Mouse_Move{int(ev.motion.x), int(ev.motion.y)})
+		handle(tool, cm.Mouse_Move{int(ev.motion.x), int(ev.motion.y)})
 	case .MOUSEBUTTONDOWN, .MOUSEBUTTONUP:
 		btn: cm.Mouse_Button
 		switch ev.button.button {
@@ -126,8 +139,8 @@ handle_sdl_event :: proc(editor: ^pe.Editor, ev: ^sdl.Event) {
 		case:
 			return
 		}
-		pe.editor_handle_event(
-			editor,
+		handle(
+			tool,
 			cm.Mouse_Button_Event {
 				button = btn,
 				x = int(ev.button.x),
@@ -140,11 +153,7 @@ handle_sdl_event :: proc(editor: ^pe.Editor, ev: ^sdl.Event) {
 		if ev.wheel.direction == u32(sdl.MouseWheelDirection.FLIPPED) {
 			dy = -dy
 		}
-		pe.editor_handle_event(editor, cm.Mouse_Wheel{dy})
-	case .CONTROLLERBUTTONDOWN, .CONTROLLERBUTTONUP:
-		if b, ok := translate_pad_button(sdl.GameControllerButton(ev.cbutton.button)); ok {
-			pe.editor_handle_event(editor, cm.Pad_Event{b, ev.type == .CONTROLLERBUTTONDOWN})
-		}
+		handle(tool, cm.Mouse_Wheel{dy})
 	case .CONTROLLERDEVICEADDED:
 		open_gamepad(ev.cdevice.which)
 	case .CONTROLLERDEVICEREMOVED:
@@ -188,36 +197,60 @@ translate_key :: proc(sc: sdl.Scancode) -> cm.Key {
 	return .None
 }
 
-translate_pad_button :: proc(b: sdl.GameControllerButton) -> (cm.Pad_Button, bool) {
-	#partial switch b {
-	case .DPAD_UP:
-		return .Dpad_Up, true
-	case .DPAD_DOWN:
-		return .Dpad_Down, true
-	case .DPAD_LEFT:
-		return .Dpad_Left, true
-	case .DPAD_RIGHT:
-		return .Dpad_Right, true
-	case .A:
-		return .A, true
-	case .B:
-		return .B, true
-	case .X:
-		return .X, true
-	case .Y:
-		return .Y, true
-	case .LEFTSHOULDER:
-		return .Left_Shoulder, true
-	case .RIGHTSHOULDER:
-		return .Right_Shoulder, true
-	case .START:
-		return .Start, true
-	case .BACK:
-		return .Back, true
-	case .GUIDE:
-		return .Guide, true
+// SDL game controller button -> standard-layout index (see common/gamepad.odin).
+STANDARD_INDEX :: [?]struct {
+	button: sdl.GameControllerButton,
+	index:  int,
+} {
+	{.A, 0},
+	{.B, 1},
+	{.X, 2},
+	{.Y, 3},
+	{.LEFTSHOULDER, 4},
+	{.RIGHTSHOULDER, 5},
+	{.BACK, 8},
+	{.START, 9},
+	{.LEFTSTICK, 10},
+	{.RIGHTSTICK, 11},
+	{.DPAD_UP, 12},
+	{.DPAD_DOWN, 13},
+	{.DPAD_LEFT, 14},
+	{.DPAD_RIGHT, 15},
+	{.GUIDE, 16},
+}
+
+axis_value :: proc(g: ^sdl.GameController, axis: sdl.GameControllerAxis) -> f32 {
+	return clamp(f32(sdl.GameControllerGetAxis(g, axis)) / 32767, -1, 1)
+}
+
+// Only game controllers (devices SDL knows a standard layout for) are reported.
+poll_pads :: proc(pads: ^cm.Pads) {
+	pads^ = {}
+	for g, slot in gamepads {
+		if slot >= cm.MAX_PADS {
+			break
+		}
+		p := &pads[slot]
+		p.connected, p.standard = true, true
+		p.button_count, p.axis_count = cm.STANDARD_BUTTON_COUNT, cm.STANDARD_AXIS_COUNT
+		if name := sdl.GameControllerName(g.handle); name != nil {
+			cm.pad_set_name(p, string(name))
+		}
+		for m in STANDARD_INDEX {
+			down := sdl.GameControllerGetButton(g.handle, m.button) != 0
+			p.buttons[m.index] = {down, down ? 1 : 0}
+		}
+		for t, i in ([2]sdl.GameControllerAxis{.TRIGGERLEFT, .TRIGGERRIGHT}) {
+			v := max(axis_value(g.handle, t), 0)
+			p.buttons[6 + i] = {v >= cm.PAD_PRESS_THRESHOLD, v}
+		}
+		p.axes = {
+			0 = axis_value(g.handle, .LEFTX),
+			1 = axis_value(g.handle, .LEFTY),
+			2 = axis_value(g.handle, .RIGHTX),
+			3 = axis_value(g.handle, .RIGHTY),
+		}
 	}
-	return {}, false
 }
 
 open_gamepad :: proc(device_index: i32) {
@@ -248,22 +281,20 @@ close_gamepad :: proc(id: sdl.JoystickID) {
 	}
 }
 
-service_requests :: proc(editor: ^pe.Editor, path: string) {
-	if .Save in editor.requests {
-		text := cm.palette_to_json(editor.palette)
+service_files :: proc(tool: ^cm.Tool, path: string) {
+	if text, ok := tool.take_save(tool.data); ok {
 		if err := os.write_entire_file(path, text); err != nil {
 			fmt.eprintfln("save %s failed: %v", path, err)
 		} else {
-			pe.editor_mark_saved(editor)
+			tool.saved(tool.data)
 		}
 	}
-	if .Load in editor.requests {
-		load(editor, path)
+	if tool.wants_load(tool.data) {
+		load_file(tool, path)
 	}
-	editor.requests = {}
 }
 
-load :: proc(editor: ^pe.Editor, path: string, quiet_if_missing := false) {
+load_file :: proc(tool: ^cm.Tool, path: string, quiet_if_missing := false) {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
 		if !quiet_if_missing {
@@ -272,9 +303,7 @@ load :: proc(editor: ^pe.Editor, path: string, quiet_if_missing := false) {
 		return
 	}
 	defer delete(data)
-	if p, ok := cm.palette_from_json(data); ok {
-		pe.editor_set_palette(editor, p)
-	} else {
-		fmt.eprintfln("load %s failed: not a valid palette JSON file", path)
+	if !tool.load(tool.data, data) {
+		fmt.eprintfln("load %s failed: not a valid file for this tool", path)
 	}
 }

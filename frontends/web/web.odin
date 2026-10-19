@@ -2,7 +2,7 @@
 package main
 
 import cm "../../common"
-import pe "../../palette_editor"
+import app "app:app"
 import "base:runtime"
 import "core:math"
 import "core:sys/wasm/js"
@@ -22,14 +22,14 @@ foreign host {
 	storage_get :: proc(buf: [^]u8, cap: i32) -> i32 ---
 	storage_set :: proc(data: [^]u8, len: i32) ---
 	// Offers data to the user as a file download.
-	download :: proc(data: [^]u8, len: i32) ---
+	download :: proc(data: [^]u8, len: i32, name: [^]u8, name_len: i32) ---
 }
 
 MAX_PADS :: 4
 
 ctx: runtime.Context
-editor: pe.Editor
-pad_down: [MAX_PADS]bit_set[cm.Pad_Button]
+tool: cm.Tool
+pads, prev_pads: cm.Pads
 
 renderer := cm.Renderer {
 	clear     = proc(_: rawptr, c: cm.Color) {canvas_clear(i32(c.r), i32(c.g), i32(c.b))},
@@ -41,10 +41,13 @@ renderer := cm.Renderer {
 
 main :: proc() {
 	ctx = context
-	editor = pe.editor_init()
-	editor.can_quit = false
-
-	restore_from_storage()
+	tool = app.make_tool()
+	if tool.configure != nil {
+		tool.configure(tool.data, {can_quit = false})
+	}
+	if cm.tool_has_files(&tool) {
+		restore_from_storage()
+	}
 
 	js.add_window_event_listener(.Key_Down, nil, on_key_down)
 	js.add_window_event_listener(.Key_Up, nil, on_key_up)
@@ -55,12 +58,21 @@ main :: proc() {
 	js.add_event_listener("canvas", .Wheel, nil, on_wheel)
 }
 
+// The page hides its "open file" button when this is 0.
+@(export)
+tool_has_files :: proc "c" () -> i32 {
+	context = ctx
+	return cm.tool_has_files(&tool) ? 1 : 0
+}
+
 @(export)
 step :: proc(dt: f64, c: runtime.Context) -> bool {
 	context = ctx
 	poll_gamepads()
-	service_requests()
-	pe.editor_draw(&editor, &renderer)
+	if cm.tool_has_files(&tool) {
+		service_files()
+	}
+	tool.draw(tool.data, &renderer)
 	free_all(context.temp_allocator)
 	return true
 }
@@ -74,20 +86,16 @@ file_buffer :: proc "c" () -> rawptr {
 	return &file_buf
 }
 
-// Returns 1 if the file was a valid palette.
+// Returns 1 if the tool accepted the file.
 @(export)
 file_loaded :: proc "c" (n: i32) -> i32 {
 	context = ctx
-	if n < 0 || int(n) > len(file_buf) {
+	if n < 0 || int(n) > len(file_buf) || !cm.tool_has_files(&tool) {
 		return 0
 	}
-	p, ok := cm.palette_from_json(file_buf[:n])
+	ok := tool.load(tool.data, file_buf[:n])
 	free_all(context.temp_allocator)
-	if !ok {
-		return 0
-	}
-	pe.editor_set_palette(&editor, p)
-	return 1
+	return ok ? 1 : 0
 }
 
 restore_from_storage :: proc() {
@@ -96,46 +104,43 @@ restore_from_storage :: proc() {
 	if n < 0 || int(n) > len(buf) {
 		return
 	}
-	if p, ok := cm.palette_from_json(buf[:n]); ok {
-		pe.editor_set_palette(&editor, p)
-	}
+	tool.load(tool.data, buf[:n])
 }
 
-service_requests :: proc() {
-	if .Save in editor.requests {
-		text := cm.palette_to_json(editor.palette)
+service_files :: proc() {
+	if text, ok := tool.take_save(tool.data); ok {
+		name := tool.default_file
 		storage_set(raw_data(text), i32(len(text)))
-		download(raw_data(text), i32(len(text)))
-		pe.editor_mark_saved(&editor)
+		download(raw_data(text), i32(len(text)), raw_data(name), i32(len(name)))
+		tool.saved(tool.data)
 	}
-	if .Load in editor.requests {
+	if tool.wants_load(tool.data) {
 		// Load restores the last save from browser storage; opening a file is the page's button.
 		restore_from_storage()
 	}
-	editor.requests = {}
 }
 
 poll_gamepads :: proc() {
-	for i in 0 ..< MAX_PADS {
+	for i in 0 ..< cm.MAX_PADS {
 		s: js.Gamepad_State
-		if !js.get_gamepad_state(i, &s) || !s.connected || s.mapping != "standard" {
-			pad_down[i] = {}
+		p := &pads[i]
+		p^ = {}
+		if !js.get_gamepad_state(i, &s) || !s.connected {
 			continue
 		}
-		now: bit_set[cm.Pad_Button]
-		for bi in 0 ..< min(s.button_count, 17) {
-			if b, ok := pad_button_for_index(bi); ok && s.buttons[bi].pressed {
-				now += {b}
-			}
+		p.connected = true
+		p.standard = s.mapping == "standard"
+		cm.pad_set_name(p, s.id)
+		p.button_count = min(s.button_count, cm.MAX_PAD_BUTTONS)
+		p.axis_count = min(s.axis_count, cm.MAX_PAD_AXES)
+		for b in 0 ..< p.button_count {
+			p.buttons[b] = {s.buttons[b].pressed, f32(s.buttons[b].value)}
 		}
-		for b in now - pad_down[i] {
-			pe.editor_handle_event(&editor, cm.Pad_Event{b, true})
+		for a in 0 ..< p.axis_count {
+			p.axes[a] = f32(s.axes[a])
 		}
-		for b in pad_down[i] - now {
-			pe.editor_handle_event(&editor, cm.Pad_Event{b, false})
-		}
-		pad_down[i] = now
 	}
+	cm.tool_update_pads(&tool, &prev_pads, &pads)
 }
 
 handle_key :: proc(e: js.Event, down: bool) {
@@ -148,7 +153,7 @@ handle_key :: proc(e: js.Event, down: bool) {
 		return
 	}
 	js.event_prevent_default() // Tab, arrows and Page keys would otherwise move focus / scroll
-	pe.editor_handle_event(&editor, cm.Key_Event{key = k, shift = e.key.shift, down = down})
+	tool.handle_event(tool.data, cm.Key_Event{key = k, shift = e.key.shift, down = down})
 }
 
 on_key_down :: proc(e: js.Event) {handle_key(e, true)}
@@ -168,7 +173,7 @@ to_logical :: proc(e: js.Event) -> (x, y: int) {
 on_mouse_move :: proc(e: js.Event) {
 	context = ctx
 	x, y := to_logical(e)
-	pe.editor_handle_event(&editor, cm.Mouse_Move{x, y})
+	tool.handle_event(tool.data, cm.Mouse_Move{x, y})
 }
 
 mouse_button :: proc(b: i16) -> (cm.Mouse_Button, bool) {
@@ -187,7 +192,7 @@ on_mouse_down :: proc(e: js.Event) {
 	context = ctx
 	if b, ok := mouse_button(e.mouse.button); ok {
 		x, y := to_logical(e)
-		pe.editor_handle_event(&editor, cm.Mouse_Button_Event{b, x, y, true})
+		tool.handle_event(tool.data, cm.Mouse_Button_Event{b, x, y, true})
 	}
 }
 
@@ -195,7 +200,7 @@ on_mouse_up :: proc(e: js.Event) {
 	context = ctx
 	if b, ok := mouse_button(e.mouse.button); ok {
 		x, y := to_logical(e)
-		pe.editor_handle_event(&editor, cm.Mouse_Button_Event{b, x, y, false})
+		tool.handle_event(tool.data, cm.Mouse_Button_Event{b, x, y, false})
 	}
 }
 
@@ -205,6 +210,6 @@ on_wheel :: proc(e: js.Event) {
 	// DOM deltaY > 0 is scroll down; the editor wants up = positive.
 	dy := e.wheel.delta[1]
 	if dy != 0 {
-		pe.editor_handle_event(&editor, cm.Mouse_Wheel{dy < 0 ? 1 : -1})
+		tool.handle_event(tool.data, cm.Mouse_Wheel{dy < 0 ? 1 : -1})
 	}
 }

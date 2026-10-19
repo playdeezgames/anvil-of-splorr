@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Palette Editor</title>
+<title>@TITLE@</title>
 <style>
   :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #1c1c24; color: #c8c8d2; font: 14px system-ui, sans-serif; }
@@ -18,11 +18,11 @@
 </head>
 <body>
 <canvas id="canvas" width="320" height="180"></canvas>
-<div><label>Open palette JSON...<input type="file" id="open" accept=".json,application/json"></label> <span id="msg"></span></div>
+<div><label id="open-label" hidden>Open file...<input type="file" id="open"></label> <span id="msg"></span></div>
 <script src="odin.js"></script>
 <script>
 "use strict";
-const STORAGE_KEY = "anvil-of-splorr.palette";
+const STORAGE_KEY = "anvil-of-splorr.@TOOL@";
 const FILE_CAP = 4096; // must match FILE_CAP in web.odin
 
 const canvasEl = document.getElementById("canvas");
@@ -61,14 +61,14 @@ const imports = {
       const text = new TextDecoder().decode(bytesAt(ptr, len));
       try { localStorage.setItem(STORAGE_KEY, text); } catch (e) { /* storage unavailable */ }
     },
-    download(ptr, len) {
+    download(ptr, len, namePtr, nameLen) {
       const blob = new Blob([bytesAt(ptr, len).slice()], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "palette.json";
+      a.download = new TextDecoder().decode(bytesAt(namePtr, nameLen));
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-      say("Saved: downloaded palette.json and stored in this browser.");
+      say(`Saved: downloaded ${a.download} and stored in this browser.`);
     },
   },
 };
@@ -82,10 +82,16 @@ document.getElementById("open").addEventListener("change", async (ev) => {
   if (!exp || !exp.file_buffer) { say("Editor is not ready yet."); return; }
   if (data.length > FILE_CAP) { say(`${file.name}: too large (${data.length} bytes).`); return; }
   bytesAt(exp.file_buffer(), data.length).set(data);
-  say(exp.file_loaded(data.length) ? `Loaded ${file.name}.` : `${file.name}: not a valid palette.`);
+  say(exp.file_loaded(data.length) ? `Loaded ${file.name}.` : `${file.name}: not a valid file for this tool.`);
 });
 
-odin.runWasm("palette_editor.wasm", null, imports, memory).catch(e => say("Failed to start: " + e));
+odin.runWasm("app.wasm", null, imports, memory)
+  .then(() => {
+    if (memory.exports.tool_has_files && memory.exports.tool_has_files()) {
+      document.getElementById("open-label").hidden = false;
+    }
+  })
+  .catch(e => say("Failed to start: " + e));
 </script>
 </body>
 </html>
