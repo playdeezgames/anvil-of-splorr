@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status and commands
 
-Platform-independent code plus a native SDL2 frontend; the web frontend is not written yet.
+Platform-independent code plus two frontends (native SDL2 and web).
 
 - `common/`: palette model, `Renderer` interface (frontends implement `clear`/`fill_rect`/`present` on a 320x180 logical surface), built-in 3x5 font, and input (`Input_Event` union plus `key_to_action`/`pad_to_action`, the single place keyboard and gamepad bindings live).
 - `frontends/sdl2/main.odin`: native frontend (4x integer-scaled logical surface, SDL game controller API, file IO). Palette file is `argv[1]` or `./palette.pal`.
+- `frontends/web/`: `web.odin` (`#+build js`; listens for DOM events via `core:sys/wasm/js`, polls the Gamepad API in `step`, draws through `canvas_*` imports), `mapping.odin` (browser key code / standard-gamepad index tables, natively testable), `index.html` (2D-canvas shim, `host` imports for storage/download, "Open .pal file" button that feeds `file_loaded`). Save = localStorage + download; Load = restore localStorage (so it works from a gamepad); opening a file is the page button only. Quit is disabled (`Editor.can_quit = false`).
 - `palette_editor/`: `Editor` state, `editor_handle_event`, `editor_draw`, and `layout.odin` (rects shared by drawing and mouse hit-testing). File IO is not done here: the editor sets `requests` (Save/Load) and `quit` for the frontend to service, then the frontend calls `editor_set_palette`/`editor_mark_saved`.
 
 A frontend's whole job: convert native events to `Input_Event` (pointer coords in logical pixels), call `editor_handle_event`/`editor_draw`, and service requests. Gamepad quit is the Guide button; Select_R/G/B are keyboard-only (gamepad cycles channels). A test asserts every action has a keyboard binding and every other action a gamepad binding; mouse covers all but quit, which is the window close.
@@ -19,10 +20,12 @@ A frontend's whole job: convert native events to `Input_Event` (pointer coords i
 ./build.sh test    # odin test both packages (default target)
 ./build.sh native  # build/palette_editor
 ./build.sh run [file.pal]
+./build.sh web     # build/web/ (wasm + odin.js + index.html)
+./build.sh serve [port]   # web + http.server, default :8000
 odin test palette_editor -define:ODIN_TEST_NAMES=palette_editor.test_wheel   # single test
 ```
 
-SDL2 dev headers and libs are installed, so `vendor:sdl2` will link. `build.sh` gains a `web` target when that frontend is written. Unit tests do not cover the SDL2 frontend; to eyeball layout without a window, render `editor_draw` through a software SDL renderer to a BMP.
+SDL2 dev headers and libs are installed, so `vendor:sdl2` will link. `build.sh` gains a `web` target when that frontend is written. Every `*_test.odin` needs `#+build !js` or the wasm build fails on `core:testing`/`core:os`. Unit tests do not cover the SDL2 or JS glue; to eyeball layout without a window, render `editor_draw` through a software SDL renderer to a BMP.
 
 ## What this is
 

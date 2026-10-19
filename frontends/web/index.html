@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Palette Editor</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #1c1c24; color: #c8c8d2; font: 14px system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; overflow: hidden; }
+  /* 16:9 logical surface, scaled to fit with crisp pixels */
+  #canvas { width: min(100vw, calc((100vh - 48px) * 16 / 9)); aspect-ratio: 16 / 9; image-rendering: pixelated; background: #000; touch-action: none; }
+  label { cursor: pointer; padding: 4px 10px; border: 1px solid #40404c; border-radius: 4px; }
+  label:hover, label:focus-within { background: #40404c; }
+  input[type=file] { position: absolute; opacity: 0; width: 0; height: 0; }
+  #msg { min-height: 1.2em; }
+</style>
+</head>
+<body>
+<canvas id="canvas" width="320" height="180"></canvas>
+<div><label>Open .pal file...<input type="file" id="open"></label> <span id="msg"></span></div>
+<script src="odin.js"></script>
+<script>
+"use strict";
+const STORAGE_KEY = "anvil-of-splorr.palette";
+const PALETTE_BYTES = 48;
+
+const canvasEl = document.getElementById("canvas");
+const g = canvasEl.getContext("2d");
+const msgEl = document.getElementById("msg");
+const memory = new odin.WasmMemoryInterface();
+
+function say(text) { msgEl.textContent = text; }
+
+const bytesAt = (ptr, len) => new Uint8Array(memory.memory.buffer, ptr, len);
+
+const imports = {
+  canvas: {
+    canvas_clear(r, gr, b) {
+      g.fillStyle = `rgb(${r},${gr},${b})`;
+      g.fillRect(0, 0, canvasEl.width, canvasEl.height);
+    },
+    canvas_fill_rect(x, y, w, h, r, gr, b) {
+      g.fillStyle = `rgb(${r},${gr},${b})`;
+      g.fillRect(x, y, w, h);
+    },
+  },
+  host: {
+    // Palette is stored as a hex string; returns byte length or -1.
+    storage_get(ptr, cap) {
+      try {
+        const hex = localStorage.getItem(STORAGE_KEY);
+        if (!hex || hex.length % 2) return -1;
+        const n = hex.length / 2;
+        if (n > cap) return n; // too big: Odin rejects by length
+        const out = bytesAt(ptr, n);
+        for (let i = 0; i < n; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+        return n;
+      } catch (e) { return -1; }
+    },
+    storage_set(ptr, len) {
+      const hex = Array.from(bytesAt(ptr, len), b => b.toString(16).padStart(2, "0")).join("");
+      try { localStorage.setItem(STORAGE_KEY, hex); } catch (e) { /* storage unavailable */ }
+    },
+    download(ptr, len) {
+      const blob = new Blob([bytesAt(ptr, len).slice()], { type: "application/octet-stream" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "palette.pal";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      say("Saved: downloaded palette.pal and stored in this browser.");
+    },
+  },
+};
+
+document.getElementById("open").addEventListener("change", async (ev) => {
+  const file = ev.target.files[0];
+  ev.target.value = "";
+  if (!file) return;
+  const data = new Uint8Array(await file.arrayBuffer());
+  const exp = memory.exports;
+  if (!exp || !exp.file_buffer) { say("Editor is not ready yet."); return; }
+  if (data.length !== PALETTE_BYTES) { say(`${file.name}: expected ${PALETTE_BYTES} bytes, got ${data.length}.`); return; }
+  bytesAt(exp.file_buffer(), PALETTE_BYTES).set(data);
+  say(exp.file_loaded(PALETTE_BYTES) ? `Loaded ${file.name}.` : `${file.name}: not a valid palette.`);
+});
+
+odin.runWasm("palette_editor.wasm", null, imports, memory).catch(e => say("Failed to start: " + e));
+</script>
+</body>
+</html>

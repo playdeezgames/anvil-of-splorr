@@ -1,3 +1,4 @@
+#+build !js
 package palette_editor
 
 import cm "../common"
@@ -64,6 +65,11 @@ test_requests_and_quit :: proc(t: ^testing.T) {
 	testing.expect(t, !e.quit)
 	editor_handle_event(&e, key(.Escape))
 	testing.expect(t, e.quit)
+
+	e = editor_init()
+	e.can_quit = false
+	editor_handle_event(&e, key(.Escape))
+	testing.expect(t, !e.quit)
 }
 
 @(test)

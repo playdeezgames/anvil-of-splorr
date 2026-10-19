@@ -20,12 +20,13 @@ Editor :: struct {
 	dirty:    bool, // palette changed since the last save/load
 	requests: bit_set[Request],
 	quit:     bool,
+	can_quit: bool, // false on platforms with no way to exit (web); Quit is then ignored and not advertised
 	mouse:    [2]int,
 	drag:     Maybe(cm.Channel), // slider currently being dragged with the mouse
 }
 
 editor_init :: proc() -> Editor {
-	return Editor{palette = cm.default_palette()}
+	return Editor{palette = cm.default_palette(), can_quit = true}
 }
 
 // Frontend calls these after servicing a Request.
@@ -107,7 +108,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 	case .Load:
 		e.requests += {.Load}
 	case .Quit:
-		e.quit = true
+		e.quit = e.can_quit
 	}
 	e.selected = row * GRID_COLS + col
 }

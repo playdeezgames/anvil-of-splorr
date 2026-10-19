@@ -86,7 +86,8 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		"L/BACK: LOAD",
 		"ESC/GUIDE: QUIT",
 	}
-	for line, i in help {
+	// The quit line is last so it can be dropped.
+	for line, i in help[:len(help) - (e.can_quit ? 0 : 1)] {
 		cm.draw_text(r, 8, 128 + i * cm.LINE_ADVANCE, line, TEXT)
 	}
 
