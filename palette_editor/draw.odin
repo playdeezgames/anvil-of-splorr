@@ -51,7 +51,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		fill(r, Rect{rc.x, rc.y, filled, rc.h}, channel_color(ch))
 		fill(r, Rect{rc.x + filled - 1, rc.y - 2, 1, rc.h + 4}, WHITE)
 		buf: [4]u8
-		cm.draw_text(r, rc.x + rc.w + 6, rc.y + 3, fmt.bprintf(buf[:], "%3d", value), label_color)
+		cm.draw_text(r, rc.x + rc.w + 6, rc.y + 3, fmt.bprintf(buf[:], "% 3d", value), label_color)
 	}
 
 	// Preview and readouts.
@@ -75,13 +75,20 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.label)) / 2, b.rc.y + 4, b.label, TEXT)
 	}
 
-	// Help.
-	cm.draw_text(r, 8, 128, "ARROWS/DPAD: SELECT COLOR", TEXT)
-	cm.draw_text(r, 8, 136, "TAB/R/G/B/LB/RB: CHANNEL", TEXT)
-	cm.draw_text(r, 8, 144, "+/-/A/B: VALUE  PGUP/PGDN/Y/X: x16", TEXT)
-	cm.draw_text(r, 8, 152, "WHEEL OR DRAG BAR: VALUE", TEXT)
-	cm.draw_text(r, 8, 160, "S/START: SAVE  L/BACK: LOAD", TEXT)
-	cm.draw_text(r, 8, 168, "ESC/GUIDE: QUIT", TEXT)
+	// Help, packed at the font's line pitch.
+	help := [?]string {
+		"ARROWS/DPAD: SELECT",
+		"TAB/R/G/B/LB/RB: CHANNEL",
+		"+/-/A/B: VALUE",
+		"PGUP/PGDN/Y/X: x16",
+		"WHEEL/DRAG BAR: VALUE",
+		"S/START: SAVE",
+		"L/BACK: LOAD",
+		"ESC/GUIDE: QUIT",
+	}
+	for line, i in help {
+		cm.draw_text(r, 8, 128 + i * cm.LINE_ADVANCE, line, TEXT)
+	}
 
 	cm.renderer_present(r)
 }

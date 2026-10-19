@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status and commands
 
-Platform-independent code only; no frontends yet.
+Platform-independent code plus a native SDL2 frontend; the web frontend is not written yet.
 
 - `common/`: palette model, `Renderer` interface (frontends implement `clear`/`fill_rect`/`present` on a 320x180 logical surface), built-in 3x5 font, and input (`Input_Event` union plus `key_to_action`/`pad_to_action`, the single place keyboard and gamepad bindings live).
+- `frontends/sdl2/main.odin`: native frontend (4x integer-scaled logical surface, SDL game controller API, file IO). Palette file is `argv[1]` or `./palette.pal`.
 - `palette_editor/`: `Editor` state, `editor_handle_event`, `editor_draw`, and `layout.odin` (rects shared by drawing and mouse hit-testing). File IO is not done here: the editor sets `requests` (Save/Load) and `quit` for the frontend to service, then the frontend calls `editor_set_palette`/`editor_mark_saved`.
 
 A frontend's whole job: convert native events to `Input_Event` (pointer coords in logical pixels), call `editor_handle_event`/`editor_draw`, and service requests. Gamepad quit is the Guide button; Select_R/G/B are keyboard-only (gamepad cycles channels). A test asserts every action has a keyboard binding and every other action a gamepad binding; mouse covers all but quit, which is the window close.
@@ -16,10 +17,12 @@ A frontend's whole job: convert native events to `Input_Event` (pointer coords i
 ```bash
 ./build.sh check   # odin check common and palette_editor
 ./build.sh test    # odin test both packages (default target)
+./build.sh native  # build/palette_editor
+./build.sh run [file.pal]
 odin test palette_editor -define:ODIN_TEST_NAMES=palette_editor.test_wheel   # single test
 ```
 
-SDL2 dev headers and libs are installed, so `vendor:sdl2` will link. `build.sh` gains `native`/`web` targets when those frontends are written.
+SDL2 dev headers and libs are installed, so `vendor:sdl2` will link. `build.sh` gains a `web` target when that frontend is written. Unit tests do not cover the SDL2 frontend; to eyeball layout without a window, render `editor_draw` through a software SDL renderer to a BMP.
 
 ## What this is
 

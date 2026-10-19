@@ -32,7 +32,9 @@ glyph_for :: proc(ch: rune) -> Glyph {
 	case '=':
 		return {0, 0b111, 0, 0b111, 0}
 	case '#':
-		return {0b101, 0b111, 0b101, 0b111, 0b101}
+		return {0b010, 0b111, 0b010, 0b111, 0b010}
+	case '*':
+		return {0b101, 0b010, 0b111, 0b010, 0b101}
 	case '/':
 		return {0b001, 0b001, 0b010, 0b100, 0b100}
 	case '<':
