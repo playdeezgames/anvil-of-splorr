@@ -685,3 +685,24 @@ test_closing_the_window_warns_about_unsaved_changes :: proc(t: ^testing.T) {
 	editor_mark_saved(&e)
 	testing.expect(t, tl.allow_close(tl.data))
 }
+
+@(test)
+test_all_on_screen_text_is_in_the_font :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := editor_init()
+	for mode in Mode {
+		e.mode = mode
+		for confirm in ([]bool{false, true}) {
+			e.confirm_exit = confirm
+			testing.expectf(t, cm.text_is_drawable(banner_text(&e)), "banner has a character the font lacks: %s", banner_text(&e))
+			lines, n := help_lines(&e)
+			for line in lines[:n] {
+				testing.expectf(t, cm.text_is_drawable(line), "help line has a character the font lacks: %s", line)
+			}
+		}
+	}
+	// The default labels are fine too (user labels are the user's responsibility).
+	for a in cm.Action {
+		testing.expect(t, cm.text_is_drawable(cm.DEFAULT_LABELS[a]))
+	}
+}

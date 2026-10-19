@@ -58,7 +58,25 @@ glyph_for :: proc(ch: rune) -> Glyph {
 	case ']':
 		return {0b011, 0b001, 0b001, 0b001, 0b011}
 	}
-	return {0b111, 0b101, 0b101, 0b101, 0b111}
+	return FALLBACK_GLYPH
+}
+
+// Drawn for any character the font does not have: a hollow box.
+FALLBACK_GLYPH :: Glyph{0b111, 0b101, 0b101, 0b101, 0b111}
+
+// False if drawing ch would show the fallback box.
+font_has :: proc(ch: rune) -> bool {
+	return glyph_for(ch) != FALLBACK_GLYPH
+}
+
+// True if every character of s is in the font. Tools' static text should pass this.
+text_is_drawable :: proc(s: string) -> bool {
+	for ch in s {
+		if !font_has(ch) {
+			return false
+		}
+	}
+	return true
 }
 
 @(private = "file")

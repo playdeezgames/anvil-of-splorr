@@ -98,6 +98,9 @@ main :: proc() {
 		if path := cm.tool_file_name(&tool); path != "" {
 			service_files(&tool, path) // files live in the working directory, named by the running tool
 		}
+		if aux := cm.tool_aux_file_name(&tool); aux != "" && tool.wants_aux_load(tool.data) {
+			load_aux_file(&tool, aux)
+		}
 
 		tool.draw(tool.data, &r)
 
@@ -341,6 +344,22 @@ load_file :: proc(tool: ^cm.Tool, path: string) {
 	}
 	defer delete(data)
 	if !tool.load(tool.data, data) {
+		fmt.eprintfln("load %s failed: not a valid file for this tool", path)
+	}
+}
+
+// The tool's read-only second file (e.g. the palette the palette editor saved). Missing is silent.
+load_aux_file :: proc(tool: ^cm.Tool, path: string) {
+	if !os.exists(path) {
+		return
+	}
+	data, err := os.read_entire_file(path, context.allocator)
+	if err != nil {
+		fmt.eprintfln("load %s failed: %v", path, err)
+		return
+	}
+	defer delete(data)
+	if !tool.load_aux(tool.data, data) {
 		fmt.eprintfln("load %s failed: not a valid file for this tool", path)
 	}
 }

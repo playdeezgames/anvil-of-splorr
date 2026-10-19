@@ -20,6 +20,9 @@ Probe :: struct {
 	dirty:        bool,
 	close_asks:   int,
 	allow:        bool,
+	aux:          string, // "" = no aux file
+	aux_pending:  bool,
+	aux_loaded:   int,
 }
 
 probe_tool :: proc(p: ^Probe) -> cm.Tool {
@@ -59,6 +62,18 @@ probe_tool :: proc(p: ^Probe) -> cm.Tool {
 		t.wants_load = proc(d: rawptr) -> bool {return false}
 		t.load = proc(d: rawptr, b: []u8) -> bool {
 			(^Probe)(d).loaded_bytes = len(b)
+			return true
+		}
+	}
+	if p.aux != "" {
+		t.aux_file_name = proc(d: rawptr) -> string {return (^Probe)(d).aux}
+		t.wants_aux_load = proc(d: rawptr) -> bool {
+			p := (^Probe)(d)
+			defer p.aux_pending = false
+			return p.aux_pending
+		}
+		t.load_aux = proc(d: rawptr, b: []u8) -> bool {
+			(^Probe)(d).aux_loaded += len(b)
 			return true
 		}
 	}
@@ -254,4 +269,27 @@ test_window_close_goes_to_the_running_tool :: proc(t: ^testing.T) {
 	testing.expect(t, cm.tool_allow_close(&lt))
 	testing.expect_value(t, f.a.close_asks, 2)
 	testing.expect_value(t, f.b.close_asks, 0)
+}
+
+@(test)
+test_aux_file_hooks_follow_the_running_tool :: proc(t: ^testing.T) {
+	f: Fixture
+	lt := setup(&f)
+	f.a.aux = "palette.json"
+	f.entries[0].tool = probe_tool(&f.a) // rebuild A's hooks now that it has an aux file
+	// Menu: none.
+	testing.expect_value(t, cm.tool_aux_file_name(&lt), "")
+	testing.expect(t, !lt.wants_aux_load(lt.data) && !lt.load_aux(lt.data, []u8{1}))
+	lt.handle_event(lt.data, cmd(.Green)) // open A
+	testing.expect_value(t, cm.tool_aux_file_name(&lt), "palette.json")
+	f.a.aux_pending = true
+	testing.expect(t, lt.wants_aux_load(lt.data) && !lt.wants_aux_load(lt.data))
+	testing.expect(t, lt.load_aux(lt.data, []u8{1, 2}))
+	testing.expect_value(t, f.a.aux_loaded, 2)
+	// B has none.
+	lt.handle_event(lt.data, cmd(.Red))
+	lt.handle_event(lt.data, cmd(.Down))
+	lt.handle_event(lt.data, cmd(.Green))
+	testing.expect_value(t, cm.tool_aux_file_name(&lt), "")
+	testing.expect(t, !lt.load_aux(lt.data, []u8{1}))
 }

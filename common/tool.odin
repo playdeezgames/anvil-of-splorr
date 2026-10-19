@@ -24,6 +24,12 @@ Tool :: struct {
 	saved:        proc(data: rawptr), // after the frontend wrote the file
 	wants_load:   proc(data: rawptr) -> bool, // true once per load request
 	load:         proc(data: rawptr, bytes: []u8) -> bool, // false if the bytes are not valid
+
+	// A second, read-only file the tool wants (the glyph editor reads the saved palette). The
+	// frontend reads it, silently skipping a missing one, whenever wants_aux_load says so.
+	aux_file_name: proc(data: rawptr) -> string,
+	wants_aux_load: proc(data: rawptr) -> bool, // true once per request
+	load_aux:     proc(data: rawptr, bytes: []u8) -> bool,
 }
 
 // The file the tool currently loads and saves ("" if it has none).
@@ -32,6 +38,14 @@ tool_file_name :: proc(t: ^Tool) -> string {
 		return ""
 	}
 	return t.file_name != nil ? t.file_name(t.data) : t.default_file
+}
+
+// The read-only second file, or "" if the tool has none.
+tool_aux_file_name :: proc(t: ^Tool) -> string {
+	if t.aux_file_name == nil || t.wants_aux_load == nil || t.load_aux == nil {
+		return ""
+	}
+	return t.aux_file_name(t.data)
 }
 
 tool_has_files :: proc(t: ^Tool) -> bool {

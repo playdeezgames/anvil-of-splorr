@@ -70,3 +70,12 @@ test_fill_rect_ignores_empty :: proc(t: ^testing.T) {
 	renderer_fill_rect(&r, 0, 0, 5, -1, {})
 	testing.expect_value(t, len(rec.rects), 0)
 }
+
+@(test)
+test_font_has_and_drawable :: proc(t: ^testing.T) {
+	testing.expect(t, font_has('A') && font_has('z') && font_has('7') && font_has(',') && font_has('+'))
+	testing.expect(t, !font_has(';') && !font_has('~') && !font_has('@'))
+	testing.expect(t, text_is_drawable("UP/DOWN: SAVE / LOAD (RIGHT = BG)"))
+	testing.expect(t, !text_is_drawable("A; B"))
+	testing.expect(t, text_is_drawable(""))
+}

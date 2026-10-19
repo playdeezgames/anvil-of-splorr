@@ -182,6 +182,24 @@ tool :: proc(l: ^Launcher) -> cm.Tool {
 			}
 			return ""
 		},
+		aux_file_name = proc(data: rawptr) -> string {
+			if t := running((^Launcher)(data)); t != nil {
+				return cm.tool_aux_file_name(t)
+			}
+			return ""
+		},
+		wants_aux_load = proc(data: rawptr) -> bool {
+			if t := running((^Launcher)(data)); t != nil && cm.tool_aux_file_name(t) != "" {
+				return t.wants_aux_load(t.data)
+			}
+			return false
+		},
+		load_aux = proc(data: rawptr, bytes: []u8) -> bool {
+			if t := running((^Launcher)(data)); t != nil && cm.tool_aux_file_name(t) != "" {
+				return t.load_aux(t.data, bytes)
+			}
+			return false
+		},
 		take_save = proc(data: rawptr) -> (string, bool) {
 			if t := file_tool((^Launcher)(data)); t != nil {
 				return t.take_save(t.data)

@@ -81,6 +81,9 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	if name := cm.tool_file_name(&tool); name != "" {
 		service_files(name)
 	}
+	if aux := cm.tool_aux_file_name(&tool); aux != "" && tool.wants_aux_load(tool.data) {
+		restore_aux(aux)
+	}
 	tool.draw(tool.data, &renderer)
 	free_all(context.temp_allocator)
 	return true
@@ -159,6 +162,17 @@ restore_from_storage :: proc(name: string) {
 		return
 	}
 	tool.load(tool.data, buf[:n])
+}
+
+// The tool's read-only second file comes from browser storage, where its owner tool saved it.
+restore_aux :: proc(name: string) {
+	buf: [FILE_CAP]u8
+	key := name
+	n := storage_get(raw_data(key), i32(len(key)), &buf[0], len(buf))
+	if n < 0 || int(n) > len(buf) {
+		return
+	}
+	tool.load_aux(tool.data, buf[:n])
 }
 
 service_files :: proc(name: string) {

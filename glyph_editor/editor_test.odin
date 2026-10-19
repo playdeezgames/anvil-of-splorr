@@ -65,16 +65,18 @@ test_green_toggles_pixel_under_cursor :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_size_mode_resizes_and_clamps_cursor :: proc(t: ^testing.T) {
+test_setup_mode_resizes_and_clamps_cursor :: proc(t: ^testing.T) {
 	e := editor_init()
 	press(&e, .Yellow)
-	testing.expect_value(t, e.mode, Mode.Size)
-	press(&e, .Right, .Right, .Up)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	testing.expect_value(t, e.row, Setup_Row.Width) // first row
+	press(&e, .Right, .Right) // width 10
+	press(&e, .Down, .Right) // height row, height 9
 	testing.expect(t, e.bitmap.width == 10 && e.bitmap.height == 9 && e.dirty)
-	press(&e, .Left, .Down, .Down)
+	press(&e, .Left, .Left) // height 7
+	press(&e, .Up, .Left) // width row, width 9
 	testing.expect(t, e.bitmap.width == 9 && e.bitmap.height == 7)
-	// The d-pad resizes in Size mode; it does not move the cursor.
-	testing.expect(t, e.cx == 0 && e.cy == 0)
+	testing.expect(t, e.cx == 0 && e.cy == 0) // the d-pad changes settings, it does not move the cursor
 	// Shrinking pulls the cursor inside.
 	press(&e, .Red) // Draw
 	for _ in 0 ..< 10 {
@@ -83,12 +85,20 @@ test_size_mode_resizes_and_clamps_cursor :: proc(t: ^testing.T) {
 	testing.expect(t, e.cx == 8 && e.cy == 6)
 	press(&e, .Yellow)
 	for _ in 0 ..< 10 {
-		press(&e, .Left, .Down)
+		press(&e, .Left)
+	}
+	press(&e, .Down)
+	for _ in 0 ..< 10 {
+		press(&e, .Left)
 	}
 	testing.expect(t, e.bitmap.width == 1 && e.bitmap.height == 1) // stops at the minimum
 	testing.expect(t, e.cx == 0 && e.cy == 0)
 	for _ in 0 ..< 70 {
-		press(&e, .Right, .Up)
+		press(&e, .Right)
+	}
+	press(&e, .Up)
+	for _ in 0 ..< 70 {
+		press(&e, .Right)
 	}
 	testing.expect(t, e.bitmap.width == cm.BITMAP_MAX && e.bitmap.height == cm.BITMAP_MAX)
 }
@@ -111,13 +121,22 @@ test_shrinking_then_growing_restores_pixels :: proc(t: ^testing.T) {
 	for _ in 0 ..< 7 {
 		press(&e, .Right, .Down)
 	}
-	press(&e, .Green, .Yellow) // set (7,7); open Size
+	press(&e, .Green, .Yellow) // set (7,7); open Setup on the width row
 	for _ in 0 ..< 4 {
-		press(&e, .Left, .Down)
+		press(&e, .Left)
 	}
+	press(&e, .Down)
+	for _ in 0 ..< 4 {
+		press(&e, .Left)
+	}
+	testing.expect(t, e.bitmap.width == 4 && e.bitmap.height == 4)
 	testing.expect(t, !cm.bitmap_get(&e.bitmap, 7, 7))
 	for _ in 0 ..< 4 {
-		press(&e, .Right, .Up)
+		press(&e, .Right)
+	}
+	press(&e, .Up)
+	for _ in 0 ..< 4 {
+		press(&e, .Right)
 	}
 	testing.expect(t, cm.bitmap_get(&e.bitmap, 7, 7))
 }
@@ -145,7 +164,7 @@ test_file_mode :: proc(t: ^testing.T) {
 @(test)
 test_mouse_click_toggles_and_moves_cursor :: proc(t: ^testing.T) {
 	e := editor_init()
-	e.mode = .Size
+	e.mode = .Setup
 	x, y := center_of_cell(&e, 3, 5)
 	click_at(&e, x, y)
 	testing.expect(t, cm.bitmap_get(&e.bitmap, 3, 5) && e.cx == 3 && e.cy == 5)
@@ -191,7 +210,7 @@ test_mouse_size_buttons :: proc(t: ^testing.T) {
 	click_rect(&e, WIDTH_PLUS)
 	click_rect(&e, WIDTH_PLUS)
 	click_rect(&e, HEIGHT_MINUS)
-	testing.expect(t, e.bitmap.width == 10 && e.bitmap.height == 7 && e.mode == .Size)
+	testing.expect(t, e.bitmap.width == 10 && e.bitmap.height == 7 && e.mode == .Setup)
 	click_rect(&e, WIDTH_MINUS)
 	click_rect(&e, HEIGHT_PLUS)
 	click_rect(&e, HEIGHT_PLUS)
@@ -324,7 +343,8 @@ test_text_follows_labels_and_fits :: proc(t: ^testing.T) {
 
 @(test)
 test_layout_is_on_screen_and_does_not_overlap :: proc(t: ^testing.T) {
-	rects := [?]Rect{CANVAS, BANNER, WIDTH_MINUS, WIDTH_PLUS, HEIGHT_MINUS, HEIGHT_PLUS, PREVIEW_FRAME, SAVE_BUTTON, LOAD_BUTTON, MENU_BUTTON}
+	strip := Rect{PALETTE_X, PALETTE_Y, SWATCH_W * cm.PALETTE_SIZE, SWATCH_W}
+	rects := [?]Rect{CANVAS, BANNER, WIDTH_MINUS, WIDTH_PLUS, HEIGHT_MINUS, HEIGHT_PLUS, FG_CHIP, BG_CHIP, strip, PREVIEW_FRAME, SAVE_BUTTON, LOAD_BUTTON, MENU_BUTTON}
 	for a, i in rects {
 		testing.expectf(t, a.x >= 0 && a.y >= 0 && a.x + a.w <= cm.SCREEN_W && a.y + a.h <= cm.SCREEN_H, "rect %d off screen", i)
 		for b, j in rects {
@@ -334,12 +354,18 @@ test_layout_is_on_screen_and_does_not_overlap :: proc(t: ^testing.T) {
 			}
 		}
 	}
-	testing.expect(t, SIZE_LABEL_X + cm.text_width("HEIGHT") < HEIGHT_MINUS.x) // label clears the buttons
-	testing.expect(t, SIZE_VALUE_X > WIDTH_PLUS.x + WIDTH_PLUS.w && SIZE_VALUE_X + cm.text_width("64") <= cm.SCREEN_W)
-	testing.expect(t, HELP_Y >= CANVAS.y + CANVAS.h) // help is below the canvas
-	testing.expect(t, HELP_Y >= PREVIEW_FRAME.y + PREVIEW_FRAME.h)
-	// The preview frame fits the largest bitmap.
-	testing.expect(t, PREVIEW_FRAME.w >= cm.BITMAP_MAX + 2 && PREVIEW_FRAME.h >= cm.BITMAP_MAX + 2)
+	// Text columns clear the controls they sit beside.
+	testing.expect(t, ROW_LABEL_X + cm.text_width("HEIGHT") < HEIGHT_MINUS.x)
+	testing.expect(t, ROW_LABEL_X + cm.text_width("BACK") < BG_CHIP.x - 1)
+	testing.expect(t, ROW_VALUE_X > WIDTH_PLUS.x + WIDTH_PLUS.w && ROW_VALUE_X + cm.text_width("64") <= cm.SCREEN_W)
+	testing.expect(t, ROW_MARKER_X + cm.text_width(">") < ROW_LABEL_X && ROW_MARKER_X > CANVAS.x + CANVAS.w)
+	testing.expect(t, INFO_Y > BANNER.y + BANNER.h)
+	testing.expect(t, HELP_Y >= CANVAS.y + CANVAS.h && HELP_Y >= PREVIEW_FRAME.y + PREVIEW_FRAME.h)
+	// The inner preview area is inside its frame; "CLIPPED" fits beside the frame, clear of buttons.
+	in_ := PREVIEW_INNER
+	testing.expect(t, in_.x > PREVIEW_FRAME.x && in_.y > PREVIEW_FRAME.y && in_.x + in_.w < PREVIEW_FRAME.x + PREVIEW_FRAME.w && in_.y + in_.h < PREVIEW_FRAME.y + PREVIEW_FRAME.h)
+	testing.expect(t, CLIPPED_X > PREVIEW_FRAME.x + PREVIEW_FRAME.w && CLIPPED_X + cm.text_width("CLIPPED") <= cm.SCREEN_W)
+	testing.expect(t, CLIPPED_Y > MENU_BUTTON.y + MENU_BUTTON.h && CLIPPED_Y + cm.GLYPH_H <= HELP_Y)
 }
 
 @(test)
@@ -447,15 +473,20 @@ test_every_size_reachable_by_each_input :: proc(t: ^testing.T) {
 				e := editor_init()
 				switch m {
 				case .Commands:
-					press(&e, .Yellow)
+					press(&e, .Yellow) // Setup, width row
 					for _ in 0 ..< 70 {
-						press(&e, .Left, .Down) // to 1 x 1
+						press(&e, .Left) // width 1
 					}
-					for _ in 0 ..< w - 1 {
-						press(&e, .Right)
+					press(&e, .Down) // height row
+					for _ in 0 ..< 70 {
+						press(&e, .Left) // height 1
 					}
 					for _ in 0 ..< h - 1 {
-						press(&e, .Up)
+						press(&e, .Right)
+					}
+					press(&e, .Up) // back to the width row
+					for _ in 0 ..< w - 1 {
+						press(&e, .Right)
 					}
 				case .Mouse:
 					for _ in 0 ..< 70 {
@@ -522,4 +553,226 @@ test_closing_the_window_warns_about_unsaved_changes :: proc(t: ^testing.T) {
 	e.confirm_exit = false
 	editor_mark_saved(&e)
 	testing.expect(t, tl.allow_close(tl.data))
+}
+
+// --- Setup rows, preview colours and the palette ---
+
+@(test)
+test_setup_row_selection_wraps :: proc(t: ^testing.T) {
+	e := editor_init()
+	press(&e, .Yellow, .Up)
+	testing.expect_value(t, e.row, Setup_Row.Background) // wrapped from the first row
+	press(&e, .Down)
+	testing.expect_value(t, e.row, Setup_Row.Width)
+	press(&e, .Down, .Down, .Down)
+	testing.expect_value(t, e.row, Setup_Row.Background)
+	press(&e, .Red, .Yellow) // the row is remembered
+	testing.expect_value(t, e.row, Setup_Row.Background)
+}
+
+@(test)
+test_foreground_and_background_default_and_wrap :: proc(t: ^testing.T) {
+	e := editor_init()
+	testing.expect(t, e.fg == 15 && e.bg == 0)
+	press(&e, .Yellow, .Down, .Down) // foreground row
+	press(&e, .Right) // 15 -> 0
+	testing.expect_value(t, e.fg, 0)
+	press(&e, .Left, .Left)
+	testing.expect_value(t, e.fg, 14)
+	press(&e, .Down, .Left) // background row, 0 -> 15
+	testing.expect_value(t, e.bg, 15)
+	testing.expect(t, !e.dirty) // colours are not part of the image
+}
+
+@(test)
+test_colours_are_not_saved_in_the_image :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := editor_init()
+	before := cm.bitmap_to_json(&e.bitmap)
+	press(&e, .Yellow, .Down, .Down, .Right, .Right, .Down, .Left)
+	after := cm.bitmap_to_json(&e.bitmap)
+	testing.expect_value(t, before, after)
+}
+
+@(test)
+test_mouse_palette_left_sets_foreground_right_sets_background :: proc(t: ^testing.T) {
+	e := editor_init()
+	r := swatch_rect(6)
+	click_at(&e, r.x + 2, r.y + 2)
+	testing.expect(t, e.fg == 6 && e.bg == 0 && e.mode == .Setup && e.row == .Foreground)
+	r = swatch_rect(11)
+	editor_handle_event(&e, cm.Mouse_Button_Event{button = .Right, x = r.x + 2, y = r.y + 2, down = true})
+	editor_handle_event(&e, cm.Mouse_Button_Event{button = .Right, x = r.x + 2, y = r.y + 2, down = false})
+	testing.expect(t, e.bg == 11 && e.fg == 6 && e.row == .Background)
+	testing.expect(t, !e.dirty)
+	// A right click elsewhere does nothing, and neither paints nor toggles.
+	x, y := center_of_cell(&e, 2, 2)
+	editor_handle_event(&e, cm.Mouse_Button_Event{button = .Right, x = x, y = y, down = true})
+	testing.expect(t, !cm.bitmap_get(&e.bitmap, 2, 2) && !e.dirty)
+}
+
+@(test)
+test_every_preview_colour_reachable_by_each_input :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		for target in 0 ..< cm.PALETTE_SIZE {
+			e := editor_init()
+			switch m {
+			case .Commands:
+				press(&e, .Yellow, .Down, .Down) // foreground row
+				fg_steps := (target - e.fg + cm.PALETTE_SIZE) % cm.PALETTE_SIZE
+				for _ in 0 ..< fg_steps {
+					press(&e, .Right)
+				}
+				press(&e, .Down) // background row
+				bg_steps := (target - e.bg + cm.PALETTE_SIZE) % cm.PALETTE_SIZE
+				for _ in 0 ..< bg_steps {
+					press(&e, .Right)
+				}
+			case .Mouse:
+				r := swatch_rect(target)
+				click_at(&e, r.x + 2, r.y + 2)
+				editor_handle_event(&e, cm.Mouse_Button_Event{button = .Right, x = r.x + 2, y = r.y + 2, down = true})
+			}
+			testing.expectf(t, e.fg == target && e.bg == target, "%v could not reach colour %d (fg %d bg %d)", m, target, e.fg, e.bg)
+		}
+	}
+}
+
+@(test)
+test_palette_comes_from_the_aux_file :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := editor_init()
+	tl := tool(&e)
+	testing.expect_value(t, cm.tool_aux_file_name(&tl), "palette.json")
+	testing.expect(t, e.palette == cm.default_palette()) // before any file: the default
+	testing.expect(t, !tl.wants_aux_load(tl.data)) // nothing asked yet
+	tl.enter(tl.data)
+	testing.expect(t, tl.wants_aux_load(tl.data) && !tl.wants_aux_load(tl.data)) // once per enter
+
+	custom := cm.default_palette()
+	custom[3] = {9, 8, 7}
+	testing.expect(t, tl.load_aux(tl.data, transmute([]u8)cm.palette_to_json(custom)))
+	testing.expect(t, e.palette[3] == cm.Color{9, 8, 7})
+	// A bad file is rejected and leaves the palette alone.
+	testing.expect(t, !tl.load_aux(tl.data, transmute([]u8)string("not json")))
+	testing.expect(t, e.palette[3] == cm.Color{9, 8, 7})
+	// Loading a palette is not an edit.
+	testing.expect(t, !e.dirty)
+}
+
+@(test)
+test_enter_resets_colours_and_asks_for_the_palette :: proc(t: ^testing.T) {
+	e := editor_init()
+	e.fg, e.bg = 3, 4
+	e.palette[0] = {1, 1, 1}
+	tl := tool(&e)
+	tl.enter(tl.data)
+	testing.expect(t, e.fg == 15 && e.bg == 0 && e.palette == cm.default_palette())
+	testing.expect(t, e.aux_requests == {.Palette} && e.requests == {.Load})
+}
+
+@(test)
+test_preview_scale_and_clipping :: proc(t: ^testing.T) {
+	testing.expect_value(t, preview_scale(8, 8), 2)
+	testing.expect_value(t, preview_scale(5, 5), 4)
+	testing.expect_value(t, preview_scale(1, 1), 20)
+	testing.expect_value(t, preview_scale(20, 20), 1)
+	testing.expect_value(t, preview_scale(64, 64), 1) // never below 1
+	testing.expect_value(t, preview_scale(8, 30), 1) // the taller side decides
+	testing.expect(t, !preview_clipped(8, 8))
+	testing.expect(t, !preview_clipped(20, 20))
+	testing.expect(t, preview_clipped(21, 21))
+	testing.expect(t, preview_clipped(64, 1))
+	for w in 1 ..= cm.BITMAP_MAX {
+		for h in ([]int{1, 8, 20, 21, cm.BITMAP_MAX}) {
+			s := preview_scale(w, h)
+			testing.expect(t, s >= 1)
+			if !preview_clipped(w, h) {
+				testing.expect(t, TILES * w * s <= PREVIEW_INNER.w && TILES * h * s <= PREVIEW_INNER.h)
+			}
+		}
+	}
+}
+
+@(test)
+test_intersect :: proc(t: ^testing.T) {
+	r, ok := intersect(Rect{0, 0, 10, 10}, Rect{5, 5, 10, 10})
+	testing.expect(t, ok && r == Rect{5, 5, 5, 5})
+	_, ok = intersect(Rect{0, 0, 5, 5}, Rect{5, 0, 5, 5}) // touching edges do not overlap
+	testing.expect(t, !ok)
+	_, ok = intersect(Rect{0, 0, 5, 5}, Rect{20, 20, 5, 5})
+	testing.expect(t, !ok)
+}
+
+Colour_Log :: struct {
+	fg_rects, bg_fills: int,
+	fg, bg:             cm.Color,
+	clipped_text:       bool,
+}
+
+@(test)
+test_preview_is_drawn_in_the_chosen_colours_nine_times :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	log := Colour_Log {
+		fg = {201, 202, 203},
+		bg = {101, 102, 103},
+	}
+	r := cm.Renderer {
+		data = &log,
+		clear = proc(d: rawptr, c: cm.Color) {},
+		fill_rect = proc(d: rawptr, x, y, w, h: int, c: cm.Color) {
+			l := (^Colour_Log)(d)
+			if c == l.fg {
+				l.fg_rects += 1
+			}
+			if c == l.bg {
+				l.bg_fills += 1
+			}
+		},
+		present = proc(d: rawptr) {},
+	}
+	e := editor_init()
+	e.palette[5], e.palette[9] = log.fg, log.bg
+	e.fg, e.bg = 5, 9
+	editor_draw(&e, &r) // blank bitmap: only the chip and the palette strip use the foreground colour
+	baseline := log.fg_rects
+	testing.expect_value(t, baseline, 2)
+	testing.expect(t, log.bg_fills >= 1)
+
+	// One lone pixel is one run in each of the 3 x 3 tiles.
+	log.fg_rects = 0
+	cm.bitmap_set(&e.bitmap, 1, 1, true)
+	editor_draw(&e, &r)
+	testing.expect_value(t, log.fg_rects - baseline, 9)
+
+	// Two pixels in a row are still one run per tile; adding one below makes two runs per tile.
+	log.fg_rects = 0
+	cm.bitmap_set(&e.bitmap, 2, 1, true)
+	editor_draw(&e, &r)
+	testing.expect_value(t, log.fg_rects - baseline, 9)
+	log.fg_rects = 0
+	cm.bitmap_set(&e.bitmap, 1, 2, true)
+	editor_draw(&e, &r)
+	testing.expect_value(t, log.fg_rects - baseline, 18)
+}
+
+@(test)
+test_all_on_screen_text_is_in_the_font :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := editor_init()
+	for mode in Mode {
+		e.mode = mode
+		for confirm in ([]bool{false, true}) {
+			e.confirm_exit = confirm
+			testing.expectf(t, cm.text_is_drawable(banner_text(&e)), "banner has a character the font lacks: %s", banner_text(&e))
+			lines, n := help_lines(&e)
+			for line in lines[:n] {
+				testing.expectf(t, cm.text_is_drawable(line), "help line has a character the font lacks: %s", line)
+			}
+		}
+	}
+	// The default labels are fine too (user labels are the user's responsibility).
+	for a in cm.Action {
+		testing.expect(t, cm.text_is_drawable(cm.DEFAULT_LABELS[a]))
+	}
 }

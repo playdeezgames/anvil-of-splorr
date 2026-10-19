@@ -2,6 +2,9 @@ package glyph_editor
 
 import cm "../common"
 
+// The palette editor's file: its saved palette supplies the preview colours.
+PALETTE_FILE :: "palette.json"
+
 // Adapter that lets frontends drive an Editor as a cm.Tool.
 tool :: proc(e: ^Editor) -> cm.Tool {
 	return cm.Tool {
@@ -35,6 +38,22 @@ tool :: proc(e: ^Editor) -> cm.Tool {
 			}
 			e.requests -= {.Load}
 			return true
+		},
+		aux_file_name = proc(data: rawptr) -> string {return PALETTE_FILE},
+		wants_aux_load = proc(data: rawptr) -> bool {
+			e := (^Editor)(data)
+			if .Palette not_in e.aux_requests {
+				return false
+			}
+			e.aux_requests -= {.Palette}
+			return true
+		},
+		load_aux = proc(data: rawptr, bytes: []u8) -> bool {
+			p, ok := cm.palette_from_json(bytes)
+			if ok {
+				editor_set_palette((^Editor)(data), p)
+			}
+			return ok
 		},
 		load = proc(data: rawptr, bytes: []u8) -> bool {
 			b, err := cm.bitmap_from_json(bytes)
