@@ -60,6 +60,13 @@ main :: proc() {
 	js.add_event_listener("canvas", .Wheel, nil, on_wheel)
 }
 
+// The page asks the browser to confirm closing the tab while this is 1.
+@(export)
+tool_is_dirty :: proc "c" () -> i32 {
+	context = ctx
+	return cm.tool_is_dirty(&tool) ? 1 : 0
+}
+
 // The page hides its "open file" button when this is 0.
 @(export)
 tool_has_files :: proc "c" () -> i32 {

@@ -11,6 +11,7 @@ tool :: proc(e: ^Editor) -> cm.Tool {
 		set_input_map = proc(data: rawptr, m: ^cm.Input_Map) {(^Editor)(data).labels = m},
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {editor_handle_event((^Editor)(data), ev)},
 		enter = proc(data: rawptr) {editor_enter((^Editor)(data))},
+		allow_close = proc(data: rawptr) -> bool {return editor_allow_close((^Editor)(data))},
 		take_exit = proc(data: rawptr) -> bool {
 			e := (^Editor)(data)
 			defer e.exit_requested = false

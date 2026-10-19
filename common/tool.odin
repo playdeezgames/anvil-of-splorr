@@ -16,6 +16,7 @@ Tool :: struct {
 
 	enter:        proc(data: rawptr), // the tool just became the active one (frontends also call it once at startup)
 	take_exit:    proc(data: rawptr) -> bool, // true once when the tool wants to return to the main menu
+	allow_close:  proc(data: rawptr) -> bool, // the window is closing: true to let it, false to hold it (and warn about unsaved changes)
 
 	// File IO, done by the frontend. A tool with files sets all of these.
 	file_name:    proc(data: rawptr) -> string, // optional; overrides default_file (the launcher uses it)
@@ -35,6 +36,12 @@ tool_file_name :: proc(t: ^Tool) -> string {
 
 tool_has_files :: proc(t: ^Tool) -> bool {
 	return tool_file_name(t) != ""
+}
+
+// Asks whether the whole app may close now. A tool with unsaved changes answers false the first
+// time (showing its own warning) and true if asked again while the warning is up.
+tool_allow_close :: proc(t: ^Tool) -> bool {
+	return t.allow_close == nil || t.allow_close(t.data)
 }
 
 tool_is_dirty :: proc(t: ^Tool) -> bool {

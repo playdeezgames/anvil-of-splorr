@@ -259,3 +259,14 @@ set_from_slider_x :: proc(e: ^Editor, ch: cm.Channel, x: int) {
 	px := clamp(x - r.x, 0, r.w - 1)
 	set_value(e, ch, (px * 255 + (r.w - 1) / 2) / (r.w - 1))
 }
+
+// The window is closing. Clean: fine. Dirty: the first ask shows the "unsaved" prompt and says no;
+// asking again while the prompt is still up says yes. (Any other command cancels the prompt, so
+// the user is warned again.)
+editor_allow_close :: proc(e: ^Editor) -> bool {
+	if !e.dirty || e.confirm_exit {
+		return true
+	}
+	e.confirm_exit = true
+	return false
+}

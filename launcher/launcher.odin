@@ -168,6 +168,10 @@ tool :: proc(l: ^Launcher) -> cm.Tool {
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {launcher_handle_event((^Launcher)(data), ev)},
 		update_pads = proc(data: rawptr, pads: ^cm.Pads) {launcher_update_pads((^Launcher)(data), pads)},
 		draw = proc(data: rawptr, r: ^cm.Renderer) {launcher_draw((^Launcher)(data), r)},
+		allow_close = proc(data: rawptr) -> bool {
+			t := running((^Launcher)(data))
+			return t == nil || cm.tool_allow_close(t)
+		},
 		is_dirty = proc(data: rawptr) -> bool {
 			t := running((^Launcher)(data))
 			return t != nil && cm.tool_is_dirty(t)

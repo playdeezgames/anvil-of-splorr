@@ -100,6 +100,15 @@ async function loadInputMap() {
   }
 }
 
+// Closing or reloading the tab with unsaved edits asks the browser to confirm.
+window.addEventListener("beforeunload", (ev) => {
+  const exp = memory.exports;
+  if (exp && exp.tool_is_dirty && exp.tool_is_dirty()) {
+    ev.preventDefault();
+    ev.returnValue = "";
+  }
+});
+
 odin.runWasm("app.wasm", null, imports, memory)
   .then(() => {
     loadInputMap();

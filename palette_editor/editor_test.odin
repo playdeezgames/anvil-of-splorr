@@ -660,3 +660,28 @@ test_banner_fits_in_every_state_with_longest_labels :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+@(test)
+test_closing_the_window_warns_about_unsaved_changes :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := editor_init()
+	tl := tool(&e)
+	testing.expect(t, tl.allow_close(tl.data)) // clean: closes at once
+	press(&e, .Green, .Up, .Red) // edit something
+	testing.expect(t, e.dirty)
+	testing.expect(t, !tl.allow_close(tl.data)) // first close: held, prompt shown
+	testing.expect(t, e.confirm_exit)
+	testing.expect_value(t, banner_text(&e), "UNSAVED   RED: LEAVE ANYWAY")
+	testing.expect(t, tl.allow_close(tl.data)) // closing again while the prompt is up goes through
+
+	// Any other command cancels the prompt, so the next close warns again.
+	e.confirm_exit = true
+	press(&e, .Down)
+	testing.expect(t, !e.confirm_exit)
+	testing.expect(t, !tl.allow_close(tl.data))
+
+	// Saving makes it clean again.
+	e.confirm_exit = false
+	editor_mark_saved(&e)
+	testing.expect(t, tl.allow_close(tl.data))
+}

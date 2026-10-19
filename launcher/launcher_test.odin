@@ -18,6 +18,8 @@ Probe :: struct {
 	save_pending: bool,
 	maps:         int,
 	dirty:        bool,
+	close_asks:   int,
+	allow:        bool,
 }
 
 probe_tool :: proc(p: ^Probe) -> cm.Tool {
@@ -35,6 +37,11 @@ probe_tool :: proc(p: ^Probe) -> cm.Tool {
 		draw          = proc(d: rawptr, r: ^cm.Renderer) {(^Probe)(d).draws += 1},
 		enter         = proc(d: rawptr) {(^Probe)(d).entered += 1},
 		is_dirty      = proc(d: rawptr) -> bool {return (^Probe)(d).dirty},
+		allow_close   = proc(d: rawptr) -> bool {
+			p := (^Probe)(d)
+			p.close_asks += 1
+			return p.allow
+		},
 		take_exit     = proc(d: rawptr) -> bool {
 			p := (^Probe)(d)
 			defer p.exit_next = false
@@ -232,4 +239,19 @@ test_menu_draws_on_screen :: proc(t: ^testing.T) {
 		rc := row_rect(i)
 		testing.expect(t, rc[0] + rc[2] <= cm.SCREEN_W && rc[1] + rc[3] <= 150)
 	}
+}
+
+@(test)
+test_window_close_goes_to_the_running_tool :: proc(t: ^testing.T) {
+	f: Fixture
+	lt := setup(&f)
+	testing.expect(t, cm.tool_allow_close(&lt)) // at the menu: always fine
+	testing.expect_value(t, f.a.close_asks + f.b.close_asks, 0)
+	lt.handle_event(lt.data, cmd(.Green)) // open A
+	f.a.allow = false
+	testing.expect(t, !cm.tool_allow_close(&lt)) // A holds the close
+	f.a.allow = true
+	testing.expect(t, cm.tool_allow_close(&lt))
+	testing.expect_value(t, f.a.close_asks, 2)
+	testing.expect_value(t, f.b.close_asks, 0)
 }

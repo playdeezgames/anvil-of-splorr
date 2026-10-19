@@ -116,7 +116,10 @@ handle_sdl_event :: proc(tool: ^cm.Tool, ev: ^sdl.Event) {
 	}
 	#partial switch ev.type {
 	case .QUIT:
-		window_closed = true
+		// With unsaved changes the first close only shows the tool's warning; closing again quits.
+		if cm.tool_allow_close(tool) {
+			window_closed = true
+		}
 	case .KEYDOWN:
 		if a, ok := cm.action_for_key(&imap, key_code(ev.key.keysym.scancode)); ok {
 			handle(tool, cm.Command{action = a})

@@ -200,3 +200,14 @@ click :: proc(e: ^Editor, x, y: int) {
 		request_exit(e)
 	}
 }
+
+// The window is closing. Clean: fine. Dirty: the first ask shows the "unsaved" prompt and says no;
+// asking again while the prompt is still up says yes. (Any other command cancels the prompt, so
+// the user is warned again.)
+editor_allow_close :: proc(e: ^Editor) -> bool {
+	if !e.dirty || e.confirm_exit {
+		return true
+	}
+	e.confirm_exit = true
+	return false
+}
