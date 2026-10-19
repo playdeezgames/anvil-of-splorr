@@ -92,3 +92,38 @@ canvas_draw :: proc(r: ^Renderer, area: Rect, b: ^Bitmap, cx, cy: int, colors: C
 		fill(r, Rect{cr.x + cr.w, cr.y, 1, cr.h}, colors.cursor)
 	}
 }
+
+// Draws an indexed-colour image scaled into area, each pixel in its palette colour, with a cursor
+// outline at (cx, cy) (nothing if cx is negative). With cells of 3+ pixels each gets a 1 px gap in
+// the `grid` colour so the pixels can be told apart; smaller cells merge runs of one colour.
+canvas_draw_image :: proc(r: ^Renderer, area: Rect, img: ^Image4, palette: ^Palette, cx, cy: int, grid, cursor: Color) {
+	fill :: proc(r: ^Renderer, rc: Rect, c: Color) {
+		renderer_fill_rect(r, rc.x, rc.y, rc.w, rc.h, c)
+	}
+	c := canvas_cell_size(area, img.width, img.height)
+	fill(r, Rect{area.x, area.y, img.width * c, img.height * c}, grid)
+	gap := c >= 3 ? 1 : 0
+	for y in 0 ..< img.height {
+		x := 0
+		for x < img.width {
+			color := img.pixels[y][x]
+			start := x
+			if gap == 1 {
+				x += 1
+			} else {
+				for x < img.width && img.pixels[y][x] == color {
+					x += 1
+				}
+			}
+			cr := canvas_cell_rect(area, img.width, img.height, start, y)
+			fill(r, Rect{cr.x, cr.y, (x - start) * c - gap, c - gap}, palette[color & 0x0F])
+		}
+	}
+	if cx >= 0 {
+		cr := canvas_cell_rect(area, img.width, img.height, cx, cy)
+		fill(r, Rect{cr.x - 1, cr.y - 1, cr.w + 2, 1}, cursor)
+		fill(r, Rect{cr.x - 1, cr.y + cr.h, cr.w + 2, 1}, cursor)
+		fill(r, Rect{cr.x - 1, cr.y, 1, cr.h}, cursor)
+		fill(r, Rect{cr.x + cr.w, cr.y, 1, cr.h}, cursor)
+	}
+}

@@ -7,7 +7,7 @@
 #   serve [tool] [port]     web + http.server (default port 8000)
 #   builtin-font            write the built-in editor font as build/builtin-font.json (default-font.json is hand drawn: never overwritten)
 # Builds select what to include with apps/<name>/: "suite" (default) is the main menu plus every
-# editor; "palette_editor", "glyph_editor", "font_editor" and "gamepad_tester" build a single tool on its own.
+# editor; "palette_editor", "image_editor", "glyph_editor", "font_editor" and "gamepad_tester" build a single tool on its own.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -33,7 +33,7 @@ build_web() {
 
 case "$target" in
 	check)
-		for pkg in common palette_editor glyph_editor font_editor gamepad_tester launcher; do odin check "$pkg" -no-entry-point; done
+		for pkg in common palette_editor image_editor glyph_editor font_editor gamepad_tester launcher; do odin check "$pkg" -no-entry-point; done
 		odin check tools/default_font
 		for t in apps/*/; do
 			t="$(basename "$t")"
@@ -41,7 +41,7 @@ case "$target" in
 			odin check frontends/web -target:js_wasm32 "-collection:app=apps/$t"
 		done ;;
 	test)
-		for pkg in common palette_editor glyph_editor font_editor gamepad_tester launcher; do odin test "$pkg"; done ;;
+		for pkg in common palette_editor image_editor glyph_editor font_editor gamepad_tester launcher; do odin test "$pkg"; done ;;
 	builtin-font) mkdir -p build && odin build tools/default_font -out:build/default_font && ./build/default_font build/builtin-font.json ;;
 	native) mkdir -p build && odin build frontends/sdl2 "$coll" -out:"build/$tool" ;;
 	run)    "$0" native "$tool" && "./build/$tool" "$@" ;;
