@@ -18,12 +18,12 @@
 </head>
 <body>
 <canvas id="canvas" width="320" height="180"></canvas>
-<div><label>Open .pal file...<input type="file" id="open"></label> <span id="msg"></span></div>
+<div><label>Open palette JSON...<input type="file" id="open" accept=".json,application/json"></label> <span id="msg"></span></div>
 <script src="odin.js"></script>
 <script>
 "use strict";
 const STORAGE_KEY = "anvil-of-splorr.palette";
-const PALETTE_BYTES = 48;
+const FILE_CAP = 4096; // must match FILE_CAP in web.odin
 
 const canvasEl = document.getElementById("canvas");
 const g = canvasEl.getContext("2d");
@@ -46,30 +46,29 @@ const imports = {
     },
   },
   host: {
-    // Palette is stored as a hex string; returns byte length or -1.
+    // The palette JSON text is stored as-is; returns its byte length, or -1 if absent.
     storage_get(ptr, cap) {
       try {
-        const hex = localStorage.getItem(STORAGE_KEY);
-        if (!hex || hex.length % 2) return -1;
-        const n = hex.length / 2;
-        if (n > cap) return n; // too big: Odin rejects by length
-        const out = bytesAt(ptr, n);
-        for (let i = 0; i < n; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
-        return n;
+        const text = localStorage.getItem(STORAGE_KEY);
+        if (text === null) return -1;
+        const bytes = new TextEncoder().encode(text);
+        if (bytes.length > cap) return bytes.length; // too big: Odin rejects by length
+        bytesAt(ptr, bytes.length).set(bytes);
+        return bytes.length;
       } catch (e) { return -1; }
     },
     storage_set(ptr, len) {
-      const hex = Array.from(bytesAt(ptr, len), b => b.toString(16).padStart(2, "0")).join("");
-      try { localStorage.setItem(STORAGE_KEY, hex); } catch (e) { /* storage unavailable */ }
+      const text = new TextDecoder().decode(bytesAt(ptr, len));
+      try { localStorage.setItem(STORAGE_KEY, text); } catch (e) { /* storage unavailable */ }
     },
     download(ptr, len) {
-      const blob = new Blob([bytesAt(ptr, len).slice()], { type: "application/octet-stream" });
+      const blob = new Blob([bytesAt(ptr, len).slice()], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "palette.pal";
+      a.download = "palette.json";
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-      say("Saved: downloaded palette.pal and stored in this browser.");
+      say("Saved: downloaded palette.json and stored in this browser.");
     },
   },
 };
@@ -81,9 +80,9 @@ document.getElementById("open").addEventListener("change", async (ev) => {
   const data = new Uint8Array(await file.arrayBuffer());
   const exp = memory.exports;
   if (!exp || !exp.file_buffer) { say("Editor is not ready yet."); return; }
-  if (data.length !== PALETTE_BYTES) { say(`${file.name}: expected ${PALETTE_BYTES} bytes, got ${data.length}.`); return; }
-  bytesAt(exp.file_buffer(), PALETTE_BYTES).set(data);
-  say(exp.file_loaded(PALETTE_BYTES) ? `Loaded ${file.name}.` : `${file.name}: not a valid palette.`);
+  if (data.length > FILE_CAP) { say(`${file.name}: too large (${data.length} bytes).`); return; }
+  bytesAt(exp.file_buffer(), data.length).set(data);
+  say(exp.file_loaded(data.length) ? `Loaded ${file.name}.` : `${file.name}: not a valid palette.`);
 });
 
 odin.runWasm("palette_editor.wasm", null, imports, memory).catch(e => say("Failed to start: " + e));

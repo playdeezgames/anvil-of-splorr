@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Platform-independent code plus two frontends (native SDL2 and web).
 
-- `common/`: palette model, `Renderer` interface (frontends implement `clear`/`fill_rect`/`present` on a 320x180 logical surface), built-in 3x5 font, and input (`Input_Event` union plus `key_to_action`/`pad_to_action`, the single place keyboard and gamepad bindings live).
-- `frontends/sdl2/main.odin`: native frontend (4x integer-scaled logical surface, SDL game controller API, file IO). Palette file is `argv[1]` or `./palette.pal`.
-- `frontends/web/`: `web.odin` (`#+build js`; listens for DOM events via `core:sys/wasm/js`, polls the Gamepad API in `step`, draws through `canvas_*` imports), `mapping.odin` (browser key code / standard-gamepad index tables, natively testable), `index.html` (2D-canvas shim, `host` imports for storage/download, "Open .pal file" button that feeds `file_loaded`). Save = localStorage + download; Load = restore localStorage (so it works from a gamepad); opening a file is the page button only. Quit is disabled (`Editor.can_quit = false`).
+- `common/`: palette model and its JSON file format (`palette_to_json`/`palette_from_json`, strict: exactly 16 `{r,g,b}` entries, integers 0..255), `Renderer` interface (frontends implement `clear`/`fill_rect`/`present` on a 320x180 logical surface), built-in 3x5 font, and input (`Input_Event` union plus `key_to_action`/`pad_to_action`, the single place keyboard and gamepad bindings live).
+- `frontends/sdl2/main.odin`: native frontend (4x integer-scaled logical surface, SDL game controller API, file IO). Palette file is `argv[1]` or `./palette.json`.
+- `frontends/web/`: `web.odin` (`#+build js`; listens for DOM events via `core:sys/wasm/js`, polls the Gamepad API in `step`, draws through `canvas_*` imports), `mapping.odin` (browser key code / standard-gamepad index tables, natively testable), `index.html` (2D-canvas shim, `host` imports for storage/download, "Open palette JSON" button that feeds `file_loaded`). Save = localStorage + download; Load = restore localStorage (so it works from a gamepad); opening a file is the page button only. Quit is disabled (`Editor.can_quit = false`).
 - `palette_editor/`: `Editor` state, `editor_handle_event`, `editor_draw`, and `layout.odin` (rects shared by drawing and mouse hit-testing). File IO is not done here: the editor sets `requests` (Save/Load) and `quit` for the frontend to service, then the frontend calls `editor_set_palette`/`editor_mark_saved`.
 
-A frontend's whole job: convert native events to `Input_Event` (pointer coords in logical pixels), call `editor_handle_event`/`editor_draw`, and service requests. Gamepad quit is the Guide button; Select_R/G/B are keyboard-only (gamepad cycles channels). A test asserts every action has a keyboard binding and every other action a gamepad binding; mouse covers all but quit, which is the window close.
+A frontend's whole job: convert native events to `Input_Event` (pointer coords in logical pixels), call `editor_handle_event`/`editor_draw`, and service requests. Gamepad quit is the Guide button; Select_R/G/B are keyboard-only (gamepad cycles channels). Parity is enforced by tests (`test_every_*_by_each_input`, `test_every_action_reachable_*`): every swatch, channel, value 0..255, save and load must be reachable with keyboard alone, mouse alone and gamepad alone. Known exceptions: Select_R/G/B are keyboard-only shortcuts; quit is Esc/Guide/window-close (native only); on web, opening a file is a page button (browser file dialog), so gamepad-only users get Save/Load via localStorage instead.
 
 `BACKLOG.md` lists deliberately deferred features (undo, copy/paste, import/export); don't build them unasked.
 
@@ -19,7 +19,7 @@ A frontend's whole job: convert native events to `Input_Event` (pointer coords i
 ./build.sh check   # odin check common and palette_editor
 ./build.sh test    # odin test both packages (default target)
 ./build.sh native  # build/palette_editor
-./build.sh run [file.pal]
+./build.sh run [file.json]
 ./build.sh web     # build/web/ (wasm + odin.js + index.html)
 ./build.sh serve [port]   # web + http.server, default :8000
 odin test palette_editor -define:ODIN_TEST_NAMES=palette_editor.test_wheel   # single test

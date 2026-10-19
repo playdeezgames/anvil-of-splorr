@@ -7,7 +7,7 @@ import "core:os"
 import sdl "vendor:sdl2"
 
 SCALE :: 4
-DEFAULT_FILE :: "palette.pal"
+DEFAULT_FILE :: "palette.json"
 
 Gamepad :: struct {
 	handle: ^sdl.GameController,
@@ -250,8 +250,8 @@ close_gamepad :: proc(id: sdl.JoystickID) {
 
 service_requests :: proc(editor: ^pe.Editor, path: string) {
 	if .Save in editor.requests {
-		bytes := cm.palette_to_bytes(editor.palette)
-		if err := os.write_entire_file(path, bytes[:]); err != nil {
+		text := cm.palette_to_json(editor.palette)
+		if err := os.write_entire_file(path, text); err != nil {
 			fmt.eprintfln("save %s failed: %v", path, err)
 		} else {
 			pe.editor_mark_saved(editor)
@@ -272,9 +272,9 @@ load :: proc(editor: ^pe.Editor, path: string, quiet_if_missing := false) {
 		return
 	}
 	defer delete(data)
-	if p, ok := cm.palette_from_bytes(data); ok {
+	if p, ok := cm.palette_from_json(data); ok {
 		pe.editor_set_palette(editor, p)
 	} else {
-		fmt.eprintfln("load %s failed: expected %d bytes, got %d", path, cm.PALETTE_BYTES, len(data))
+		fmt.eprintfln("load %s failed: not a valid palette JSON file", path)
 	}
 }

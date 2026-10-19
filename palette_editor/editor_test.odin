@@ -174,3 +174,152 @@ test_layout_fits_screen :: proc(t: ^testing.T) {
 	check(t, SAVE_BUTTON)
 	check(t, LOAD_BUTTON)
 }
+
+// --- Parity: every function must be reachable with each input method alone. ---
+
+Input_Method :: enum {
+	Keyboard,
+	Mouse,
+	Gamepad,
+}
+
+// Select swatch `target` from swatch 0 using only the given method.
+select_swatch_via :: proc(e: ^Editor, m: Input_Method, target: int) {
+	switch m {
+	case .Keyboard:
+		for _ in 0 ..< target % GRID_COLS {
+			editor_handle_event(e, key(.Right))
+		}
+		for _ in 0 ..< target / GRID_COLS {
+			editor_handle_event(e, key(.Down))
+		}
+	case .Gamepad:
+		for _ in 0 ..< target % GRID_COLS {
+			editor_handle_event(e, cm.Pad_Event{.Dpad_Right, true})
+		}
+		for _ in 0 ..< target / GRID_COLS {
+			editor_handle_event(e, cm.Pad_Event{.Dpad_Down, true})
+		}
+	case .Mouse:
+		r := swatch_rect(target)
+		click_at(e, r.x + r.w / 2, r.y + r.h / 2)
+	}
+}
+
+@(test)
+test_every_swatch_reachable_by_each_input :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		for target in 0 ..< cm.PALETTE_SIZE {
+			e := editor_init()
+			select_swatch_via(&e, m, target)
+			testing.expectf(t, e.selected == target, "%v could not select swatch %d (got %d)", m, target, e.selected)
+		}
+	}
+}
+
+// Make the current channel reach `target` using only the given method, starting from 0.
+set_value_via :: proc(e: ^Editor, m: Input_Method, target: int) {
+	switch m {
+	case .Keyboard:
+		for _ in 0 ..< target / cm.STEP_BIG {
+			editor_handle_event(e, key(.Page_Up))
+		}
+		for _ in 0 ..< target % cm.STEP_BIG {
+			editor_handle_event(e, key(.Plus))
+		}
+	case .Gamepad:
+		for _ in 0 ..< target / cm.STEP_BIG {
+			editor_handle_event(e, cm.Pad_Event{.Y, true})
+		}
+		for _ in 0 ..< target % cm.STEP_BIG {
+			editor_handle_event(e, cm.Pad_Event{.A, true})
+		}
+	case .Mouse:
+		// Click the slider at the closest pixel, then trim with the wheel.
+		rc := slider_rect(e.channel)
+		px := (target * (rc.w - 1) + 127) / 255
+		click_at(e, rc.x + px, rc.y + 2)
+		diff := target - int(e.palette[e.selected][e.channel])
+		editor_handle_event(e, cm.Mouse_Wheel{diff})
+	}
+}
+
+@(test)
+test_every_value_reachable_by_each_input :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		for ch in cm.Channel {
+			for target in 0 ..= 255 {
+				e := editor_init()
+				e.palette[0] = {} // black, so keyboard/pad start from 0
+				e.channel = ch
+				set_value_via(&e, m, target)
+				got := int(e.palette[0][ch])
+				if got != target {
+					testing.expectf(t, false, "%v could not set %v to %d (got %d)", m, ch, target, got)
+					return
+				}
+			}
+		}
+	}
+}
+
+@(test)
+test_slider_mapping_is_monotonic_with_exact_ends :: proc(t: ^testing.T) {
+	e := editor_init()
+	e.palette[0] = {}
+	rc := slider_rect(.R)
+	prev := -1
+	for dx in 0 ..< rc.w {
+		click_at(&e, rc.x + dx, rc.y + 2)
+		v := int(e.palette[0].r)
+		testing.expectf(t, v >= prev, "slider not monotonic at %d: %d < %d", dx, v, prev)
+		if dx == 0 {
+			testing.expect_value(t, v, 0)
+		}
+		prev = v
+	}
+	testing.expect_value(t, prev, 255)
+}
+
+@(test)
+test_channels_reachable_by_each_input :: proc(t: ^testing.T) {
+	// Keyboard: direct keys. Gamepad: shoulders cycle. Mouse: click the slider.
+	e := editor_init()
+	editor_handle_event(&e, key(.B))
+	testing.expect_value(t, e.channel, cm.Channel.B)
+	editor_handle_event(&e, key(.G))
+	testing.expect_value(t, e.channel, cm.Channel.G)
+	editor_handle_event(&e, key(.R))
+	testing.expect_value(t, e.channel, cm.Channel.R)
+
+	editor_handle_event(&e, cm.Pad_Event{.Right_Shoulder, true})
+	editor_handle_event(&e, cm.Pad_Event{.Right_Shoulder, true})
+	testing.expect_value(t, e.channel, cm.Channel.B)
+	editor_handle_event(&e, cm.Pad_Event{.Left_Shoulder, true})
+	testing.expect_value(t, e.channel, cm.Channel.G)
+
+	for ch in cm.Channel {
+		r := slider_rect(ch)
+		click_at(&e, r.x + 5, r.y + 2)
+		testing.expect_value(t, e.channel, ch)
+	}
+}
+
+@(test)
+test_save_and_load_reachable_by_each_input :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		for req in Request {
+			e := editor_init()
+			switch m {
+			case .Keyboard:
+				editor_handle_event(&e, key(req == .Save ? .S : .L))
+			case .Gamepad:
+				editor_handle_event(&e, cm.Pad_Event{req == .Save ? .Start : .Back, true})
+			case .Mouse:
+				b := req == .Save ? SAVE_BUTTON : LOAD_BUTTON
+				click_at(&e, b.x + b.w / 2, b.y + b.h / 2)
+			}
+			testing.expectf(t, req in e.requests, "%v could not request %v", m, req)
+		}
+	}
+}

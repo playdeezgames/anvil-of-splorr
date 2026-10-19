@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [check|test|native|run [file.pal]|web|serve [port]]
+# Usage: ./build.sh [check|test|native|run [file.json]|web|serve [port]]
 set -euo pipefail
 cd "$(dirname "$0")"
 

@@ -18,7 +18,7 @@ foreign canvas {
 foreign import host "host"
 @(default_calling_convention = "contextless")
 foreign host {
-	// Returns the stored length, or -1 if nothing is stored.
+	// Returns the stored length, or -1 if nothing is stored. Stored text is the palette JSON.
 	storage_get :: proc(buf: [^]u8, cap: i32) -> i32 ---
 	storage_set :: proc(data: [^]u8, len: i32) ---
 	// Offers data to the user as a file download.
@@ -44,12 +44,7 @@ main :: proc() {
 	editor = pe.editor_init()
 	editor.can_quit = false
 
-	buf: [cm.PALETTE_BYTES + 1]u8
-	if n := storage_get(&buf[0], len(buf)); n >= 0 {
-		if p, ok := cm.palette_from_bytes(buf[:n]); ok {
-			pe.editor_set_palette(&editor, p)
-		}
-	}
+	restore_from_storage()
 
 	js.add_window_event_listener(.Key_Down, nil, on_key_down)
 	js.add_window_event_listener(.Key_Up, nil, on_key_up)
@@ -70,8 +65,9 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	return true
 }
 
-// JS copies a chosen file's bytes into file_buffer (cap 64) and then calls file_loaded(len).
-file_buf: [64]u8
+// JS copies a chosen file's bytes into file_buffer (FILE_CAP bytes) and then calls file_loaded(len).
+FILE_CAP :: 4096
+file_buf: [FILE_CAP]u8
 
 @(export)
 file_buffer :: proc "c" () -> rawptr {
@@ -85,7 +81,8 @@ file_loaded :: proc "c" (n: i32) -> i32 {
 	if n < 0 || int(n) > len(file_buf) {
 		return 0
 	}
-	p, ok := cm.palette_from_bytes(file_buf[:n])
+	p, ok := cm.palette_from_json(file_buf[:n])
+	free_all(context.temp_allocator)
 	if !ok {
 		return 0
 	}
@@ -93,21 +90,27 @@ file_loaded :: proc "c" (n: i32) -> i32 {
 	return 1
 }
 
+restore_from_storage :: proc() {
+	buf: [FILE_CAP]u8
+	n := storage_get(&buf[0], len(buf))
+	if n < 0 || int(n) > len(buf) {
+		return
+	}
+	if p, ok := cm.palette_from_json(buf[:n]); ok {
+		pe.editor_set_palette(&editor, p)
+	}
+}
+
 service_requests :: proc() {
 	if .Save in editor.requests {
-		bytes := cm.palette_to_bytes(editor.palette)
-		storage_set(&bytes[0], len(bytes))
-		download(&bytes[0], len(bytes))
+		text := cm.palette_to_json(editor.palette)
+		storage_set(raw_data(text), i32(len(text)))
+		download(raw_data(text), i32(len(text)))
 		pe.editor_mark_saved(&editor)
 	}
 	if .Load in editor.requests {
 		// Load restores the last save from browser storage; opening a file is the page's button.
-		buf: [cm.PALETTE_BYTES + 1]u8
-		if n := storage_get(&buf[0], len(buf)); n >= 0 {
-			if p, ok := cm.palette_from_bytes(buf[:n]); ok {
-				pe.editor_set_palette(&editor, p)
-			}
-		}
+		restore_from_storage()
 	}
 	editor.requests = {}
 }

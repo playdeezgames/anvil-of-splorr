@@ -1,7 +1,6 @@
 package common
 
 PALETTE_SIZE :: 16
-PALETTE_BYTES :: PALETTE_SIZE * 3
 
 Color :: [3]u8
 
@@ -50,26 +49,4 @@ palette_adjust_channel :: proc(p: ^Palette, index: int, ch: Channel, delta: int)
 		return false
 	}
 	return palette_set_channel(p, index, ch, int(p[index][ch]) + delta)
-}
-
-// File format: 48 raw bytes, entry 0 first, each entry R, G, B. No header.
-palette_to_bytes :: proc(p: Palette) -> [PALETTE_BYTES]u8 {
-	out: [PALETTE_BYTES]u8
-	for c, i in p {
-		out[i * 3 + 0] = c.r
-		out[i * 3 + 1] = c.g
-		out[i * 3 + 2] = c.b
-	}
-	return out
-}
-
-// Fails unless data is exactly PALETTE_BYTES long.
-palette_from_bytes :: proc(data: []u8) -> (p: Palette, ok: bool) {
-	if len(data) != PALETTE_BYTES {
-		return {}, false
-	}
-	for i in 0 ..< PALETTE_SIZE {
-		p[i] = {data[i * 3 + 0], data[i * 3 + 1], data[i * 3 + 2]}
-	}
-	return p, true
 }
