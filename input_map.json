@@ -25,9 +25,9 @@
     "down": "DOWN",
     "left": "LEFT",
     "right": "RIGHT",
-    "green": "GREEN",
-    "red": "RED",
-    "blue": "BLUE",
-    "yellow": "YELLOW"
+    "green": "SPACE/A",
+    "red": "ESC/B",
+    "blue": "ENTER/START",
+    "yellow": "TAB/SELCT"
   }
 }

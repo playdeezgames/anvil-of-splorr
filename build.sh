@@ -22,7 +22,10 @@ build_web() {
 	local out="build/web/$tool"
 	mkdir -p "$out"
 	odin build frontends/web -target:js_wasm32 "$coll" -out:"$out/app.wasm" -o:speed
-	cp "$(odin root)/core/sys/wasm/js/odin.js" input_map.json "$out/"
+	cp "$(odin root)/core/sys/wasm/js/odin.js" "$out/"
+	# A link, not a copy: the repo-root input_map.json is the one file to edit, and a rebuild must
+	# never overwrite edits made through the served path.
+	ln -sfn ../../../input_map.json "$out/input_map.json"
 	sed -e "s/@TITLE@/$(cat "apps/$tool/title.txt")/" -e "s/@TOOL@/$tool/" frontends/web/index.html > "$out/index.html"
 }
 
