@@ -9,12 +9,10 @@ Tester :: struct {
 	pads:     cm.Pads,
 	selected: int, // pad slot being displayed
 	last:     [cm.MAX_PADS]int, // 1 + index of the most recently pressed button per pad; 0 = none
-	quit:     bool,
-	can_quit: bool,
 }
 
 tester_init :: proc() -> Tester {
-	return Tester{can_quit = true}
+	return Tester{}
 }
 
 tester_update_pads :: proc(t: ^Tester, pads: ^cm.Pads) {
@@ -65,21 +63,11 @@ select_next :: proc(t: ^Tester) {
 	}
 }
 
+// A click switches between connected pads. Commands are ignored on purpose: pressing a pad's
+// bound buttons while testing must not change which pad is shown.
 tester_handle_event :: proc(t: ^Tester, ev: cm.Input_Event) {
-	#partial switch v in ev {
-	case cm.Key_Event:
-		if v.down {
-			#partial switch v.key {
-			case .Tab:
-				select_next(t)
-			case .Escape:
-				t.quit = t.can_quit
-			}
-		}
-	case cm.Mouse_Button_Event:
-		if v.down && v.button == .Left {
-			select_next(t)
-		}
+	if v, ok := ev.(cm.Mouse_Button_Event); ok && v.down && v.button == .Left {
+		select_next(t)
 	}
 }
 
@@ -87,10 +75,8 @@ tool :: proc(t: ^Tester) -> cm.Tool {
 	return cm.Tool {
 		title = "Gamepad Tester",
 		data = t,
-		configure = proc(data: rawptr, info: cm.Platform_Info) {(^Tester)(data).can_quit = info.can_quit},
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {tester_handle_event((^Tester)(data), ev)},
 		update_pads = proc(data: rawptr, pads: ^cm.Pads) {tester_update_pads((^Tester)(data), pads)},
 		draw = proc(data: rawptr, r: ^cm.Renderer) {tester_draw((^Tester)(data), r)},
-		wants_quit = proc(data: rawptr) -> bool {return (^Tester)(data).quit},
 	}
 }

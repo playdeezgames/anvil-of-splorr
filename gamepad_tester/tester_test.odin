@@ -44,24 +44,15 @@ test_selection_follows_connected_pads :: proc(t: ^testing.T) {
 	pads[1], pads[3] = standard_pad(), standard_pad()
 	tester_update_pads(&tester, &pads)
 	testing.expect_value(t, tester.selected, 1) // first connected
-	tester_handle_event(&tester, cm.Key_Event{key = .Tab, down = true})
+	tester_handle_event(&tester, cm.Command{.Green}) // commands do not switch pads
+	testing.expect_value(t, tester.selected, 1)
+	tester_handle_event(&tester, cm.Mouse_Button_Event{button = .Left, down = true})
 	testing.expect_value(t, tester.selected, 3)
 	tester_handle_event(&tester, cm.Mouse_Button_Event{button = .Left, down = true})
 	testing.expect_value(t, tester.selected, 1) // wraps
 	pads[1].connected = false
 	tester_update_pads(&tester, &pads)
 	testing.expect_value(t, tester.selected, 3)
-}
-
-@(test)
-test_quit_respects_can_quit :: proc(t: ^testing.T) {
-	tester := tester_init()
-	tester_handle_event(&tester, cm.Key_Event{key = .Escape, down = true})
-	testing.expect(t, tester.quit)
-	tester = tester_init()
-	tester.can_quit = false
-	tester_handle_event(&tester, cm.Key_Event{key = .Escape, down = true})
-	testing.expect(t, !tester.quit)
 }
 
 Count :: struct {

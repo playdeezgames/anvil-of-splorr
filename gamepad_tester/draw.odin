@@ -36,7 +36,7 @@ tester_draw :: proc(t: ^Tester, r: ^cm.Renderer) {
 	p := &t.pads[t.selected]
 	buf: [96]u8
 
-	info := fmt.bprintf(buf[:], "PAD %d  (%d CONNECTED%s)", t.selected + 1, n, n > 1 ? ", TAB/CLICK: NEXT" : "")
+	info := fmt.bprintf(buf[:], "PAD %d  (%d CONNECTED%s)", t.selected + 1, n, n > 1 ? ", CLICK: NEXT" : "")
 	cm.draw_text(r, cm.SCREEN_W - 8 - cm.text_width(info), 4, info, TEXT)
 	cm.draw_text(r, 8, 12, cm.pad_name(p), TEXT)
 	layout := p.standard ? "STANDARD LAYOUT" : "NON-STANDARD: RAW INDICES"

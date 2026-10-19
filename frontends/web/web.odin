@@ -29,6 +29,7 @@ MAX_PADS :: 4
 
 ctx: runtime.Context
 tool: cm.Tool
+imap: cm.Input_Map
 pads, prev_pads: cm.Pads
 
 renderer := cm.Renderer {
@@ -41,10 +42,8 @@ renderer := cm.Renderer {
 
 main :: proc() {
 	ctx = context
+	imap = cm.default_input_map()
 	tool = app.make_tool()
-	if tool.configure != nil {
-		tool.configure(tool.data, {can_quit = false})
-	}
 	if cm.tool_has_files(&tool) {
 		restore_from_storage()
 	}
@@ -84,6 +83,50 @@ file_buf: [FILE_CAP]u8
 @(export)
 file_buffer :: proc "c" () -> rawptr {
 	return &file_buf
+}
+
+// The page fetches input_map.json and copies it into input_map_buffer, then calls
+// input_map_loaded(len). On failure the defaults stay in force and the reason is readable
+// through input_map_error_ptr / input_map_error_len.
+INPUT_MAP_CAP :: 4096
+input_map_buf: [INPUT_MAP_CAP]u8
+input_map_err: [200]u8
+input_map_err_len: int
+
+@(export)
+input_map_buffer :: proc "c" () -> rawptr {
+	return &input_map_buf
+}
+
+@(export)
+input_map_error_ptr :: proc "c" () -> rawptr {
+	return &input_map_err
+}
+
+@(export)
+input_map_error_len :: proc "c" () -> i32 {
+	return i32(input_map_err_len)
+}
+
+// Returns 1 if the map was applied.
+@(export)
+input_map_loaded :: proc "c" (n: i32) -> i32 {
+	context = ctx
+	msg := "file too large"
+	if n >= 0 && int(n) <= INPUT_MAP_CAP {
+		m, err := cm.input_map_from_json(input_map_buf[:n])
+		if err == "" {
+			imap = m
+			input_map_err_len = 0
+			free_all(context.temp_allocator)
+			return 1
+		}
+		msg = err
+	}
+	input_map_err_len = min(len(msg), len(input_map_err))
+	copy(input_map_err[:], msg[:input_map_err_len])
+	free_all(context.temp_allocator)
+	return 0
 }
 
 // Returns 1 if the tool accepted the file.
@@ -140,20 +183,21 @@ poll_gamepads :: proc() {
 			p.axes[a] = f32(s.axes[a])
 		}
 	}
-	cm.tool_update_pads(&tool, &prev_pads, &pads)
+	cm.tool_update_pads(&tool, &prev_pads, &pads, &imap)
 }
 
+// Keys reach the tool only through the input map (input_map.json); unmapped keys are untouched.
 handle_key :: proc(e: js.Event, down: bool) {
 	context = ctx
 	if e.key.ctrl || e.key.alt || e.key.meta {
 		return // leave browser shortcuts alone
 	}
-	k := key_for_code(e.key.code)
-	if k == .None {
-		return
+	if a, ok := cm.action_for_key(&imap, e.key.code); ok {
+		js.event_prevent_default() // Tab, arrows and space would otherwise move focus / scroll
+		if down {
+			tool.handle_event(tool.data, cm.Command{a})
+		}
 	}
-	js.event_prevent_default() // Tab, arrows and Page keys would otherwise move focus / scroll
-	tool.handle_event(tool.data, cm.Key_Event{key = k, shift = e.key.shift, down = down})
 }
 
 on_key_down :: proc(e: js.Event) {handle_key(e, true)}

@@ -31,7 +31,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	for i in 0 ..< cm.PALETTE_SIZE {
 		rc := swatch_rect(i)
 		if i == e.selected {
-			fill(r, Rect{rc.x - 2, rc.y - 2, rc.w + 4, rc.h + 4}, HILITE)
+			fill(r, Rect{rc.x - 2, rc.y - 2, rc.w + 4, rc.h + 4}, e.mode == .Edit ? WHITE : HILITE)
 		}
 		fill(r, rc, e.palette[i])
 	}
@@ -40,7 +40,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cur := e.palette[e.selected]
 	for ch in cm.Channel {
 		rc := slider_rect(ch)
-		active := ch == e.channel
+		active := e.mode == .Edit && ch == e.channel
 		label_color := active ? HILITE : TEXT
 		label := ch == .R ? "R" : ch == .G ? "G" : "B"
 		cm.draw_text(r, rc.x - 16, rc.y + 3, active ? ">" : " ", HILITE)
@@ -75,20 +75,12 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.label)) / 2, b.rc.y + 4, b.label, TEXT)
 	}
 
-	// Help, packed at the font's line pitch.
-	help := [?]string {
-		"ARROWS/DPAD: SELECT",
-		"TAB/R/G/B/LB/RB: CHANNEL",
-		"+/-/A/B: VALUE",
-		"PGUP/PGDN/Y/X: x16",
-		"WHEEL/DRAG BAR: VALUE",
-		"S/START: SAVE",
-		"L/BACK: LOAD",
-		"ESC/GUIDE: QUIT",
-	}
-	// The quit line is last so it can be dropped.
-	for line, i in help[:len(help) - (e.can_quit ? 0 : 1)] {
-		cm.draw_text(r, 8, 128 + i * cm.LINE_ADVANCE, line, TEXT)
+	// Help for the current mode, packed at the font's line pitch.
+	browse := [?]string{"MODE: BROWSE", "DPAD: MOVE", "GREEN: EDIT COLOR", "BLUE: SAVE", "YELLOW: LOAD", "MOUSE: CLICK/DRAG/WHEEL"}
+	edit := [?]string{"MODE: EDIT", "LEFT/RIGHT: -/+ 1", "UP/DOWN: +/- 16", "GREEN: NEXT CHANNEL", "RED: DONE", "BLUE: SAVE  YELLOW: LOAD"}
+	help := e.mode == .Edit ? edit[:] : browse[:]
+	for line, i in help {
+		cm.draw_text(r, 8, 128 + i * cm.LINE_ADVANCE, line, i == 0 ? HILITE : TEXT)
 	}
 
 	cm.renderer_present(r)

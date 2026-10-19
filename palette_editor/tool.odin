@@ -8,10 +8,8 @@ tool :: proc(e: ^Editor) -> cm.Tool {
 		title = "Palette Editor",
 		default_file = "palette.json",
 		data = e,
-		configure = proc(data: rawptr, info: cm.Platform_Info) {(^Editor)(data).can_quit = info.can_quit},
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {editor_handle_event((^Editor)(data), ev)},
 		draw = proc(data: rawptr, r: ^cm.Renderer) {editor_draw((^Editor)(data), r)},
-		wants_quit = proc(data: rawptr) -> bool {return (^Editor)(data).quit},
 		is_dirty = proc(data: rawptr) -> bool {return (^Editor)(data).dirty},
 		take_save = proc(data: rawptr) -> (string, bool) {
 			e := (^Editor)(data)

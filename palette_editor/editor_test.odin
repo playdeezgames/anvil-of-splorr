@@ -4,8 +4,14 @@ package palette_editor
 import cm "../common"
 import "core:testing"
 
-key :: proc(k: cm.Key, shift := false) -> cm.Input_Event {
-	return cm.Key_Event{key = k, shift = shift, down = true}
+cmd :: proc(a: cm.Action) -> cm.Input_Event {
+	return cm.Command{a}
+}
+
+press :: proc(e: ^Editor, actions: ..cm.Action) {
+	for a in actions {
+		editor_handle_event(e, cmd(a))
+	}
 }
 
 click_at :: proc(e: ^Editor, x, y: int) {
@@ -14,76 +20,97 @@ click_at :: proc(e: ^Editor, x, y: int) {
 }
 
 @(test)
-test_selection_wraps :: proc(t: ^testing.T) {
+test_browse_moves_selection_with_wrap :: proc(t: ^testing.T) {
 	e := editor_init()
-	editor_handle_event(&e, key(.Left))
+	press(&e, .Left)
 	testing.expect_value(t, e.selected, 3)
-	editor_handle_event(&e, key(.Right))
+	press(&e, .Right)
 	testing.expect_value(t, e.selected, 0)
-	editor_handle_event(&e, key(.Up))
+	press(&e, .Up)
 	testing.expect_value(t, e.selected, 12)
-	editor_handle_event(&e, key(.Down))
+	press(&e, .Down)
 	testing.expect_value(t, e.selected, 0)
-	editor_handle_event(&e, cm.Pad_Event{button = .Dpad_Right, down = true})
-	testing.expect_value(t, e.selected, 1)
 }
 
 @(test)
-test_channel_selection :: proc(t: ^testing.T) {
+test_browse_dpad_never_edits_values :: proc(t: ^testing.T) {
 	e := editor_init()
-	editor_handle_event(&e, key(.Tab))
-	testing.expect_value(t, e.channel, cm.Channel.G)
-	editor_handle_event(&e, key(.Tab, shift = true))
-	editor_handle_event(&e, key(.Tab, shift = true))
-	testing.expect_value(t, e.channel, cm.Channel.B)
-	editor_handle_event(&e, key(.R))
-	testing.expect_value(t, e.channel, cm.Channel.R)
+	before := e.palette
+	press(&e, .Up, .Right, .Down, .Left)
+	testing.expect(t, e.palette == before && !e.dirty)
 }
 
 @(test)
-test_value_edit_saturates_and_sets_dirty :: proc(t: ^testing.T) {
+test_green_enters_edit_then_cycles_channels :: proc(t: ^testing.T) {
+	e := editor_init()
+	testing.expect_value(t, e.mode, Mode.Browse)
+	press(&e, .Green)
+	testing.expect_value(t, e.mode, Mode.Edit)
+	testing.expect_value(t, e.channel, cm.Channel.R)
+	press(&e, .Green)
+	testing.expect_value(t, e.channel, cm.Channel.G)
+	press(&e, .Green, .Green)
+	testing.expect_value(t, e.channel, cm.Channel.R) // wraps
+	press(&e, .Red)
+	testing.expect_value(t, e.mode, Mode.Browse)
+	press(&e, .Red) // red in browse is harmless
+	testing.expect_value(t, e.mode, Mode.Browse)
+}
+
+@(test)
+test_edit_changes_values_and_selection_is_frozen :: proc(t: ^testing.T) {
 	e := editor_init()
 	e.selected = 0 // black
-	editor_handle_event(&e, key(.Minus))
+	press(&e, .Green, .Right, .Right)
+	testing.expect_value(t, e.palette[0].r, 2)
+	press(&e, .Up)
+	testing.expect_value(t, e.palette[0].r, 18)
+	press(&e, .Down, .Down)
+	testing.expect_value(t, e.palette[0].r, 0) // saturates at 0
+	press(&e, .Left)
 	testing.expect_value(t, e.palette[0].r, 0)
-	testing.expect(t, !e.dirty) // nothing changed
-	editor_handle_event(&e, key(.Page_Up))
-	testing.expect_value(t, e.palette[0].r, 16)
+	testing.expect_value(t, e.selected, 0) // d-pad did not move the cursor
 	testing.expect(t, e.dirty)
+}
+
+@(test)
+test_edit_saturates_high_and_clean_when_unchanged :: proc(t: ^testing.T) {
+	e := editor_init()
+	e.selected = 0
+	press(&e, .Green, .Left) // already 0
+	testing.expect(t, !e.dirty)
 	for _ in 0 ..< 30 {
-		editor_handle_event(&e, key(.Page_Up))
+		press(&e, .Up)
 	}
 	testing.expect_value(t, e.palette[0].r, 255)
 }
 
 @(test)
-test_requests_and_quit :: proc(t: ^testing.T) {
+test_save_and_load_requests :: proc(t: ^testing.T) {
 	e := editor_init()
-	editor_handle_event(&e, key(.S))
-	editor_handle_event(&e, cm.Pad_Event{button = .Back, down = true})
-	testing.expect(t, .Save in e.requests && .Load in e.requests)
-	testing.expect(t, !e.quit)
-	editor_handle_event(&e, key(.Escape))
-	testing.expect(t, e.quit)
-
-	e = editor_init()
-	e.can_quit = false
-	editor_handle_event(&e, key(.Escape))
-	testing.expect(t, !e.quit)
+	press(&e, .Blue)
+	testing.expect(t, e.requests == {.Save})
+	press(&e, .Yellow)
+	testing.expect(t, e.requests == {.Save, .Load})
+	e.mode = .Edit
+	e.requests = {}
+	press(&e, .Yellow)
+	testing.expect(t, e.requests == {.Load}) // works in edit mode too
 }
 
 @(test)
 test_mouse_selects_swatch_and_buttons :: proc(t: ^testing.T) {
 	e := editor_init()
+	e.mode = .Edit
 	r := swatch_rect(6)
 	click_at(&e, r.x + 3, r.y + 3)
 	testing.expect_value(t, e.selected, 6)
+	testing.expect_value(t, e.mode, Mode.Browse)
 	click_at(&e, SAVE_BUTTON.x + 1, SAVE_BUTTON.y + 1)
 	testing.expect(t, .Save in e.requests)
 	click_at(&e, LOAD_BUTTON.x + 1, LOAD_BUTTON.y + 1)
 	testing.expect(t, .Load in e.requests)
-	// The gap between swatches is not a hit.
-	_, ok := swatch_at(GRID_X + CELL + 1, GRID_Y)
+	_, ok := swatch_at(GRID_X + CELL + 1, GRID_Y) // gap between swatches
 	testing.expect(t, !ok)
 }
 
@@ -94,6 +121,7 @@ test_slider_click_and_drag :: proc(t: ^testing.T) {
 	rg := slider_rect(.G)
 	click_at(&e, rg.x + rg.w - 1, rg.y + 2)
 	testing.expect_value(t, e.channel, cm.Channel.G)
+	testing.expect_value(t, e.mode, Mode.Edit)
 	testing.expect_value(t, e.palette[0].g, 255)
 	click_at(&e, rg.x, rg.y + 2)
 	testing.expect_value(t, e.palette[0].g, 0)
@@ -114,11 +142,9 @@ test_slider_click_and_drag :: proc(t: ^testing.T) {
 test_wheel :: proc(t: ^testing.T) {
 	e := editor_init()
 	e.selected = 8 // (85,85,85)
-	// Away from sliders: current channel (R).
 	editor_handle_event(&e, cm.Mouse_Move{0, 0})
 	editor_handle_event(&e, cm.Mouse_Wheel{dy = 3})
 	testing.expect_value(t, e.palette[8].r, 88)
-	// Over the B slider: that channel, and it becomes current.
 	rb := slider_rect(.B)
 	editor_handle_event(&e, cm.Mouse_Move{rb.x + 5, rb.y + 5})
 	editor_handle_event(&e, cm.Mouse_Wheel{dy = -2})
@@ -133,7 +159,7 @@ Fill_Log :: struct {
 }
 
 @(test)
-test_draw_shows_selected_color :: proc(t: ^testing.T) {
+test_draw_shows_selected_color_in_both_modes :: proc(t: ^testing.T) {
 	log: Fill_Log
 	defer delete(log.colors)
 	r := cm.Renderer {
@@ -147,16 +173,19 @@ test_draw_shows_selected_color :: proc(t: ^testing.T) {
 	e := editor_init()
 	e.palette[5] = {12, 34, 56}
 	e.selected = 5
-	editor_draw(&e, &r)
-	testing.expect_value(t, log.cleared, 1)
-	testing.expect_value(t, log.presents, 1)
-	found := 0
-	for c in log.colors {
-		if c == (cm.Color{12, 34, 56}) {
-			found += 1
+	for m in Mode {
+		e.mode = m
+		clear(&log.colors)
+		editor_draw(&e, &r)
+		found := 0
+		for c in log.colors {
+			if c == (cm.Color{12, 34, 56}) {
+				found += 1
+			}
 		}
+		testing.expectf(t, found >= 2, "mode %v: swatch + preview expected", m) // swatch + preview
 	}
-	testing.expect(t, found >= 2) // swatch + preview
+	testing.expect_value(t, log.presents, 2)
 }
 
 @(test)
@@ -175,30 +204,21 @@ test_layout_fits_screen :: proc(t: ^testing.T) {
 	check(t, LOAD_BUTTON)
 }
 
-// --- Parity: every function must be reachable with each input method alone. ---
+// --- Parity: every function must be reachable with the commands alone and with the mouse alone. ---
 
 Input_Method :: enum {
-	Keyboard,
+	Commands, // keyboard or gamepad: both produce the same eight commands
 	Mouse,
-	Gamepad,
 }
 
-// Select swatch `target` from swatch 0 using only the given method.
 select_swatch_via :: proc(e: ^Editor, m: Input_Method, target: int) {
 	switch m {
-	case .Keyboard:
+	case .Commands:
 		for _ in 0 ..< target % GRID_COLS {
-			editor_handle_event(e, key(.Right))
+			press(e, .Right)
 		}
 		for _ in 0 ..< target / GRID_COLS {
-			editor_handle_event(e, key(.Down))
-		}
-	case .Gamepad:
-		for _ in 0 ..< target % GRID_COLS {
-			editor_handle_event(e, cm.Pad_Event{.Dpad_Right, true})
-		}
-		for _ in 0 ..< target / GRID_COLS {
-			editor_handle_event(e, cm.Pad_Event{.Dpad_Down, true})
+			press(e, .Down)
 		}
 	case .Mouse:
 		r := swatch_rect(target)
@@ -217,42 +237,38 @@ test_every_swatch_reachable_by_each_input :: proc(t: ^testing.T) {
 	}
 }
 
-// Make the current channel reach `target` using only the given method, starting from 0.
-set_value_via :: proc(e: ^Editor, m: Input_Method, target: int) {
+// Make `ch` of swatch 0 reach `target`, starting from black.
+set_value_via :: proc(e: ^Editor, m: Input_Method, ch: cm.Channel, target: int) {
 	switch m {
-	case .Keyboard:
+	case .Commands:
+		press(e, .Green) // enter edit mode on R
+		for _ in 0 ..< int(ch) {
+			press(e, .Green) // cycle to the channel
+		}
 		for _ in 0 ..< target / cm.STEP_BIG {
-			editor_handle_event(e, key(.Page_Up))
+			press(e, .Up)
 		}
 		for _ in 0 ..< target % cm.STEP_BIG {
-			editor_handle_event(e, key(.Plus))
-		}
-	case .Gamepad:
-		for _ in 0 ..< target / cm.STEP_BIG {
-			editor_handle_event(e, cm.Pad_Event{.Y, true})
-		}
-		for _ in 0 ..< target % cm.STEP_BIG {
-			editor_handle_event(e, cm.Pad_Event{.A, true})
+			press(e, .Right)
 		}
 	case .Mouse:
 		// Click the slider at the closest pixel, then trim with the wheel.
-		rc := slider_rect(e.channel)
+		rc := slider_rect(ch)
 		px := (target * (rc.w - 1) + 127) / 255
 		click_at(e, rc.x + px, rc.y + 2)
-		diff := target - int(e.palette[e.selected][e.channel])
+		diff := target - int(e.palette[e.selected][ch])
 		editor_handle_event(e, cm.Mouse_Wheel{diff})
 	}
 }
 
 @(test)
-test_every_value_reachable_by_each_input :: proc(t: ^testing.T) {
+test_every_value_of_every_channel_reachable_by_each_input :: proc(t: ^testing.T) {
 	for m in Input_Method {
 		for ch in cm.Channel {
 			for target in 0 ..= 255 {
 				e := editor_init()
-				e.palette[0] = {} // black, so keyboard/pad start from 0
-				e.channel = ch
-				set_value_via(&e, m, target)
+				e.palette[0] = {}
+				set_value_via(&e, m, ch, target)
 				got := int(e.palette[0][ch])
 				if got != target {
 					testing.expectf(t, false, "%v could not set %v to %d (got %d)", m, ch, target, got)
@@ -282,39 +298,13 @@ test_slider_mapping_is_monotonic_with_exact_ends :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_channels_reachable_by_each_input :: proc(t: ^testing.T) {
-	// Keyboard: direct keys. Gamepad: shoulders cycle. Mouse: click the slider.
-	e := editor_init()
-	editor_handle_event(&e, key(.B))
-	testing.expect_value(t, e.channel, cm.Channel.B)
-	editor_handle_event(&e, key(.G))
-	testing.expect_value(t, e.channel, cm.Channel.G)
-	editor_handle_event(&e, key(.R))
-	testing.expect_value(t, e.channel, cm.Channel.R)
-
-	editor_handle_event(&e, cm.Pad_Event{.Right_Shoulder, true})
-	editor_handle_event(&e, cm.Pad_Event{.Right_Shoulder, true})
-	testing.expect_value(t, e.channel, cm.Channel.B)
-	editor_handle_event(&e, cm.Pad_Event{.Left_Shoulder, true})
-	testing.expect_value(t, e.channel, cm.Channel.G)
-
-	for ch in cm.Channel {
-		r := slider_rect(ch)
-		click_at(&e, r.x + 5, r.y + 2)
-		testing.expect_value(t, e.channel, ch)
-	}
-}
-
-@(test)
 test_save_and_load_reachable_by_each_input :: proc(t: ^testing.T) {
 	for m in Input_Method {
 		for req in Request {
 			e := editor_init()
 			switch m {
-			case .Keyboard:
-				editor_handle_event(&e, key(req == .Save ? .S : .L))
-			case .Gamepad:
-				editor_handle_event(&e, cm.Pad_Event{req == .Save ? .Start : .Back, true})
+			case .Commands:
+				press(&e, req == .Save ? .Blue : .Yellow)
 			case .Mouse:
 				b := req == .Save ? SAVE_BUTTON : LOAD_BUTTON
 				click_at(&e, b.x + b.w / 2, b.y + b.h / 2)

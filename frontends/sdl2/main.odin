@@ -14,7 +14,8 @@ Gamepad :: struct {
 }
 
 gamepads: [dynamic]Gamepad
-window_closed: bool // the window's close button; separate from the tool's own Quit
+imap: cm.Input_Map
+window_closed: bool // the window's close button is the only way to quit
 
 main :: proc() {
 	if sdl.Init({.VIDEO, .GAMECONTROLLER}) != 0 {
@@ -57,10 +58,9 @@ main :: proc() {
 		sdl.GameControllerClose(g.handle)
 	}
 
+	imap = cm.default_input_map()
+	load_input_map()
 	tool := app.make_tool()
-	if tool.configure != nil {
-		tool.configure(tool.data, {can_quit = true})
-	}
 	has_files := cm.tool_has_files(&tool)
 	path := len(os.args) > 1 ? os.args[1] : tool.default_file
 	if has_files {
@@ -87,13 +87,13 @@ main :: proc() {
 
 	shown_dirty := !cm.tool_is_dirty(&tool) // forces the first title update
 	pads, prev_pads: cm.Pads
-	for !window_closed && !cm.tool_wants_quit(&tool) {
+	for !window_closed {
 		ev: sdl.Event
 		for sdl.PollEvent(&ev) {
 			handle_sdl_event(&tool, &ev)
 		}
 		poll_pads(&pads)
-		cm.tool_update_pads(&tool, &prev_pads, &pads)
+		cm.tool_update_pads(&tool, &prev_pads, &pads, &imap)
 		if has_files {
 			service_files(&tool, path)
 		}
@@ -116,15 +116,10 @@ handle_sdl_event :: proc(tool: ^cm.Tool, ev: ^sdl.Event) {
 	#partial switch ev.type {
 	case .QUIT:
 		window_closed = true
-	case .KEYDOWN, .KEYUP:
-		handle(
-			tool,
-			cm.Key_Event {
-				key = translate_key(ev.key.keysym.scancode),
-				shift = .LSHIFT in ev.key.keysym.mod || .RSHIFT in ev.key.keysym.mod,
-				down = ev.type == .KEYDOWN,
-			},
-		)
+	case .KEYDOWN:
+		if a, ok := cm.action_for_key(&imap, key_code(ev.key.keysym.scancode)); ok {
+			handle(tool, cm.Command{a})
+		}
 	case .MOUSEMOTION:
 		handle(tool, cm.Mouse_Move{int(ev.motion.x), int(ev.motion.y)})
 	case .MOUSEBUTTONDOWN, .MOUSEBUTTONUP:
@@ -161,40 +156,76 @@ handle_sdl_event :: proc(tool: ^cm.Tool, ev: ^sdl.Event) {
 	}
 }
 
-translate_key :: proc(sc: sdl.Scancode) -> cm.Key {
+// SDL scancode -> the browser KeyboardEvent.code name used in input_map.json ("" if not in
+// the shared vocabulary, see KNOWN key codes in common/input_map.odin).
+key_code :: proc(sc: sdl.Scancode) -> string {
 	#partial switch sc {
-	case .LEFT:
-		return .Left
-	case .RIGHT:
-		return .Right
+	case .A ..= .Z:
+		return cm.LETTER_CODES[int(sc) - int(sdl.Scancode.A)]
+	case .NUM1 ..= .NUM9:
+		return cm.DIGIT_CODES[1 + int(sc) - int(sdl.Scancode.NUM1)]
+	case .NUM0:
+		return "Digit0"
 	case .UP:
-		return .Up
+		return "ArrowUp"
 	case .DOWN:
-		return .Down
+		return "ArrowDown"
+	case .LEFT:
+		return "ArrowLeft"
+	case .RIGHT:
+		return "ArrowRight"
+	case .SPACE:
+		return "Space"
+	case .RETURN, .KP_ENTER:
+		return "Enter"
 	case .TAB:
-		return .Tab
-	case .PAGEUP:
-		return .Page_Up
-	case .PAGEDOWN:
-		return .Page_Down
-	case .EQUALS, .KP_PLUS:
-		return .Plus
-	case .MINUS, .KP_MINUS:
-		return .Minus
-	case .R:
-		return .R
-	case .G:
-		return .G
-	case .B:
-		return .B
-	case .S:
-		return .S
-	case .L:
-		return .L
+		return "Tab"
+	case .BACKSPACE:
+		return "Backspace"
 	case .ESCAPE:
-		return .Escape
+		return "Escape"
+	case .COMMA:
+		return "Comma"
+	case .PERIOD:
+		return "Period"
+	case .SLASH:
+		return "Slash"
+	case .SEMICOLON:
+		return "Semicolon"
+	case .APOSTROPHE:
+		return "Quote"
+	case .LEFTBRACKET:
+		return "BracketLeft"
+	case .RIGHTBRACKET:
+		return "BracketRight"
+	case .MINUS:
+		return "Minus"
+	case .EQUALS:
+		return "Equal"
+	case .GRAVE:
+		return "Backquote"
+	case .BACKSLASH:
+		return "Backslash"
 	}
-	return .None
+	return ""
+}
+
+INPUT_MAP_FILE :: "input_map.json"
+
+// Reads ./input_map.json if present; a missing file means the built-in defaults, an invalid one
+// is reported and also falls back to the defaults.
+load_input_map :: proc() {
+	data, err := os.read_entire_file(INPUT_MAP_FILE, context.allocator)
+	if err != nil {
+		return
+	}
+	defer delete(data)
+	m, why := cm.input_map_from_json(data)
+	if why != "" {
+		fmt.eprintfln("%s: %s (using default keys and buttons)", INPUT_MAP_FILE, why)
+		return
+	}
+	imap = m
 }
 
 // SDL game controller button -> standard-layout index (see common/gamepad.odin).

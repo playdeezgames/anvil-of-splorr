@@ -11,22 +11,30 @@ Request :: enum {
 	Load,
 }
 
+// Two modes give the eight commands enough meaning:
+//   Browse: d-pad moves between swatches; green starts editing the selected one.
+//   Edit:   left/right change the value by 1, up/down by 16; green cycles R/G/B; red returns to Browse.
+// Blue saves and yellow loads in either mode. The mouse works in both and switches mode itself.
+Mode :: enum {
+	Browse,
+	Edit,
+}
+
 // Pure tool state. Frontends feed it events, call editor_draw, and service `requests` (file IO
-// is platform specific) and `quit`.
+// is platform specific).
 Editor :: struct {
 	palette:  cm.Palette,
 	selected: int,
 	channel:  cm.Channel,
 	dirty:    bool, // palette changed since the last save/load
 	requests: bit_set[Request],
-	quit:     bool,
-	can_quit: bool, // false on platforms with no way to exit (web); Quit is then ignored and not advertised
+	mode:     Mode,
 	mouse:    [2]int,
 	drag:     Maybe(cm.Channel), // slider currently being dragged with the mouse
 }
 
 editor_init :: proc() -> Editor {
-	return Editor{palette = cm.default_palette(), can_quit = true}
+	return Editor{palette = cm.default_palette()}
 }
 
 // Frontend calls these after servicing a Request.
@@ -41,14 +49,8 @@ editor_set_palette :: proc(e: ^Editor, p: cm.Palette) {
 
 editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 	switch v in ev {
-	case cm.Key_Event:
-		if a, ok := cm.key_to_action(v); ok {
-			editor_apply_action(e, a)
-		}
-	case cm.Pad_Event:
-		if a, ok := cm.pad_to_action(v); ok {
-			editor_apply_action(e, a)
-		}
+	case cm.Command:
+		editor_apply_action(e, v.action)
 	case cm.Mouse_Move:
 		e.mouse = {v.x, v.y}
 		if ch, dragging := e.drag.?; dragging {
@@ -69,14 +71,48 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		if hit, ok := slider_at(e.mouse.x, e.mouse.y); ok {
 			ch = hit
 			e.channel = hit
+			e.mode = .Edit
 		}
 		adjust(e, ch, v.dy * cm.STEP_SMALL)
 	}
 }
 
 editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
-	col, row := e.selected % GRID_COLS, e.selected / GRID_COLS
 	switch a {
+	case .Up, .Down, .Left, .Right:
+		if e.mode == .Edit {
+			#partial switch a {
+			case .Left:
+				adjust(e, e.channel, -cm.STEP_SMALL)
+			case .Right:
+				adjust(e, e.channel, cm.STEP_SMALL)
+			case .Up:
+				adjust(e, e.channel, cm.STEP_BIG)
+			case .Down:
+				adjust(e, e.channel, -cm.STEP_BIG)
+			}
+		} else {
+			move_selection(e, a)
+		}
+	case .Green:
+		if e.mode == .Browse {
+			e.mode = .Edit
+		} else {
+			e.channel = cm.Channel((int(e.channel) + 1) % len(cm.Channel))
+		}
+	case .Red:
+		e.mode = .Browse
+	case .Blue:
+		e.requests += {.Save}
+	case .Yellow:
+		e.requests += {.Load}
+	}
+}
+
+@(private = "file")
+move_selection :: proc(e: ^Editor, a: cm.Action) {
+	col, row := e.selected % GRID_COLS, e.selected / GRID_COLS
+	#partial switch a {
 	case .Up:
 		row = (row + GRID_ROWS - 1) % GRID_ROWS
 	case .Down:
@@ -85,30 +121,6 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		col = (col + GRID_COLS - 1) % GRID_COLS
 	case .Right:
 		col = (col + 1) % GRID_COLS
-	case .Next_Channel:
-		e.channel = cm.Channel((int(e.channel) + 1) % len(cm.Channel))
-	case .Prev_Channel:
-		e.channel = cm.Channel((int(e.channel) + len(cm.Channel) - 1) % len(cm.Channel))
-	case .Select_R:
-		e.channel = .R
-	case .Select_G:
-		e.channel = .G
-	case .Select_B:
-		e.channel = .B
-	case .Increase:
-		adjust(e, e.channel, cm.STEP_SMALL)
-	case .Decrease:
-		adjust(e, e.channel, -cm.STEP_SMALL)
-	case .Increase_Big:
-		adjust(e, e.channel, cm.STEP_BIG)
-	case .Decrease_Big:
-		adjust(e, e.channel, -cm.STEP_BIG)
-	case .Save:
-		e.requests += {.Save}
-	case .Load:
-		e.requests += {.Load}
-	case .Quit:
-		e.quit = e.can_quit
 	}
 	e.selected = row * GRID_COLS + col
 }
@@ -135,8 +147,10 @@ set_value :: proc(e: ^Editor, ch: cm.Channel, value: int) {
 click :: proc(e: ^Editor, x, y: int) {
 	if i, ok := swatch_at(x, y); ok {
 		e.selected = i
+		e.mode = .Browse
 	} else if ch, ok := slider_at(x, y); ok {
 		e.channel = ch
+		e.mode = .Edit
 		e.drag = ch
 		set_from_slider_x(e, ch, x)
 	} else if rect_contains(SAVE_BUTTON, x, y) {

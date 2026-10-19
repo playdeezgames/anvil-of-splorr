@@ -1,0 +1,23 @@
+{
+  "_note": "Gamepad values are standard-layout button indices (the Gamepad Tester shows them); keyboard values are KeyboardEvent.code names such as KeyR or ArrowUp. Use null to unbind a command; a command left out keeps its default.",
+  "gamepad": {
+    "up": 12,
+    "down": 13,
+    "left": 14,
+    "right": 15,
+    "green": 1,
+    "red": 0,
+    "blue": 9,
+    "yellow": 8
+  },
+  "keyboard": {
+    "up": "ArrowUp",
+    "down": "ArrowDown",
+    "left": "ArrowLeft",
+    "right": "ArrowRight",
+    "green": "Space",
+    "red": "Escape",
+    "blue": "Enter",
+    "yellow": "Tab"
+  }
+}

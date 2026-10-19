@@ -44,54 +44,23 @@ pad_name :: proc(p: ^Pad_State) -> string {
 	return string(p.name_buf[:p.name_len])
 }
 
-// Standard-layout button index -> the button the editors bind commands to. Not every standard
-// button is bound: triggers and stick clicks are deliberately absent.
-pad_button_for_index :: proc(i: int) -> (Pad_Button, bool) {
-	switch i {
-	case 0:
-		return .A, true
-	case 1:
-		return .B, true
-	case 2:
-		return .X, true
-	case 3:
-		return .Y, true
-	case 4:
-		return .Left_Shoulder, true
-	case 5:
-		return .Right_Shoulder, true
-	case 8:
-		return .Back, true
-	case 9:
-		return .Start, true
-	case 12:
-		return .Dpad_Up, true
-	case 13:
-		return .Dpad_Down, true
-	case 14:
-		return .Dpad_Left, true
-	case 15:
-		return .Dpad_Right, true
-	case 16:
-		return .Guide, true
-	}
-	return {}, false
-}
+// Bitmask of standard-layout buttons that are down (empty for disconnected / non-standard pads).
+Button_Set :: bit_set[0 ..< STANDARD_BUTTON_COUNT;u32]
 
-pad_pressed_set :: proc(p: ^Pad_State) -> (set: bit_set[Pad_Button]) {
+pad_down_set :: proc(p: ^Pad_State) -> (set: Button_Set) {
 	if !p.connected || !p.standard {
 		return
 	}
 	for i in 0 ..< min(p.button_count, STANDARD_BUTTON_COUNT) {
-		if b, ok := pad_button_for_index(i); ok && p.buttons[i].down {
-			set += {b}
+		if p.buttons[i].down {
+			set += {i}
 		}
 	}
 	return
 }
 
-// Buttons that went down / up between two snapshots (bound buttons of standard pads only).
-pad_edges :: proc(prev, now: ^Pad_State) -> (pressed, released: bit_set[Pad_Button]) {
-	a, b := pad_pressed_set(prev), pad_pressed_set(now)
+// Standard buttons that went down / up between two snapshots.
+pad_edges :: proc(prev, now: ^Pad_State) -> (pressed, released: Button_Set) {
+	a, b := pad_down_set(prev), pad_down_set(now)
 	return b - a, a - b
 }

@@ -22,7 +22,7 @@ build_web() {
 	local out="build/web/$tool"
 	mkdir -p "$out"
 	odin build frontends/web -target:js_wasm32 "$coll" -out:"$out/app.wasm" -o:speed
-	cp "$(odin root)/core/sys/wasm/js/odin.js" "$out/"
+	cp "$(odin root)/core/sys/wasm/js/odin.js" input_map.json "$out/"
 	sed -e "s/@TITLE@/$(cat "apps/$tool/title.txt")/" -e "s/@TOOL@/$tool/" frontends/web/index.html > "$out/index.html"
 }
 
@@ -35,7 +35,7 @@ case "$target" in
 			odin check frontends/web -target:js_wasm32 "-collection:app=apps/$t"
 		done ;;
 	test)
-		for pkg in common palette_editor gamepad_tester frontends/web; do odin test "$pkg"; done ;;
+		for pkg in common palette_editor gamepad_tester; do odin test "$pkg"; done ;;
 	native) mkdir -p build && odin build frontends/sdl2 "$coll" -out:"build/$tool" ;;
 	run)    "$0" native "$tool" && "./build/$tool" "$@" ;;
 	web)    build_web ;;

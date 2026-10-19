@@ -85,8 +85,23 @@ document.getElementById("open").addEventListener("change", async (ev) => {
   say(exp.file_loaded(data.length) ? `Loaded ${file.name}.` : `${file.name}: not a valid file for this tool.`);
 });
 
+// input_map.json sits next to the page and can be edited by hand; reload to apply.
+async function loadInputMap() {
+  const exp = memory.exports;
+  let res;
+  try { res = await fetch("input_map.json", { cache: "no-store" }); } catch (e) { return; }
+  if (!res.ok) return; // no file: built-in defaults
+  const data = new Uint8Array(await res.arrayBuffer());
+  if (data.length <= 4096) bytesAt(exp.input_map_buffer(), data.length).set(data);
+  if (!exp.input_map_loaded(data.length)) {
+    const err = new TextDecoder().decode(bytesAt(exp.input_map_error_ptr(), exp.input_map_error_len()));
+    say(`input_map.json: ${err} (using default keys)`);
+  }
+}
+
 odin.runWasm("app.wasm", null, imports, memory)
   .then(() => {
+    loadInputMap();
     if (memory.exports.tool_has_files && memory.exports.tool_has_files()) {
       document.getElementById("open-label").hidden = false;
     }
