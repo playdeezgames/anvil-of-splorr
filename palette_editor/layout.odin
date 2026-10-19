@@ -23,6 +23,9 @@ BANNER :: Rect{134, 5, 160, 11}
 PREVIEW :: Rect{134, 94, 84, 28}
 SAVE_BUTTON :: Rect{232, 94, 40, 12}
 LOAD_BUTTON :: Rect{232, 110, 40, 12}
+COPY_BUTTON :: Rect{278, 94, 36, 12}
+PASTE_BUTTON :: Rect{278, 110, 36, 12}
+CLIP_CHIP :: Rect{190, 125, 7, 7} // shows the copied colour next to the readout
 READOUT_Y :: 126 // "05 #AA5500 *" under the preview
 HELP_Y :: 136 // help block, full width, packed at the font's line pitch
 

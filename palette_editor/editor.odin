@@ -11,13 +11,18 @@ Request :: enum {
 	Load,
 }
 
-// Two modes give the eight commands enough meaning:
-//   Browse: d-pad moves between swatches; green starts editing the selected one.
+// Three modes give the eight commands enough meaning:
+//   Browse: d-pad moves between swatches; green starts editing the selected one; red copies the
+//           selected colour and enters Paste.
 //   Edit:   left/right change the value by 1, up/down by 16; green cycles R/G/B; red returns to Browse.
-// Blue saves and yellow loads in either mode. The mouse works in both and switches mode itself.
+//   Paste:  d-pad moves between swatches; green pastes the copied colour into the selected one
+//           (repeat for several); red returns to Browse.
+// Blue saves and yellow loads in every mode. The mouse works in all of them (COPY and PASTE
+// buttons) and switches mode itself.
 Mode :: enum {
 	Browse,
 	Edit,
+	Paste,
 }
 
 // Pure tool state. Frontends feed it events, call editor_draw, and service `requests` (file IO
@@ -29,6 +34,7 @@ Editor :: struct {
 	dirty:    bool, // palette changed since the last save/load
 	requests: bit_set[Request],
 	mode:     Mode,
+	clipboard: Maybe(cm.Color), // last copied colour
 	labels:   ^cm.Input_Map, // source of on-screen command names; nil means the defaults
 	mouse:    [2]int,
 	drag:     Maybe(cm.Channel), // slider currently being dragged with the mouse
@@ -96,18 +102,42 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 			move_selection(e, a)
 		}
 	case .Green:
-		if e.mode == .Browse {
+		switch e.mode {
+		case .Browse:
 			e.mode = .Edit
-		} else {
+		case .Edit:
 			e.channel = cm.Channel((int(e.channel) + 1) % len(cm.Channel))
+		case .Paste:
+			paste(e)
 		}
 	case .Red:
-		e.mode = .Browse
+		if e.mode == .Browse {
+			copy_selected(e)
+		} else {
+			e.mode = .Browse
+		}
 	case .Blue:
 		e.requests += {.Save}
 	case .Yellow:
 		e.requests += {.Load}
 	}
+}
+
+// Remembers the selected colour and enters Paste mode so it can be stamped onto other swatches.
+@(private = "file")
+copy_selected :: proc(e: ^Editor) {
+	e.clipboard = e.palette[e.selected]
+	e.mode = .Paste
+}
+
+@(private = "file")
+paste :: proc(e: ^Editor) {
+	c, has := e.clipboard.?
+	if !has || e.palette[e.selected] == c {
+		return
+	}
+	e.palette[e.selected] = c
+	e.dirty = true
 }
 
 @(private = "file")
@@ -148,7 +178,9 @@ set_value :: proc(e: ^Editor, ch: cm.Channel, value: int) {
 click :: proc(e: ^Editor, x, y: int) {
 	if i, ok := swatch_at(x, y); ok {
 		e.selected = i
-		e.mode = .Browse
+		if e.mode != .Paste {
+			e.mode = .Browse
+		}
 	} else if ch, ok := slider_at(x, y); ok {
 		e.channel = ch
 		e.mode = .Edit
@@ -158,6 +190,10 @@ click :: proc(e: ^Editor, x, y: int) {
 		e.requests += {.Save}
 	} else if rect_contains(LOAD_BUTTON, x, y) {
 		e.requests += {.Load}
+	} else if rect_contains(COPY_BUTTON, x, y) {
+		copy_selected(e)
+	} else if rect_contains(PASTE_BUTTON, x, y) {
+		paste(e)
 	}
 }
 

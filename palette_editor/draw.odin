@@ -7,7 +7,9 @@ BG :: cm.Color{28, 28, 36}
 PANEL :: cm.Color{64, 64, 76}
 TEXT :: cm.Color{200, 200, 210}
 HILITE :: cm.Color{255, 220, 80}
+DIM :: cm.Color{120, 120, 134}
 WHITE :: cm.Color{255, 255, 255}
+PASTE_OUTLINE :: cm.Color{90, 200, 255}
 
 channel_color :: proc(ch: cm.Channel) -> cm.Color {
 	switch ch {
@@ -21,14 +23,30 @@ channel_color :: proc(ch: cm.Channel) -> cm.Color {
 	return WHITE
 }
 
+outline_color :: proc(m: Mode) -> cm.Color {
+	switch m {
+	case .Browse:
+		return HILITE
+	case .Edit:
+		return WHITE
+	case .Paste:
+		return PASTE_OUTLINE
+	}
+	return HILITE
+}
+
 label :: proc(e: ^Editor, a: cm.Action) -> string {
 	return cm.action_label(e.labels, a)
 }
 
 // Strings are on the temp allocator: valid until the frontend's next free_all.
 banner_text :: proc(e: ^Editor) -> string {
-	if e.mode == .Edit {
+	switch e.mode {
+	case .Edit:
 		return fmt.tprintf("EDITING   %s: DONE", label(e, .Red))
+	case .Paste:
+		return fmt.tprintf("PASTING   %s: DONE", label(e, .Red))
+	case .Browse:
 	}
 	return fmt.tprintf("BROWSING   %s: EDIT", label(e, .Green))
 }
@@ -37,24 +55,24 @@ MAX_HELP_LINES :: 5
 
 help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	l :: label
-	if e.mode == .Edit {
+	mouse := "MOUSE: CLICK/DRAG/WHEEL"
+	save_load := fmt.tprintf("%s: SAVE  %s: LOAD", l(e, .Blue), l(e, .Yellow))
+	move := fmt.tprintf("%s/%s/%s/%s: MOVE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right))
+	switch e.mode {
+	case .Edit:
 		lines = {
 			fmt.tprintf("%s/%s: -/+ 1", l(e, .Left), l(e, .Right)),
 			fmt.tprintf("%s/%s: +/- 16", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s: NEXT CHANNEL", l(e, .Green)),
-			fmt.tprintf("%s: SAVE  %s: LOAD", l(e, .Blue), l(e, .Yellow)),
-			"MOUSE: CLICK/DRAG/WHEEL",
+			save_load,
+			mouse,
 		}
-		return lines, 5
+	case .Paste:
+		lines = {move, fmt.tprintf("%s: PASTE COLOR", l(e, .Green)), fmt.tprintf("%s: DONE", l(e, .Red)), save_load, mouse}
+	case .Browse:
+		lines = {move, fmt.tprintf("%s: EDIT COLOR", l(e, .Green)), fmt.tprintf("%s: COPY COLOR", l(e, .Red)), save_load, mouse}
 	}
-	lines = {
-		fmt.tprintf("%s/%s/%s/%s: MOVE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
-		fmt.tprintf("%s: EDIT COLOR", l(e, .Green)),
-		fmt.tprintf("%s: SAVE", l(e, .Blue)),
-		fmt.tprintf("%s: LOAD", l(e, .Yellow)),
-		"MOUSE: CLICK/DRAG/WHEEL",
-	}
-	return lines, 5
+	return lines, MAX_HELP_LINES
 }
 
 editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
@@ -67,7 +85,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	for i in 0 ..< cm.PALETTE_SIZE {
 		rc := swatch_rect(i)
 		if i == e.selected {
-			fill(r, Rect{rc.x - 2, rc.y - 2, rc.w + 4, rc.h + 4}, e.mode == .Edit ? WHITE : HILITE)
+			fill(r, Rect{rc.x - 2, rc.y - 2, rc.w + 4, rc.h + 4}, outline_color(e.mode))
 		}
 		fill(r, rc, e.palette[i])
 	}
@@ -107,11 +125,18 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		TEXT,
 	)
 
+	// Clipboard chip: the copied colour, if any.
+	if c, has := e.clipboard.?; has {
+		fill(r, Rect{CLIP_CHIP.x - 1, CLIP_CHIP.y - 1, CLIP_CHIP.w + 2, CLIP_CHIP.h + 2}, PANEL)
+		fill(r, CLIP_CHIP, c)
+		cm.draw_text(r, CLIP_CHIP.x + CLIP_CHIP.w + 4, READOUT_Y, "CLIP", DIM)
+	}
+
 	// Buttons.
-	for b in ([2]struct {
+	for b in ([4]struct {
 			rc:    Rect,
 			label: string,
-		}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}}) {
+		}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}, {COPY_BUTTON, "COPY"}, {PASTE_BUTTON, "PASTE"}}) {
 		fill(r, b.rc, PANEL)
 		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.label)) / 2, b.rc.y + 4, b.label, TEXT)
 	}

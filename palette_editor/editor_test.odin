@@ -53,8 +53,6 @@ test_green_enters_edit_then_cycles_channels :: proc(t: ^testing.T) {
 	testing.expect_value(t, e.channel, cm.Channel.R) // wraps
 	press(&e, .Red)
 	testing.expect_value(t, e.mode, Mode.Browse)
-	press(&e, .Red) // red in browse is harmless
-	testing.expect_value(t, e.mode, Mode.Browse)
 }
 
 @(test)
@@ -185,7 +183,7 @@ test_draw_shows_selected_color_in_both_modes :: proc(t: ^testing.T) {
 		}
 		testing.expectf(t, found >= 2, "mode %v: swatch + preview expected", m) // swatch + preview
 	}
-	testing.expect_value(t, log.presents, 2)
+	testing.expect_value(t, log.presents, len(Mode))
 }
 
 @(test)
@@ -203,6 +201,9 @@ test_layout_fits_screen :: proc(t: ^testing.T) {
 	check(t, PREVIEW)
 	check(t, SAVE_BUTTON)
 	check(t, LOAD_BUTTON)
+	check(t, COPY_BUTTON)
+	check(t, PASTE_BUTTON)
+	check(t, CLIP_CHIP)
 }
 
 // --- Parity: every function must be reachable with the commands alone and with the mouse alone. ---
@@ -376,4 +377,128 @@ test_help_block_clears_the_readouts :: proc(t: ^testing.T) {
 	testing.expect(t, READOUT_Y > PREVIEW.y + PREVIEW.h)
 	testing.expect(t, HELP_Y > swatch_rect(15).y + CELL) // below the swatch grid
 	testing.expect(t, HELP_Y > LOAD_BUTTON.y + LOAD_BUTTON.h)
+	// Buttons do not overlap each other or the clipboard chip.
+	rects := [?]Rect{SAVE_BUTTON, LOAD_BUTTON, COPY_BUTTON, PASTE_BUTTON, PREVIEW, BANNER}
+	for a, i in rects {
+		for b, j in rects {
+			if i < j {
+				overlap := a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+				testing.expectf(t, !overlap, "layout rects %d and %d overlap", i, j)
+			}
+		}
+	}
+	testing.expect(t, CLIP_CHIP.x + CLIP_CHIP.w + 4 + cm.text_width("CLIP") < SAVE_BUTTON.x)
+}
+
+// --- Copy and paste ---
+
+@(test)
+test_red_copies_and_enters_paste_mode :: proc(t: ^testing.T) {
+	e := editor_init()
+	e.selected = 3 // (0,170,170)
+	press(&e, .Red)
+	testing.expect_value(t, e.mode, Mode.Paste)
+	c, has := e.clipboard.?
+	testing.expect(t, has && c == cm.Color{0, 170, 170})
+	testing.expect(t, !e.dirty) // copying changes nothing
+}
+
+@(test)
+test_paste_stamps_onto_several_swatches :: proc(t: ^testing.T) {
+	e := editor_init()
+	e.selected = 3
+	press(&e, .Red, .Right, .Green, .Right, .Green) // copy 3, paste onto 0 (wrapped), then 1
+	testing.expect_value(t, e.mode, Mode.Paste)
+	testing.expect(t, e.palette[0] == e.palette[3])
+	testing.expect(t, e.palette[1] == e.palette[3])
+	testing.expect(t, e.dirty)
+	testing.expect(t, e.palette[2] != e.palette[3]) // untouched
+	// Moving in paste mode does not edit values.
+	press(&e, .Up, .Left)
+	testing.expect(t, e.palette[0] == e.palette[3])
+}
+
+@(test)
+test_red_leaves_paste_mode_and_clipboard_survives :: proc(t: ^testing.T) {
+	e := editor_init()
+	press(&e, .Red) // copy swatch 0, enter paste
+	press(&e, .Red) // done
+	testing.expect_value(t, e.mode, Mode.Browse)
+	_, has := e.clipboard.?
+	testing.expect(t, has)
+	// Green in browse still means edit, not paste.
+	e.selected = 5
+	before := e.palette[5]
+	press(&e, .Green)
+	testing.expect_value(t, e.mode, Mode.Edit)
+	testing.expect(t, e.palette[5] == before)
+}
+
+@(test)
+test_paste_of_identical_colour_is_not_a_change :: proc(t: ^testing.T) {
+	e := editor_init()
+	press(&e, .Red, .Green) // paste onto the swatch it was copied from
+	testing.expect(t, !e.dirty)
+}
+
+@(test)
+test_paste_without_clipboard_does_nothing :: proc(t: ^testing.T) {
+	e := editor_init()
+	before := e.palette
+	click_at(&e, PASTE_BUTTON.x + 2, PASTE_BUTTON.y + 2)
+	testing.expect(t, e.palette == before && !e.dirty)
+	e.mode = .Paste // reachable only by hand, but must be safe
+	press(&e, .Green)
+	testing.expect(t, e.palette == before && !e.dirty)
+}
+
+@(test)
+test_mouse_copy_and_paste :: proc(t: ^testing.T) {
+	e := editor_init()
+	a, b := swatch_rect(2), swatch_rect(9)
+	click_at(&e, a.x + 3, a.y + 3)
+	click_at(&e, COPY_BUTTON.x + 2, COPY_BUTTON.y + 2)
+	testing.expect_value(t, e.mode, Mode.Paste)
+	click_at(&e, b.x + 3, b.y + 3) // selecting in paste mode keeps paste mode
+	testing.expect_value(t, e.mode, Mode.Paste)
+	testing.expect_value(t, e.selected, 9)
+	click_at(&e, PASTE_BUTTON.x + 2, PASTE_BUTTON.y + 2)
+	testing.expect(t, e.palette[9] == e.palette[2] && e.dirty)
+	// A slider click leaves paste mode for edit mode.
+	r := slider_rect(.R)
+	click_at(&e, r.x + 5, r.y + 2)
+	testing.expect_value(t, e.mode, Mode.Edit)
+}
+
+@(test)
+test_copy_paste_reachable_by_each_input :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		for src in ([]int{0, 5, 15}) {
+			for dst in ([]int{1, 8, 14}) {
+				e := editor_init()
+				e.palette[src] = {11, 22, 33}
+				switch m {
+				case .Commands:
+					select_swatch_via(&e, m, src)
+					press(&e, .Red) // copy
+					// Walk to dst in paste mode: back to 0 first, then across and down.
+					e.selected = 0
+					for _ in 0 ..< dst % GRID_COLS {
+						press(&e, .Right)
+					}
+					for _ in 0 ..< dst / GRID_COLS {
+						press(&e, .Down)
+					}
+					press(&e, .Green) // paste
+				case .Mouse:
+					a, b := swatch_rect(src), swatch_rect(dst)
+					click_at(&e, a.x + 3, a.y + 3)
+					click_at(&e, COPY_BUTTON.x + 2, COPY_BUTTON.y + 2)
+					click_at(&e, b.x + 3, b.y + 3)
+					click_at(&e, PASTE_BUTTON.x + 2, PASTE_BUTTON.y + 2)
+				}
+				testing.expectf(t, e.palette[dst] == (cm.Color{11, 22, 33}), "%v: copy %d -> paste %d failed", m, src, dst)
+			}
+		}
+	}
 }
