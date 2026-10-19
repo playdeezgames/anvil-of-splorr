@@ -163,7 +163,8 @@ test_font_file_exact_text :: proc(t: ^testing.T) {
 	pixel_font_set_present(f, 'B', true)
 	pixel_font_set_width(f, 'B', 1)
 	bitmap_set(&f.glyphs['B'], 0, 1, true)
-	want := "{\n  \"height\": 2,\n  \"glyphs\": {\n    \"65\": {\n      \"width\": 2,\n      \"rows\": [\n        \"#.\",\n        \"..\"\n      ]\n    },\n    \"66\": {\n      \"width\": 1,\n      \"rows\": [\n        \".\",\n        \"#\"\n      ]\n    }\n  }\n}\n"
+	// A: "#." / ".." = 128, 0.  B: "." / "#" = 0, 128.
+	want := "{\n  \"height\": 2,\n  \"glyphs\": {\n    \"65\": {\n      \"width\": 2,\n      \"bytes\": [\n        128,\n        0\n      ]\n    },\n    \"66\": {\n      \"width\": 1,\n      \"bytes\": [\n        0,\n        128\n      ]\n    }\n  }\n}\n"
 	testing.expect_value(t, pixel_font_to_json(f), want)
 }
 
@@ -187,12 +188,12 @@ test_bad_font_files_are_rejected_and_change_nothing :: proc(t: ^testing.T) {
 		{`{"height": 2, "glyphs": {"256": {}}}`, "not a character code"},
 		{`{"height": 2, "glyphs": {"-1": {}}}`, "not a character code"},
 		{`{"height": 2, "glyphs": {"65": 5}}`, "glyph 65 must be an object"},
-		{`{"height": 2, "glyphs": {"65": {"rows": ["#","."]}}}`, `glyph 65: "width"`},
-		{`{"height": 2, "glyphs": {"65": {"width": 0, "rows": []}}}`, `glyph 65: "width"`},
-		{`{"height": 2, "glyphs": {"65": {"width": 1}}}`, `glyph 65: "rows"`},
-		{`{"height": 2, "glyphs": {"65": {"width": 1, "rows": ["#"]}}}`, "glyph 65: "}, // one row, height is 2
-		{`{"height": 1, "glyphs": {"65": {"width": 2, "rows": ["#"]}}}`, "glyph 65: "}, // row too short
-		{`{"height": 1, "glyphs": {"66": {"width": 1, "rows": ["x"]}}}`, `glyph 66: row 0: only "#" and "."`},
+		{`{"height": 2, "glyphs": {"65": {"bytes": [128, 0]}}}`, `glyph 65: "width"`},
+		{`{"height": 2, "glyphs": {"65": {"width": 0, "bytes": []}}}`, `glyph 65: "width"`},
+		{`{"height": 2, "glyphs": {"65": {"width": 1}}}`, `glyph 65: needs "bytes"`},
+		{`{"height": 2, "glyphs": {"65": {"width": 1, "bytes": [128]}}}`, "glyph 65: "}, // one byte, height is 2
+		{`{"height": 1, "glyphs": {"65": {"width": 9, "bytes": [255]}}}`, "glyph 65: "}, // 9 wide needs 2 bytes
+		{`{"height": 1, "glyphs": {"66": {"width": 1, "bytes": [300]}}}`, `glyph 66: "bytes" entry 0`},
 	}
 	for c in cases {
 		err := parse_font(c.json, dst)
@@ -200,10 +201,10 @@ test_bad_font_files_are_rejected_and_change_nothing :: proc(t: ^testing.T) {
 		testing.expectf(t, dst.height == 6 && dst.present['Z'], "a rejected file changed the font: %q", c.json)
 	}
 	// A good glyph followed by a bad one still changes nothing.
-	err := parse_font(`{"height": 1, "glyphs": {"65": {"width": 1, "rows": ["#"]}, "66": {"width": 1, "rows": ["?"]}}}`, dst)
+	err := parse_font(`{"height": 1, "glyphs": {"65": {"width": 1, "bytes": [128]}, "66": {"width": 1, "bytes": [999]}}}`, dst)
 	testing.expect(t, err != "" && dst.height == 6 && !dst.present['A'])
 	// Extra fields are ignored.
-	testing.expect_value(t, parse_font(`{"name": "x", "height": 1, "glyphs": {"65": {"note": 1, "width": 1, "rows": ["#"]}}}`, dst), "")
+	testing.expect_value(t, parse_font(`{"name": "x", "height": 1, "glyphs": {"65": {"note": 1, "width": 1, "bytes": [128]}}}`, dst), "")
 	testing.expect(t, dst.height == 1 && dst.present['A'] && !dst.present['Z'])
 }
 
@@ -316,4 +317,89 @@ test_visible_equal_ignores_hidden_bits :: proc(t: ^testing.T) {
 	testing.expect(t, !bitmap_visible_equal(&a, &b))
 	c := bitmap_make(4, 5)
 	testing.expect(t, !bitmap_visible_equal(&a, &c)) // different size
+}
+
+@(test)
+test_wide_glyphs_use_one_extra_byte_per_row :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	f := new_font(2)
+	defer free(f)
+	pixel_font_set_present(f, 'W', true)
+	pixel_font_set_width(f, 'W', 12) // 12 wide: 2 bytes per row, 4 pad bits
+	for x in 0 ..< 12 {
+		bitmap_set(&f.glyphs['W'], x, 1, true)
+	}
+	bitmap_set(&f.glyphs['W'], 11, 0, true)
+	text := pixel_font_to_json(f)
+	testing.expect(t, strings.contains(text, "0, 16,\n        255, 240\n")) // 00000000 00010000 / 11111111 11110000
+	back := new(Pixel_Font)
+	defer free(back)
+	testing.expect_value(t, parse_font(text, back), "")
+	testing.expect(t, back.glyphs['W'] == f.glyphs['W'])
+}
+
+@(test)
+test_old_string_font_files_still_load :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	old := `{"height": 2, "glyphs": {"65": {"width": 2, "rows": ["#.", ".."]}, "66": {"width": 1, "rows": [".", "#"]}}}`
+	f := new(Pixel_Font)
+	defer free(f)
+	testing.expect_value(t, parse_font(old, f), "")
+	testing.expect(t, f.present['A'] && f.present['B'] && f.glyphs['A'].bits[0][0] && f.glyphs['B'].bits[1][0])
+	text := pixel_font_to_json(f)
+	testing.expect(t, strings.contains(text, `"bytes"`) && !strings.contains(text, `"rows"`))
+}
+
+@(test)
+test_builtin_font_converts_faithfully :: proc(t: ^testing.T) {
+	f := new_font()
+	defer free(f)
+	pixel_font_load_builtin(f)
+	testing.expect_value(t, f.height, GLYPH_H)
+	count := 0
+	for code in 0 ..< PIXEL_FONT_CHARS {
+		ch := rune(code)
+		testing.expectf(t, f.present[code] == font_has(ch), "code %d presence", code)
+		if !f.present[code] {
+			continue
+		}
+		count += 1
+		g := &f.glyphs[code]
+		testing.expect(t, g.width == GLYPH_ADVANCE && g.height == GLYPH_H)
+		rows := glyph_for(ch)
+		for y in 0 ..< GLYPH_H {
+			for x in 0 ..< GLYPH_W {
+				want := (rows[y] >> uint(GLYPH_W - 1 - x)) & 1 == 1
+				testing.expectf(t, g.bits[y][x] == want, "code %d pixel (%d,%d)", code, x, y)
+			}
+			testing.expectf(t, !g.bits[y][GLYPH_W], "code %d: the spacing column must be blank", code) // column 3
+		}
+	}
+	testing.expect_value(t, count, 81) // space, 52 letters, 10 digits, 18 punctuation marks
+	testing.expect(t, f.glyphs['a'] == f.glyphs['A']) // lowercase shares the capital shapes
+	testing.expect(t, f.glyphs['z'] == f.glyphs['Z'])
+	// The packed form of one glyph, as it appears in the file: 'A' is .#. / #.# / ### / #.# / #.#.
+	packed := bitmap_pack(&f.glyphs['A'])
+	testing.expect(t, len(packed) == 5 && packed[0] == 0x40 && packed[1] == 0xA0 && packed[2] == 0xE0 && packed[3] == 0xA0 && packed[4] == 0xA0)
+}
+
+@(test)
+test_the_committed_default_font_file_is_in_step_with_the_builtin_font :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	f := new_font()
+	defer free(f)
+	pixel_font_load_builtin(f)
+	want := pixel_font_to_json(f)
+	have := string(#load("../default-font.json"))
+	testing.expectf(t, have == want, "default-font.json is out of date: run ./build.sh default-font")
+	// And it is a valid font file that loads back to the same thing.
+	loaded := new(Pixel_Font)
+	defer free(loaded)
+	testing.expect_value(t, pixel_font_from_json(transmute([]u8)have, loaded), "")
+	testing.expect(t, loaded.present == f.present && loaded.height == f.height)
+	for code in 0 ..< PIXEL_FONT_CHARS {
+		if f.present[code] {
+			testing.expect(t, loaded.glyphs[code] == f.glyphs[code])
+		}
+	}
 }

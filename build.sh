@@ -5,6 +5,7 @@
 #   run [tool] [file]       build and run natively
 #   web [tool]              build/web/<tool>/
 #   serve [tool] [port]     web + http.server (default port 8000)
+#   default-font            regenerate default-font.json from the built-in editor font
 # Builds select what to include with apps/<name>/: "suite" (default) is the main menu plus every
 # editor; "palette_editor", "glyph_editor", "font_editor" and "gamepad_tester" build a single tool on its own.
 set -euo pipefail
@@ -33,6 +34,7 @@ build_web() {
 case "$target" in
 	check)
 		for pkg in common palette_editor glyph_editor font_editor gamepad_tester launcher; do odin check "$pkg" -no-entry-point; done
+		odin check tools/default_font
 		for t in apps/*/; do
 			t="$(basename "$t")"
 			odin check frontends/sdl2 "-collection:app=apps/$t"
@@ -40,9 +42,10 @@ case "$target" in
 		done ;;
 	test)
 		for pkg in common palette_editor glyph_editor font_editor gamepad_tester launcher; do odin test "$pkg"; done ;;
+	default-font) mkdir -p build && odin build tools/default_font -out:build/default_font && ./build/default_font default-font.json ;;
 	native) mkdir -p build && odin build frontends/sdl2 "$coll" -out:"build/$tool" ;;
 	run)    "$0" native "$tool" && "./build/$tool" "$@" ;;
 	web)    build_web ;;
 	serve)  build_web && python3 -m http.server -d "build/web/$tool" "${1:-8000}" ;;
-	*) echo "unknown target: $target (expected check, test, native, run, web or serve)" >&2; exit 2 ;;
+	*) echo "unknown target: $target (expected check, test, native, run, web, serve or default-font)" >&2; exit 2 ;;
 esac

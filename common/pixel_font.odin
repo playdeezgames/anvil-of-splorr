@@ -58,6 +58,30 @@ pixel_font_set_height :: proc(f: ^Pixel_Font, height: int) -> bool {
 	return true
 }
 
+// Fills the font with the built-in 3 x 5 editor font (font.odin), so it can be saved as a normal
+// font file. Every character the editor can draw is present: space, digits, punctuation and the
+// letters (lowercase uses the capital shapes, as it does on screen). The height is the glyph
+// height, 5, and each glyph is GLYPH_ADVANCE (4) wide: the 3 pixel columns plus the blank column
+// the editor leaves between characters. Line spacing is not part of a font file.
+pixel_font_load_builtin :: proc(f: ^Pixel_Font) {
+	pixel_font_reset(f, GLYPH_H)
+	for code in 0 ..< PIXEL_FONT_CHARS {
+		ch := rune(code)
+		if !font_has(ch) {
+			continue
+		}
+		f.present[code] = true
+		g := &f.glyphs[code]
+		g.width = GLYPH_ADVANCE
+		rows := glyph_for(ch)
+		for y in 0 ..< GLYPH_H {
+			for x in 0 ..< GLYPH_W {
+				g.bits[y][x] = (rows[y] >> uint(GLYPH_W - 1 - x)) & 1 == 1
+			}
+		}
+	}
+}
+
 // Returns true if the glyph's presence changed.
 pixel_font_set_present :: proc(f: ^Pixel_Font, code: int, present: bool) -> bool {
 	if code < 0 || code >= PIXEL_FONT_CHARS || f.present[code] == present {
@@ -134,10 +158,12 @@ pixel_font_text_width :: proc(f: ^Pixel_Font, text: string) -> (w: int) {
 }
 
 // File format (JSON). Only present glyphs are listed, keyed by character code:
-//   { "height": 8, "glyphs": { "65": { "width": 3, "rows": [ "...", ... ] }, ... } }
-// Rows follow the Bitmap file format ('#' set, '.' clear). Loading requires a height of
-// BITMAP_MIN..BITMAP_MAX, codes 0..255, widths in the same range, and exactly `height` rows of
-// `width` characters per glyph. Unknown extra fields are ignored.
+//   { "height": 8, "glyphs": { "65": { "width": 3, "bytes": [ 160, 64, ... ] }, ... } }
+// Each glyph's pixels use the packed form described at bitmap_pack: one pixel row per
+// ceil(width / 8) bytes (padded), leftmost pixel in the top bit, `height` rows. Loading requires a
+// height of BITMAP_MIN..BITMAP_MAX, codes 0..255, widths in the same range and exactly
+// height * ceil(width / 8) bytes per glyph; padding bits are ignored. Unknown extra fields are
+// ignored. Old files with "rows" of "#"/"." strings instead of "bytes" can still be read.
 pixel_font_to_json :: proc(f: ^Pixel_Font, allocator := context.temp_allocator) -> string {
 	b := strings.builder_make(allocator)
 	fmt.sbprintf(&b, "{{\n  \"height\": %d,\n  \"glyphs\": {{", f.height)
@@ -149,8 +175,8 @@ pixel_font_to_json :: proc(f: ^Pixel_Font, allocator := context.temp_allocator) 
 		g := &f.glyphs[c]
 		strings.write_string(&b, first ? "\n" : ",\n")
 		first = false
-		fmt.sbprintf(&b, "    \"%d\": {{\n      \"width\": %d,\n      \"rows\": [\n", c, g.width)
-		bitmap_write_rows(&b, g, "        ")
+		fmt.sbprintf(&b, "    \"%d\": {{\n      \"width\": %d,\n      \"bytes\": [\n", c, g.width)
+		bitmap_write_bytes(&b, g, "        ")
 		strings.write_string(&b, "\n      ]\n    }")
 	}
 	strings.write_string(&b, first ? "}\n}\n" : "\n  }\n}\n")
@@ -195,12 +221,8 @@ pixel_font_from_json :: proc(data: []u8, dst: ^Pixel_Font) -> (err: string) {
 		if !w_ok || w < BITMAP_MIN || w > BITMAP_MAX {
 			return fmt.tprintf(`glyph %d: "width" must be a whole number from %d to %d`, code, BITMAP_MIN, BITMAP_MAX)
 		}
-		rows, rows_ok := obj["rows"].(json.Array)
-		if !rows_ok {
-			return fmt.tprintf(`glyph %d: "rows" must be a list of strings`, code)
-		}
 		tmp.glyphs[code] = bitmap_make(int(w), int(h))
-		if e := bitmap_read_rows(&tmp.glyphs[code], rows, int(w), int(h)); e != "" {
+		if e := bitmap_read_pixels(&tmp.glyphs[code], obj, int(w), int(h)); e != "" {
 			return fmt.tprintf("glyph %d: %s", code, e)
 		}
 		tmp.present[code] = true
