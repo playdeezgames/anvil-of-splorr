@@ -2,6 +2,7 @@ package tileset_editor
 
 import cm "../common"
 import ie "../image_editor"
+import "core:fmt"
 import "core:mem"
 
 Request :: enum {
@@ -72,6 +73,9 @@ Editor :: struct {
 	palette:        cm.Palette, // the palette editor's saved palette, or the default
 	editor:         ie.Editor, // the image editor, while in Edit mode
 	entry:          cm.Text_Entry, // the keypad, while in Text mode
+	embedded:       bool, // hosted by the world editor: no files, the world sets the tile size (see editor_begin_embedded)
+	world:          ^cm.World, // the hosting world (embedded only): terrains refer to this tileset's images
+	world_name:     cm.Name, // this tileset's name in the world
 	labels:         ^cm.Input_Map,
 }
 
@@ -81,6 +85,7 @@ NOTE_NOTHING_TO_PASTE :: "NOTHING COPIED YET"
 NOTE_NAME_EMPTY :: "A NAME CANNOT BE EMPTY"
 NOTE_NAME_USED :: "NAME ALREADY IN USE"
 NOTE_NAME_BAD :: "UNUSABLE CHARACTER IN NAME"
+NOTE_SIZE_IS_THE_WORLDS :: "THE WORLD SETS THE TILE SIZE"
 
 // Starts blank: no images, 16 x 16 tiles, the default palette.
 editor_init :: proc(e: ^Editor) {
@@ -99,6 +104,24 @@ editor_enter :: proc(e: ^Editor) {
 	editor_init(e)
 	e.requests = {.Load}
 	e.aux_requests = {.Palette}
+}
+
+// Sets the editor up to edit tileset `index` of a world: copies the tileset and the world's palette
+// in, starts in Pick mode, turns off File mode and the main-menu exit, and fixes the tile size (the
+// world's). Red (or BACK) sets exit_requested with no prompt. Deleting an image a terrain uses is
+// refused, and renaming an image updates the terrains that use it. The host copies `tileset` back
+// into the world when the editor exits.
+editor_begin_embedded :: proc(e: ^Editor, world: ^cm.World, index: int) {
+	labels := e.labels
+	editor_init(e)
+	e.labels = labels
+	e.editor.labels = labels
+	e.tileset = world.tilesets[index]
+	e.palette = world.palette
+	e.embedded = true
+	e.world = world
+	e.world_name = world.tileset_names[index]
+	fix_selection(e)
 }
 
 editor_mark_saved :: proc(e: ^Editor) {
@@ -202,6 +225,13 @@ delete_image :: proc(e: ^Editor) {
 		e.confirm_delete = false
 		return
 	}
+	if e.embedded && e.world != nil {
+		if uses := cm.world_image_uses(e.world, cm.name_str(&e.world_name), selected_name(e)); uses > 0 {
+			e.confirm_delete = false
+			e.note = fmt.tprintf("IMAGE USED BY %d TERRAIN%s", uses, uses == 1 ? "" : "S")
+			return
+		}
+	}
 	if !e.confirm_delete {
 		e.confirm_delete = true
 		return
@@ -256,6 +286,12 @@ move_image :: proc(e: ^Editor, delta: int) {
 
 @(private = "file")
 change_size :: proc(e: ^Editor, w, h: int) {
+	if e.embedded {
+		if w != e.tileset.width || h != e.tileset.height {
+			e.note = NOTE_SIZE_IS_THE_WORLDS
+		}
+		return
+	}
 	if cm.tileset_set_size(&e.tileset, w, h) {
 		touched(e)
 	}
@@ -378,6 +414,9 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 		switch cm.tileset_check_name(&e.tileset, e.sel, name) {
 		case .None:
 			if name != selected_name(e) {
+				if e.embedded && e.world != nil {
+					cm.world_rename_image(e.world, cm.name_str(&e.world_name), selected_name(e), name)
+				}
 				cm.tileset_set_name(&e.tileset, e.sel, name)
 				touched(e)
 			}
@@ -424,7 +463,9 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Yellow:
 			e.mode = .Setup
 		case .Blue:
-			e.mode = .File
+			if !e.embedded {
+				e.mode = .File
+			}
 		case .Red:
 			request_exit(e)
 		}
@@ -441,7 +482,9 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Green:
 			run_row(e, e.row)
 		case .Blue:
-			e.mode = .File
+			if !e.embedded {
+				e.mode = .File
+			}
 		case .Red:
 			e.mode = .Pick
 		}
@@ -464,6 +507,10 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 // Leaving with unsaved changes needs a second request.
 @(private = "file")
 request_exit :: proc(e: ^Editor) {
+	if e.embedded {
+		e.exit_requested = true // the world editor keeps the changes: nothing to confirm
+		return
+	}
 	if e.dirty && !e.confirm_exit {
 		e.confirm_exit = true
 		return
@@ -539,9 +586,13 @@ click :: proc(e: ^Editor, x, y: int) {
 	case rect_contains(EDIT_BUTTON, x, y):
 		begin_edit(e)
 	case rect_contains(SAVE_BUTTON, x, y):
-		e.requests += {.Save}
+		if !e.embedded {
+			e.requests += {.Save}
+		}
 	case rect_contains(LOAD_BUTTON, x, y):
-		e.requests += {.Load}
+		if !e.embedded {
+			e.requests += {.Load}
+		}
 	case rect_contains(MENU_BUTTON, x, y):
 		request_exit(e)
 	}

@@ -28,3 +28,11 @@ Status: [x] done and committed, [~] done but not committed yet, [ ] to do.
 - [x] Text entry keypad — done and wired to renaming
 - [x] Rename an image (uses the keypad)
 - [x] Add and delete images; file format (JSON, packed bytes); main menu entry; tests
+
+## World editor (new tool; spec in WORLD.md)
+- [~] World model: tile size, one palette, up to 16 tilesets, up to 16 terrain sets, up to 64 maps; JSON file with names, references by name and a per-map terrain name table
+- [~] World editor: hub (palette, tile size, lists of tilesets / terrain sets / maps), names by keypad, rename / new / duplicate / delete with reference checks, tileset import from tileset.json
+- [~] Palette editor and tileset editor embedded in the world editor (no files, the world sets the tile size)
+- [~] Terrain set editor: terrains with name, solid flag, tileset and image (by name), a default terrain, picture picker
+- [~] Map editor, patterned on the image editor: paint, flip, rotate (square maps), frame / fill, flood, replace, clear; terrain picker; change terrain set by name
+- [ ] More asset types in a world (to be specified)

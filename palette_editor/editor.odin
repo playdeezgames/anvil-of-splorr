@@ -38,6 +38,7 @@ Editor :: struct {
 	requests: bit_set[Request],
 	mode:     Mode,
 	clipboard: Maybe(cm.Color), // last copied colour
+	embedded: bool, // hosted by the world editor: no files, red leaves at once (see editor_begin_embedded)
 	exit_requested: bool, // the tool wants to return to the main menu (see take_exit in tool.odin)
 	confirm_exit:   bool, // unsaved changes: the next exit request is the confirmation
 	labels:   ^cm.Input_Map, // source of on-screen command names; nil means the defaults
@@ -61,6 +62,17 @@ editor_enter :: proc(e: ^Editor) {
 		palette  = cm.default_palette(),
 		labels   = e.labels,
 		requests = {.Load},
+	}
+}
+
+// Sets the editor up to edit a palette for the world editor, which owns the file: copies the
+// palette in, starts in Browse mode, turns off File mode, and makes red (or MENU, labelled BACK)
+// set exit_requested with no prompt. The host copies `palette` back out when `dirty` and on exit.
+editor_begin_embedded :: proc(e: ^Editor, palette: ^cm.Palette) {
+	e^ = Editor {
+		palette  = palette^,
+		labels   = e.labels,
+		embedded = true,
 	}
 }
 
@@ -114,7 +126,9 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Yellow:
 			copy_selected(e)
 		case .Blue:
-			e.mode = .File
+			if !e.embedded {
+				e.mode = .File
+			}
 		case .Red:
 			request_exit(e)
 		}
@@ -131,7 +145,9 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Green:
 			e.channel = cm.Channel((int(e.channel) + 1) % len(cm.Channel))
 		case .Blue:
-			e.mode = .File
+			if !e.embedded {
+				e.mode = .File
+			}
 		case .Red:
 			e.mode = .Browse
 		}
@@ -144,7 +160,9 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Yellow:
 			copy_selected(e)
 		case .Blue:
-			e.mode = .File
+			if !e.embedded {
+				e.mode = .File
+			}
 		case .Red:
 			e.mode = .Browse
 		}
@@ -165,6 +183,10 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 // Leaving with unsaved changes needs a second request.
 @(private = "file")
 request_exit :: proc(e: ^Editor) {
+	if e.embedded {
+		e.exit_requested = true // the world editor keeps the changes: nothing to confirm
+		return
+	}
 	if e.dirty && !e.confirm_exit {
 		e.confirm_exit = true
 		return
@@ -240,9 +262,13 @@ click :: proc(e: ^Editor, x, y: int) {
 		e.drag = ch
 		set_from_slider_x(e, ch, x)
 	} else if rect_contains(SAVE_BUTTON, x, y) {
-		e.requests += {.Save}
+		if !e.embedded {
+			e.requests += {.Save}
+		}
 	} else if rect_contains(LOAD_BUTTON, x, y) {
-		e.requests += {.Load}
+		if !e.embedded {
+			e.requests += {.Load}
+		}
 	} else if rect_contains(COPY_BUTTON, x, y) {
 		copy_selected(e)
 	} else if rect_contains(PASTE_BUTTON, x, y) {

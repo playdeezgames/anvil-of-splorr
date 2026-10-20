@@ -103,6 +103,17 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 		}
 		n = 4
 	}
+	if e.embedded { 	// no files here: say "back" instead of the file and main menu lines
+		switch e.mode {
+		case .Edit:
+			lines[3], lines[4], n = mouse, "", 4
+		case .Paste:
+			lines[2] = fmt.tprintf("%s: DONE", l(e, .Red))
+		case .Browse:
+			lines[2] = fmt.tprintf("%s: BACK", l(e, .Red))
+		case .File:
+		}
+	}
 	return lines, n
 }
 
@@ -168,7 +179,10 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	for b in ([5]struct {
 			rc:    Rect,
 			label: string,
-		}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}, {COPY_BUTTON, "COPY"}, {PASTE_BUTTON, "PASTE"}, {MENU_BUTTON, "MENU"}}) {
+		}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}, {COPY_BUTTON, "COPY"}, {PASTE_BUTTON, "PASTE"}, {MENU_BUTTON, e.embedded ? "BACK" : "MENU"}}) {
+		if e.embedded && (b.rc == SAVE_BUTTON || b.rc == LOAD_BUTTON) {
+			continue
+		}
 		fill(r, b.rc, PANEL)
 		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.label)) / 2, b.rc.y + (b.rc.h - cm.GLYPH_H) / 2, b.label, TEXT)
 	}

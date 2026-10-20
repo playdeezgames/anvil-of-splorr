@@ -2,6 +2,7 @@
 package palette_editor
 
 import cm "../common"
+import "core:strings"
 import "core:testing"
 
 cmd :: proc(a: cm.Action) -> cm.Input_Event {
@@ -704,5 +705,45 @@ test_all_on_screen_text_is_in_the_font :: proc(t: ^testing.T) {
 	// The default labels are fine too (user labels are the user's responsibility).
 	for a in cm.Action {
 		testing.expect(t, cm.text_is_drawable(cm.DEFAULT_LABELS[a]))
+	}
+}
+
+@(test)
+test_embedded_editor_edits_a_copy_and_red_leaves_at_once :: proc(t: ^testing.T) {
+	p := cm.default_palette()
+	p[4] = {1, 2, 3}
+	e := editor_init()
+	editor_begin_embedded(&e, &p)
+	testing.expect(t, e.embedded && e.palette[4] == cm.Color{1, 2, 3} && !e.dirty)
+	press(&e, .Green, .Right) // edit a value
+	testing.expect(t, e.dirty && e.mode == .Edit)
+	press(&e, .Blue) // no File mode here
+	testing.expect_value(t, e.mode, Mode.Edit)
+	press(&e, .Red)
+	testing.expect_value(t, e.mode, Mode.Browse)
+	press(&e, .Red) // leaves without the "unsaved" prompt
+	testing.expect(t, e.exit_requested && !e.confirm_exit)
+	testing.expect(t, p[0] == cm.default_palette()[0]) // the host copies the result back itself
+	e.exit_requested = false
+	click_at(&e, SAVE_BUTTON.x + 1, SAVE_BUTTON.y + 1)
+	click_at(&e, LOAD_BUTTON.x + 1, LOAD_BUTTON.y + 1)
+	testing.expect(t, e.requests == {})
+	click_at(&e, MENU_BUTTON.x + 1, MENU_BUTTON.y + 1)
+	testing.expect(t, e.exit_requested)
+}
+
+@(test)
+test_embedded_help_never_mentions_files :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	p := cm.default_palette()
+	e := editor_init()
+	editor_begin_embedded(&e, &p)
+	for mode in ([]Mode{.Browse, .Edit, .Paste}) {
+		e.mode = mode
+		lines, n := help_lines(&e)
+		for line in lines[:n] {
+			testing.expectf(t, !strings.contains(line, "SAVE") && !strings.contains(line, "LOAD") && !strings.contains(line, "MAIN MENU"), "%v: %s", mode, line)
+			testing.expectf(t, cm.text_is_drawable(line), "%s", line)
+		}
 	}
 }

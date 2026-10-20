@@ -1,0 +1,11 @@
+# World editor: specification (as agreed so far)
+
+A world is a collection of asset types; more types will be added later. Everything below is saved in one file, `world.json` (format documented in `common/world.odin`).
+
+- **Tile size**: one for the whole world, 1..64 by 1..64 (default 16x16). Every tileset must match it. Changing it crops or pads every image in every tileset (hidden pixels return when growing back).
+- **Palette**: exactly one, 16 colours, an embedded copy edited inside the world editor.
+- **Tilesets**: up to 16, each named. Embedded copies edited with the tileset editor's screens (width and height are the world's, so they are not offered). A tileset can be imported from `tileset.json` if its tile size matches the world's (otherwise refused with a message). A tileset cannot be deleted while a terrain uses it; renaming a tileset or an image updates the terrains that use it; an image used by a terrain cannot be deleted.
+- **Terrain sets**: up to 16, each named. A set has 1..256 terrains and a default terrain (new sets start with one terrain, "terrain"). A terrain has a name (unique within its set), a Solid / Not-solid flag (default not solid) and a reference by name to a tileset and an image in it (a new terrain points at the first image of the first tileset, or is "not set" and shown in red). A terrain cannot be deleted while it is the default, while it is the last one, or while map cells use it. Terrains are not reordered. A set cannot be deleted while a map uses it.
+- **Maps**: up to 64, each named, 1..64 columns by 1..64 rows (default 32x32), using one terrain set. Cells hold a terrain (by name in the file). New and newly exposed cells take the set's default terrain. A map can move to another terrain set only if every cell's terrain exists by name in the new set. The map editor follows the image editor: paint, flip, rotate (square maps only), frame and filled rectangles, flood fill, replace terrain, clear.
+- **Names**: 1..32 printable ASCII characters, unique within their own list, typed with the keypad.
+- **Open question**: file size of a world full of big tilesets (see `BACKLOG.md`).

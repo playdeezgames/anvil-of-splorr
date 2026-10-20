@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Open work is tracked in `TASKS.md` (derived from the user's `FINDINGS.md`, which is theirs: do not edit it).
 
-A suite of editors behind one main menu, sharing two tool-agnostic frontends (native SDL2, web/wasm). Tools so far: `palette_editor`, `image_editor`, `glyph_editor`, `font_editor` and `gamepad_tester`.
+A suite of editors behind one main menu, sharing two tool-agnostic frontends (native SDL2, web/wasm). Tools so far: `palette_editor`, `image_editor`, `tileset_editor`, `world_editor`, `glyph_editor`, `font_editor` and `gamepad_tester`.
 
 - `common/`: palette model and JSON file format (strict: exactly 16 `{r,g,b}` entries, integers 0..255), `Renderer` interface (frontends implement `clear`/`fill_rect`/`present` on a 320x180 logical surface), the UI font (`common/font.odin`, drawn from the user's `default-font.json`), `input.odin` (the eight `Action` commands and the `Input_Event` union), `input_map.odin` (the editable binding table, see below), `gamepad.odin` (`Pad_State` snapshots, standard-layout indices), and `tool.odin` (`Tool`: the proc table a frontend drives; optional file hooks).
 - A tool package (`palette_editor/`, `gamepad_tester/`) holds state, event handling and drawing, and exports `tool(&state) -> cm.Tool`. Palette editor: `layout.odin` shares rects between drawing and mouse hit-testing; file IO is request/response through `Tool.take_save/wants_load/load`, performed by the frontend.
@@ -66,6 +66,16 @@ Because one tool must run on two very different frontends, keep the tool logic o
 - `common/tileset.odin` holds the model (<=256 named Image4s sharing one width/height, names unique printable ASCII <=32) and JSON; `Tileset` is ~1 MB: use `new()`/globals, never copy by value. The web `FILE_CAP` (web.odin + index.html) is 4 MiB to fit the largest tileset.
 - `tileset_editor` modes: Pick (thumbnail grid), Edit (embeds the real `image_editor` via `editor_begin_embedded`, size locked, quarter turns refused unless square, image written back after every event), Setup (rows Rename..Height), File, Text (the `cm.Text_Entry` keypad; refused names resume it with a note).
 - Palette comes from `palette.json` via the aux-file hooks.
+
+## World editor notes
+
+Spec: `WORLD.md`. A world is one tile size, one palette, up to 16 named tilesets, up to 16 named terrain sets (each up to 256 terrains with a default, a solid flag and a tileset + image reference **by name**) and up to 64 named maps (1..64 square, cells are terrain indexes in the map's set, written to the file as names via a per-map table).
+
+- `common/world.odin` is the model and `world.json` format. `World` is ~17 MB: a global or `new()`, never copied by value. All reference upkeep lives there (`world_rename_tileset/_image/_terrain_set`, `world_delete_*` returning how many things use it, `world_map_change_set` remapping cells by name and refusing if a terrain is missing, `world_map_set_size` filling new cells with the set's default). `common/world_map.odin` has the whole-map operations (flips, square-only rotation, flood, replace, clear, shapes).
+- Packages: `map_editor` and `terrain_editor` (hosted only, edit the world in place, no files), `world_editor` (the tool: Hub, List, Setup (actions), Text, File, and the embedded Palette / Tileset / Terrain / Map modes). The palette editor and tileset editor got an *embedded* mode (`editor_begin_embedded`): no File mode, red leaves with no prompt, SAVE/LOAD hidden, MENU reads BACK; embedded tileset editor locks the tile size to the world's, refuses deleting an image a terrain uses and updates terrains when an image is renamed. The world editor copies a tileset in and back out (~1 MB) and edits the others in place.
+- New and Duplicate (in the tileset editor, and the world editor's lists) ask for the name with the keypad first, then open the item's editor.
+- The world editor Editor is ~20 MB (global in the apps). Web builds use `-o:minimal` (4 s instead of ~12 min); `WEB_OPT=speed ./build.sh web` restores the optimised build.
+- Size limits are still open (see `BACKLOG.md`).
 
 ## Odin toolchain notes
 

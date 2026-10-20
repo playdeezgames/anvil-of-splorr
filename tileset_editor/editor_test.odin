@@ -3,6 +3,7 @@ package tileset_editor
 
 import cm "../common"
 import "core:fmt"
+import "core:strings"
 import "core:testing"
 
 // The editor is about 1 MB: always heap allocated and freed by the test.
@@ -1144,4 +1145,115 @@ test_new_asks_for_a_name_then_opens_the_image_editor :: proc(t: ^testing.T) {
 	run(e, .Rename)
 	press_keypad_action(e, .Cancel)
 	testing.expect_value(t, e.mode, Mode.Setup)
+}
+
+// --- Embedded in a world ---
+
+// A world with tileset "ground" (images x, y) and a terrain using "y".
+embedded_fixture :: proc() -> (e: ^Editor, w: ^cm.World) {
+	w = new(cm.World)
+	cm.world_reset(w)
+	cm.world_set_tile_size(w, 6, 5)
+	w.palette[2] = {9, 8, 7}
+	i := cm.world_add_tileset(w, "ground")
+	cm.tileset_insert_blank(&w.tilesets[i], 0, "x")
+	cm.tileset_insert_blank(&w.tilesets[i], 1, "y")
+	si := cm.world_add_terrain_set(w)
+	cm.name_assign(&w.sets[si].terrains[0].image, "y")
+	e = new_editor()
+	editor_begin_embedded(e, w, i)
+	return
+}
+
+@(test)
+test_embedded_copies_the_tileset_and_palette_and_red_leaves_at_once :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, w := embedded_fixture()
+	defer free(e)
+	defer free(w)
+	testing.expect(t, e.embedded && e.tileset.count == 2 && e.tileset.width == 6 && e.palette[2] == cm.Color{9, 8, 7})
+	cm.image4_set(&e.tileset.images[0], 1, 1, 3)
+	e.dirty = true
+	press(e, .Red) // dirty, but nothing to confirm: the world keeps the changes
+	testing.expect(t, e.exit_requested && !e.confirm_exit)
+	testing.expect(t, w.tilesets[0].images[0].pixels[1][1] == 0) // the host copies it back
+	testing.expect(t, e.requests == {} && e.aux_requests == {})
+}
+
+@(test)
+test_embedded_has_no_file_commands_or_buttons :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, w := embedded_fixture()
+	defer free(e)
+	defer free(w)
+	press(e, .Blue)
+	testing.expect_value(t, e.mode, Mode.Pick)
+	e.mode = .Setup
+	press(e, .Blue)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	click_rect(e, SAVE_BUTTON)
+	click_rect(e, LOAD_BUTTON)
+	testing.expect(t, e.requests == {})
+	click_rect(e, MENU_BUTTON)
+	testing.expect(t, e.exit_requested)
+	for mode in ([]Mode{.Pick, .Setup}) {
+		e.mode = mode
+		lines, n := help_lines(e)
+		for line in lines[:n] {
+			testing.expectf(t, !strings.contains(line, "SAVE") && !strings.contains(line, "MAIN MENU") && cm.text_is_drawable(line), "%s", line)
+		}
+	}
+	testing.expect(t, cm.text_is_drawable(NOTE_SIZE_IS_THE_WORLDS) && cm.text_width(NOTE_SIZE_IS_THE_WORLDS) + INFO_X <= cm.SCREEN_W - 4)
+}
+
+@(test)
+test_embedded_tile_size_belongs_to_the_world :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, w := embedded_fixture()
+	defer free(e)
+	defer free(w)
+	e.mode = .Setup
+	goto_row(e, .Width)
+	press(e, .Right)
+	testing.expect(t, e.tileset.width == 6 && e.note == NOTE_SIZE_IS_THE_WORLDS && !e.dirty)
+	click_rect(e, HEIGHT_PLUS)
+	testing.expect(t, e.tileset.height == 5 && !e.dirty)
+}
+
+@(test)
+test_embedded_refuses_to_delete_an_image_a_terrain_uses :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, w := embedded_fixture()
+	defer free(e)
+	defer free(w)
+	e.sel = 1 // "y"
+	e.mode = .Setup
+	run(e, .Delete)
+	press(e, .Green)
+	testing.expect(t, e.tileset.count == 2 && e.note == "IMAGE USED BY 1 TERRAIN" && !e.confirm_delete)
+	e.sel = 0 // "x" is free
+	run(e, .Delete)
+	press(e, .Green)
+	testing.expect_value(t, e.tileset.count, 1)
+}
+
+@(test)
+test_embedded_rename_updates_the_terrains :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, w := embedded_fixture()
+	defer free(e)
+	defer free(w)
+	e.sel = 1
+	run(e, .Rename)
+	press_keypad_action(e, .Clear)
+	type_with_commands(e, "wall")
+	press_keypad_action(e, .Done)
+	testing.expect_value(t, name_of(e, 1), "wall")
+	testing.expect_value(t, cm.name_str(&w.sets[0].terrains[0].image), "wall")
+	// A refused name changes nothing in the world.
+	run(e, .Rename)
+	press_keypad_action(e, .Clear)
+	type_with_commands(e, "x")
+	press_keypad_action(e, .Done)
+	testing.expect_value(t, cm.name_str(&w.sets[0].terrains[0].image), "wall")
 }

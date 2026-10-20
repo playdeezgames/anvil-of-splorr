@@ -43,9 +43,9 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	case .Setup:
 		lines = {
 			fmt.tprintf("%s/%s: CHOOSE SETTING OR ACTION", l(e, .Up), l(e, .Down)),
-			fmt.tprintf("%s/%s: CHANGE THE TILE SIZE", l(e, .Left), l(e, .Right)),
+			e.embedded ? "THE WORLD SETS THE TILE SIZE" : fmt.tprintf("%s/%s: CHANGE THE TILE SIZE", l(e, .Left), l(e, .Right)),
 			fmt.tprintf("%s: RUN RENAME / NEW / DUP / DELETE / COPY / PASTE / MOVE", l(e, .Green)),
-			fmt.tprintf("%s: DONE  %s: SAVE / LOAD", l(e, .Red), l(e, .Blue)),
+			e.embedded ? fmt.tprintf("%s: DONE", l(e, .Red)) : fmt.tprintf("%s: DONE  %s: SAVE / LOAD", l(e, .Red), l(e, .Blue)),
 		}
 		return lines, 4
 	case .File:
@@ -55,7 +55,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 		lines = {
 			fmt.tprintf("%s/%s/%s/%s: MOVE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
 			fmt.tprintf("%s: EDIT IMAGE  %s: SETUP / RENAME / NEW", l(e, .Green), l(e, .Yellow)),
-			fmt.tprintf("%s: SAVE / LOAD  %s: MAIN MENU", l(e, .Blue), l(e, .Red)),
+			e.embedded ? fmt.tprintf("%s: BACK", l(e, .Red)) : fmt.tprintf("%s: SAVE / LOAD  %s: MAIN MENU", l(e, .Blue), l(e, .Red)),
 			"MOUSE: CLICK A TILE, AGAIN TO EDIT; WHEEL SCROLLS",
 		}
 		return lines, 4
@@ -148,6 +148,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 
 	// Tile size rows.
 	row_color :: proc(e: ^Editor, row: Setup_Row) -> cm.Color {
+		if e.embedded && (row == .Width || row == .Height) {
+			return DIM // the world sets the tile size
+		}
 		return e.mode == .Setup && e.row == row ? HILITE : TEXT
 	}
 	mark :: proc(r: ^cm.Renderer, e: ^Editor, row: Setup_Row, y: int) {
@@ -187,6 +190,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 
 	// Buttons: the one whose Setup row is selected is lit; ones that need an image are dim without one.
 	for btn in buttons() {
+		if e.embedded && (btn.rc == SAVE_BUTTON || btn.rc == LOAD_BUTTON) {
+			continue
+		}
 		lit := false
 		if row, has := btn.row.?; has && e.mode == .Setup && e.row == row {
 			lit = true
@@ -196,7 +202,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 			enabled = enabled && e.has_clip
 		}
 		fill(r, btn.rc, lit ? HILITE : PANEL)
-		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.text)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.text, lit ? BG : (enabled ? TEXT : DIM))
+		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.text)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, e.embedded && btn.rc == MENU_BUTTON ? "BACK" : btn.text, lit ? BG : (enabled ? TEXT : DIM))
 	}
 
 	// Help.

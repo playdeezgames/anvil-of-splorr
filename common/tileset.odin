@@ -231,7 +231,6 @@ tileset_to_json :: proc(ts: ^Tileset, allocator := context.temp_allocator) -> st
 }
 
 // Backslash and quote are the only printable ASCII characters JSON needs escaped.
-@(private = "file")
 escape_name :: proc(name: string) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	for i in 0 ..< len(name) {
@@ -255,6 +254,11 @@ tileset_from_json :: proc(data: []u8, dst: ^Tileset) -> (err: string) {
 	if !is_obj {
 		return "the top level must be an object"
 	}
+	return tileset_from_object(root, dst)
+}
+
+// The same, from an already parsed JSON object (a world file nests tilesets).
+tileset_from_object :: proc(root: json.Object, dst: ^Tileset) -> (err: string) {
 	w, w_ok := root["width"].(json.Integer)
 	h, h_ok := root["height"].(json.Integer)
 	if !w_ok || !h_ok {

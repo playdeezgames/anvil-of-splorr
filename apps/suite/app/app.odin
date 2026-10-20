@@ -9,14 +9,16 @@ import te "../../../tileset_editor"
 import gt "../../../gamepad_tester"
 import launcher "../../../launcher"
 import pe "../../../palette_editor"
+import we "../../../world_editor"
 
 editor: pe.Editor
 glyphs: ge.Editor
 images: ie.Editor
 tilesets: te.Editor // about 1 MB: a global, initialised in place
 fonts: fe.Editor // about 1 MB: a global, initialised in place
+worlds: we.Editor // about 20 MB (the world): a global, initialised in place
 tester: gt.Tester
-entries: [6]launcher.Entry
+entries: [7]launcher.Entry
 menu: launcher.Launcher
 
 make_tool :: proc() -> cm.Tool {
@@ -25,11 +27,13 @@ make_tool :: proc() -> cm.Tool {
 	images = ie.editor_init()
 	te.editor_init(&tilesets)
 	fe.editor_init(&fonts)
+	we.editor_init(&worlds)
 	tester = gt.tester_init()
 	entries = {
 		{title = "PALETTE EDITOR", tool = pe.tool(&editor)},
 		{title = "IMAGE EDITOR", tool = ie.tool(&images)},
 		{title = "TILESET EDITOR", tool = te.tool(&tilesets)},
+		{title = "WORLD EDITOR", tool = we.tool(&worlds)},
 		{title = "GLYPH EDITOR", tool = ge.tool(&glyphs)},
 		{title = "FONT EDITOR", tool = fe.tool(&fonts)},
 		{title = "GAMEPAD TESTER", tool = gt.tool(&tester)},

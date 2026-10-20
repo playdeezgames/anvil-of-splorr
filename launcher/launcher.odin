@@ -24,9 +24,9 @@ Launcher :: struct {
 
 ROW_X :: 60
 ROW_W :: 200
-ROW_Y :: 56
-ROW_H :: 13
-ROW_PITCH :: 16
+ROW_Y :: 44
+ROW_H :: 14
+ROW_PITCH :: 15
 
 BG :: cm.Color{28, 28, 36}
 PANEL :: cm.Color{64, 64, 76}
