@@ -41,6 +41,11 @@ COPY_BUTTON :: Rect{222, 52, 28, 10}
 PASTE_BUTTON :: Rect{252, 52, 32, 10}
 DELETE_BUTTON :: Rect{286, 52, 28, 10}
 
+// Flip the selected glyph: mirror left-right / top-bottom (also the last two Setup rows). They sit
+// to the right of the width and height values.
+FLIP_H_BUTTON :: Rect{236, 28, 36, 10}
+FLIP_V_BUTTON :: Rect{236, 40, 36, 10}
+
 // The selected glyph, scaled to fit, and how much of the printable range (32..127) is covered.
 GLYPH_FRAME :: Rect{156, 66, 48, 48}
 GLYPH_INNER :: Rect{157, 67, 46, 46}

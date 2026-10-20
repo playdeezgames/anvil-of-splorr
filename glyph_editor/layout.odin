@@ -33,12 +33,22 @@ PALETTE_Y :: 74
 // and anything that does not fit is clipped (and flagged).
 PREVIEW_FRAME :: Rect{154, 86, 64, 64}
 PREVIEW_INNER :: Rect{155, 87, 62, 62}
-CLIPPED_X :: 222
-CLIPPED_Y :: 138
+CLIPPED_X :: 222 // under the file buttons, left of the transform column
+CLIPPED_Y :: 136
 
-SAVE_BUTTON :: Rect{240, 86, 36, 12}
-LOAD_BUTTON :: Rect{240, 102, 36, 12}
-MENU_BUTTON :: Rect{240, 118, 36, 12}
+// Buttons, in three columns beside the preview: file, whole-bitmap transforms, drawing tools. The
+// transforms and tools are also the last Setup rows (green runs them).
+SAVE_BUTTON :: Rect{222, 86, 28, 10}
+LOAD_BUTTON :: Rect{222, 98, 28, 10}
+MENU_BUTTON :: Rect{222, 110, 28, 10}
+FLIP_H_BUTTON :: Rect{252, 86, 30, 10}
+FLIP_V_BUTTON :: Rect{252, 98, 30, 10}
+ROT_L_BUTTON :: Rect{252, 110, 30, 10}
+ROT_R_BUTTON :: Rect{252, 122, 30, 10}
+ROT_180_BUTTON :: Rect{252, 134, 30, 10}
+FRAME_BUTTON :: Rect{284, 86, 30, 10} // arms the frame tool: then drag corner to corner on the canvas
+FILL_BUTTON :: Rect{284, 98, 30, 10}
+INVERT_BUTTON :: Rect{284, 110, 30, 10}
 
 HELP_Y :: 152 // up to four lines at the font's pitch
 MAX_HELP_LINES :: 4

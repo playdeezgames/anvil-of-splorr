@@ -17,7 +17,8 @@ Request :: enum {
 //   Setup: up/down choose a row, left/right change it (this glyph's width, the font's height,
 //          whether this glyph is present); green runs the action rows: Copy (remember this glyph),
 //          Paste (make this character a copy of the remembered one) and Delete (remove this glyph
-//          for good; green twice). Blue opens File; red returns to where it was opened.
+//          for good; green twice) and Flip horizontal / Flip vertical (mirror this glyph; again undoes
+//          it). Blue opens File; red returns to where it was opened.
 //   File:  green saves, yellow loads, red or blue cancel; every choice returns to where it was opened.
 // The mouse works in all modes and switches mode itself (click a grid cell to select it and again
 // to edit; paint on the canvas; - and + buttons; the YES/NO button; SAVE, LOAD, EDIT/GRID, MENU).
@@ -35,6 +36,8 @@ Setup_Row :: enum {
 	Copy,
 	Paste,
 	Delete,
+	Flip_Horizontal,
+	Flip_Vertical,
 }
 
 // State for the font editor. About 1 MB because of the font: create it as a global or with new(),
@@ -145,7 +148,7 @@ change_setting :: proc(e: ^Editor, row: Setup_Row, delta: int) {
 		if cm.pixel_font_set_present(&e.font, e.code, delta > 0) {
 			e.dirty = true
 		}
-	case .Copy, .Paste, .Delete:
+	case .Copy, .Paste, .Delete, .Flip_Horizontal, .Flip_Vertical:
 		// Actions, not values: green runs them.
 	}
 	clamp_cursor(e)
@@ -187,9 +190,25 @@ delete_selected :: proc(e: ^Editor) {
 	clamp_cursor(e)
 }
 
+// Mirrors the selected glyph (only glyphs that exist). It only counts as changed if it moved something.
+@(private = "file")
+flip :: proc(e: ^Editor, horizontal: bool) {
+	if !present(e) {
+		return
+	}
+	changed := horizontal ? cm.bitmap_flip_horizontal(glyph(e)) : cm.bitmap_flip_vertical(glyph(e))
+	if changed {
+		e.dirty = true
+	}
+}
+
 @(private = "file")
 run_action_row :: proc(e: ^Editor) {
 	#partial switch e.row {
+	case .Flip_Horizontal:
+		flip(e, true)
+	case .Flip_Vertical:
+		flip(e, false)
 	case .Copy:
 		copy_selected(e)
 	case .Paste:
@@ -374,6 +393,14 @@ click :: proc(e: ^Editor, x, y: int) {
 		setting(e, .Height, 1)
 	case rect_contains(PRESENT_BUTTON, x, y):
 		setting(e, .Present, present(e) ? -1 : 1) // toggles
+	case rect_contains(FLIP_H_BUTTON, x, y):
+		open_side_mode(e, .Setup)
+		e.row = .Flip_Horizontal
+		flip(e, true)
+	case rect_contains(FLIP_V_BUTTON, x, y):
+		open_side_mode(e, .Setup)
+		e.row = .Flip_Vertical
+		flip(e, false)
 	case rect_contains(COPY_BUTTON, x, y):
 		open_side_mode(e, .Setup)
 		e.row = .Copy

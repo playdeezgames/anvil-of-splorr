@@ -73,6 +73,138 @@ image4_visible_equal :: proc(a, b: ^Image4) -> bool {
 	return true
 }
 
+// Mirrors the visible pixels left to right. Hidden pixels are untouched. Returns true if anything
+// changed (a symmetric image flips to itself).
+image4_flip_horizontal :: proc(img: ^Image4) -> (changed: bool) {
+	for y in 0 ..< img.height {
+		for x in 0 ..< img.width / 2 {
+			a, b := &img.pixels[y][x], &img.pixels[y][img.width - 1 - x]
+			if a^ != b^ {
+				a^, b^ = b^, a^
+				changed = true
+			}
+		}
+	}
+	return
+}
+
+// Mirrors the visible pixels top to bottom. Hidden pixels are untouched. Returns true if anything
+// changed.
+image4_flip_vertical :: proc(img: ^Image4) -> (changed: bool) {
+	for y in 0 ..< img.height / 2 {
+		for x in 0 ..< img.width {
+			a, b := &img.pixels[y][x], &img.pixels[img.height - 1 - y][x]
+			if a^ != b^ {
+				a^, b^ = b^, a^
+				changed = true
+			}
+		}
+	}
+	return
+}
+
+// Quarter turns of the visible pixels. The width and height swap (both stay within 1..IMAGE_MAX,
+// so a turn always fits). Every pixel of the new visible area is rewritten, so hidden pixels that
+// happened to sit there are replaced; pixels outside it are untouched. Return true if the picture
+// changed (a square, symmetric one can turn into itself).
+
+// Clockwise: the top row becomes the right column.
+image4_rotate_right :: proc(img: ^Image4) -> bool {
+	old := img^
+	img.width, img.height = old.height, old.width
+	for ny in 0 ..< img.height {
+		for nx in 0 ..< img.width {
+			img.pixels[ny][nx] = old.pixels[old.height - 1 - nx][ny]
+		}
+	}
+	return !image4_visible_equal(&old, img)
+}
+
+// Counter-clockwise: the top row becomes the left column.
+image4_rotate_left :: proc(img: ^Image4) -> bool {
+	old := img^
+	img.width, img.height = old.height, old.width
+	for ny in 0 ..< img.height {
+		for nx in 0 ..< img.width {
+			img.pixels[ny][nx] = old.pixels[nx][old.width - 1 - ny]
+		}
+	}
+	return !image4_visible_equal(&old, img)
+}
+
+// Half a turn: same size, every pixel moves to the opposite corner position.
+image4_rotate_180 :: proc(img: ^Image4) -> bool {
+	old := img^
+	image4_flip_horizontal(img)
+	image4_flip_vertical(img)
+	return !image4_visible_equal(&old, img)
+}
+
+// Sets every visible pixel to `color` (clamped to 0..15). Returns true if any pixel changed.
+image4_clear :: proc(img: ^Image4, color: int) -> (changed: bool) {
+	c := u8(clamp(color, 0, IMAGE_COLORS - 1))
+	for y in 0 ..< img.height {
+		for x in 0 ..< img.width {
+			if img.pixels[y][x] != c {
+				img.pixels[y][x] = c
+				changed = true
+			}
+		}
+	}
+	return
+}
+
+// Changes every visible pixel of colour `from` to colour `to`. Returns true if any pixel changed.
+image4_replace_color :: proc(img: ^Image4, from, to: int) -> (changed: bool) {
+	f, t := u8(clamp(from, 0, IMAGE_COLORS - 1)), u8(clamp(to, 0, IMAGE_COLORS - 1))
+	if f == t {
+		return false
+	}
+	for y in 0 ..< img.height {
+		for x in 0 ..< img.width {
+			if img.pixels[y][x] == f {
+				img.pixels[y][x] = t
+				changed = true
+			}
+		}
+	}
+	return
+}
+
+// Paints the connected region of same-coloured pixels around (x, y) with `color`. Pixels connect
+// along rows and columns, not diagonally. Returns true if anything changed (not if the region is
+// already that colour, or (x, y) is outside the image).
+image4_flood_fill :: proc(img: ^Image4, x, y: int, color: int) -> bool {
+	if x < 0 || y < 0 || x >= img.width || y >= img.height {
+		return false
+	}
+	c := u8(clamp(color, 0, IMAGE_COLORS - 1))
+	target := img.pixels[y][x]
+	if target == c {
+		return false
+	}
+	// Each pixel is recoloured when it is pushed, so it is pushed at most once: the stack never
+	// needs more than one entry per pixel.
+	stack: [IMAGE_MAX * IMAGE_MAX][2]u8
+	n := 0
+	img.pixels[y][x] = c
+	stack[n] = {u8(x), u8(y)}
+	n += 1
+	for n > 0 {
+		n -= 1
+		px, py := int(stack[n][0]), int(stack[n][1])
+		for d in ([4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+			nx, ny := px + d.x, py + d.y
+			if nx >= 0 && ny >= 0 && nx < img.width && ny < img.height && img.pixels[ny][nx] == target {
+				img.pixels[ny][nx] = c
+				stack[n] = {u8(nx), u8(ny)}
+				n += 1
+			}
+		}
+	}
+	return true
+}
+
 // --- Packed form ---
 //
 // Two pixels per byte, a pixel row at a time. Every row is padded to a whole number of bytes

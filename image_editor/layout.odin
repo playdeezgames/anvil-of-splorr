@@ -35,12 +35,24 @@ PALETTE_Y :: 68
 // is clipped (and flagged).
 PREVIEW_FRAME :: Rect{154, 84, 64, 64}
 PREVIEW_INNER :: Rect{155, 85, 62, 62}
-CLIPPED_X :: 222
+CLIPPED_X :: 222 // under the file buttons, left of the transform column
 CLIPPED_Y :: 136
 
-SAVE_BUTTON :: Rect{240, 84, 36, 12}
-LOAD_BUTTON :: Rect{240, 100, 36, 12}
-MENU_BUTTON :: Rect{240, 116, 36, 12}
+// Buttons, in three columns beside the preview: file, whole-image transforms, rectangles. The
+// transforms and rectangles are also the last Setup rows (green runs them).
+SAVE_BUTTON :: Rect{222, 84, 28, 10}
+LOAD_BUTTON :: Rect{222, 96, 28, 10}
+MENU_BUTTON :: Rect{222, 108, 28, 10}
+FLIP_H_BUTTON :: Rect{252, 84, 30, 10}
+FLIP_V_BUTTON :: Rect{252, 96, 30, 10}
+ROT_L_BUTTON :: Rect{252, 108, 30, 10}
+ROT_R_BUTTON :: Rect{252, 120, 30, 10}
+ROT_180_BUTTON :: Rect{252, 132, 30, 10}
+FRAME_BUTTON :: Rect{284, 84, 30, 10} // arms the frame tool: then drag corner to corner on the canvas
+FILL_BUTTON :: Rect{284, 96, 30, 10}
+FLOOD_BUTTON :: Rect{284, 108, 30, 10} // arms flood fill: the next click on the canvas fills from that pixel
+REPLACE_BUTTON :: Rect{284, 120, 30, 10} // arms replace colour: the next click picks the colour to replace
+CLEAR_BUTTON :: Rect{284, 132, 30, 10} // sets the whole image to the drawing colour at once
 
 HELP_Y :: 152 // up to four lines at the font's pitch
 MAX_HELP_LINES :: 4

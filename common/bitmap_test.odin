@@ -214,3 +214,87 @@ test_bitmap_old_rows_files_still_load :: proc(t: ^testing.T) {
 	both, e2 := bitmap_from_json(transmute([]u8)string(`{"width": 1, "height": 1, "bytes": [128], "rows": ["."]}`))
 	testing.expect(t, e2 == "" && both.bits[0][0])
 }
+
+@(test)
+test_bitmap_flips :: proc(t: ^testing.T) {
+	for size in ([][2]int{{1, 1}, {2, 3}, {3, 2}, {5, 5}, {8, 4}, {9, 9}, {64, 64}}) {
+		w, h := size[0], size[1]
+		g := bitmap_make(w, h)
+		for y in 0 ..< h {
+			for x in 0 ..< w {
+				bitmap_set(&g, x, y, (x * 3 + y * 7) % 5 < 2)
+			}
+		}
+		orig := g
+		// Horizontal: pixel (x, y) ends up at (w-1-x, y).
+		testing.expect(t, bitmap_flip_horizontal(&g) || (w == 1 || bitmap_visible_equal(&g, &orig)))
+		for y in 0 ..< h {
+			for x in 0 ..< w {
+				testing.expectf(t, g.bits[y][w - 1 - x] == orig.bits[y][x], "%dx%d horizontal (%d,%d)", w, h, x, y)
+			}
+		}
+		bitmap_flip_horizontal(&g)
+		testing.expectf(t, bitmap_visible_equal(&g, &orig), "%dx%d: two horizontal flips must restore", w, h)
+		// Vertical: pixel (x, y) ends up at (x, h-1-y).
+		bitmap_flip_vertical(&g)
+		for y in 0 ..< h {
+			for x in 0 ..< w {
+				testing.expectf(t, g.bits[h - 1 - y][x] == orig.bits[y][x], "%dx%d vertical (%d,%d)", w, h, x, y)
+			}
+		}
+		bitmap_flip_vertical(&g)
+		testing.expectf(t, bitmap_visible_equal(&g, &orig), "%dx%d: two vertical flips must restore", w, h)
+	}
+}
+
+@(test)
+test_bitmap_flip_reports_whether_anything_changed :: proc(t: ^testing.T) {
+	g := bitmap_make(4, 4)
+	testing.expect(t, !bitmap_flip_horizontal(&g) && !bitmap_flip_vertical(&g)) // blank
+	bitmap_set(&g, 0, 0, true)
+	testing.expect(t, bitmap_flip_horizontal(&g)) // moved to (3,0)
+	testing.expect(t, bitmap_flip_vertical(&g)) // moved to (3,3)
+	bitmap_set(&g, 0, 3, true) // now symmetric left-right across row 3
+	testing.expect(t, !bitmap_flip_horizontal(&g))
+	one := bitmap_make(1, 5) // a 1 wide image is its own horizontal mirror
+	bitmap_set(&one, 0, 1, true)
+	testing.expect(t, !bitmap_flip_horizontal(&one) && bitmap_flip_vertical(&one) && one.bits[3][0])
+}
+
+@(test)
+test_bitmap_flips_leave_hidden_pixels_alone :: proc(t: ^testing.T) {
+	g := bitmap_make(8, 8)
+	bitmap_set(&g, 0, 0, true)
+	g.bits[0][20] = true // far outside the visible 8 x 8
+	g.bits[30][2] = true
+	bitmap_resize(&g, 4, 4)
+	bitmap_set(&g, 0, 0, true)
+	bitmap_flip_horizontal(&g)
+	bitmap_flip_vertical(&g)
+	testing.expect(t, g.bits[0][20] && g.bits[30][2]) // untouched
+	testing.expect(t, g.bits[3][3] && !g.bits[0][0]) // the visible corner moved
+	// Pixels hidden by shrinking did not move into view, and did not get mirrored.
+	bitmap_resize(&g, 8, 8)
+	testing.expect(t, !g.bits[3][4] && !g.bits[4][3])
+}
+
+@(test)
+test_bitmap_invert :: proc(t: ^testing.T) {
+	g := bitmap_make(5, 3)
+	bitmap_set(&g, 0, 0, true)
+	bitmap_set(&g, 4, 2, true)
+	g.bits[10][10] = true // hidden
+	bitmap_invert(&g)
+	for y in 0 ..< 3 {
+		for x in 0 ..< 5 {
+			want := !((x == 0 && y == 0) || (x == 4 && y == 2))
+			testing.expectf(t, g.bits[y][x] == want, "(%d,%d)", x, y)
+		}
+	}
+	testing.expect(t, g.bits[10][10] && !g.bits[0][5]) // nothing outside the visible area changed
+	bitmap_invert(&g)
+	testing.expect(t, g.bits[0][0] && g.bits[2][4] && !g.bits[1][1]) // twice restores
+	blank := bitmap_make(1, 1)
+	bitmap_invert(&blank)
+	testing.expect(t, blank.bits[0][0]) // a blank image becomes full
+}

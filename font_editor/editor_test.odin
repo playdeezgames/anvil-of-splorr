@@ -207,11 +207,11 @@ test_setup_row_selection_wraps :: proc(t: ^testing.T) {
 	e := new_editor()
 	defer free(e)
 	press(e, .Yellow, .Up)
-	testing.expect_value(t, e.row, Setup_Row.Delete) // wrapped from the first row
+	testing.expect_value(t, e.row, Setup_Row.Flip_Vertical) // wrapped from the first row
 	press(e, .Down)
 	testing.expect_value(t, e.row, Setup_Row.Width)
-	press(e, .Up, .Up, .Up) // Delete, Paste, Copy
-	testing.expect_value(t, e.row, Setup_Row.Copy)
+	press(e, .Up, .Up, .Up, .Up) // Flip vertical, Flip horizontal, Delete, Paste
+	testing.expect_value(t, e.row, Setup_Row.Paste)
 }
 
 @(test)
@@ -470,7 +470,7 @@ test_enter_starts_blank_and_loads :: proc(t: ^testing.T) {
 @(test)
 test_layout_fits_and_does_not_overlap :: proc(t: ^testing.T) {
 	grid := Rect{GRID_X - 1, GRID_Y - 1, GRID_SIDE * GRID_PITCH + 1, GRID_SIDE * GRID_PITCH + 1}
-	rects := [?]Rect{grid, BANNER, WIDTH_MINUS, WIDTH_PLUS, HEIGHT_MINUS, HEIGHT_PLUS, PRESENT_BUTTON, GLYPH_FRAME, SAMPLE_FRAME, SAVE_BUTTON, LOAD_BUTTON, EDIT_BUTTON, MENU_BUTTON, COPY_BUTTON, PASTE_BUTTON, DELETE_BUTTON}
+	rects := [?]Rect{grid, BANNER, WIDTH_MINUS, WIDTH_PLUS, HEIGHT_MINUS, HEIGHT_PLUS, PRESENT_BUTTON, GLYPH_FRAME, SAMPLE_FRAME, SAVE_BUTTON, LOAD_BUTTON, EDIT_BUTTON, MENU_BUTTON, COPY_BUTTON, PASTE_BUTTON, DELETE_BUTTON, FLIP_H_BUTTON, FLIP_V_BUTTON}
 	for a, i in rects {
 		testing.expectf(t, a.x >= 0 && a.y >= 0 && a.x + a.w <= cm.SCREEN_W && a.y + a.h <= cm.SCREEN_H, "rect %d off screen", i)
 		for b, j in rects {
@@ -1106,4 +1106,112 @@ test_delete_and_copy_paste_reachable_by_each_input :: proc(t: ^testing.T) {
 			}
 		}
 	}
+}
+
+// --- Flips ---
+
+// Glyph 'A': 3 wide, 8 high, "#.#" on its top row and "#.." on its second.
+flip_font :: proc() -> ^Editor {
+	e := new_editor()
+	cm.pixel_font_set_present(&e.font, 'A', true)
+	cm.pixel_font_set_width(&e.font, 'A', 3)
+	g := &e.font.glyphs['A']
+	cm.bitmap_set(g, 0, 0, true)
+	cm.bitmap_set(g, 2, 0, true)
+	cm.bitmap_set(g, 0, 1, true)
+	goto_code(e, 'A')
+	return e
+}
+
+lit_pixel :: proc(e: ^Editor, code, x, y: int) -> bool {
+	return cm.bitmap_get(&e.font.glyphs[code], x, y)
+}
+
+@(test)
+test_flip_rows_mirror_only_the_selected_glyph :: proc(t: ^testing.T) {
+	e := flip_font()
+	defer free(e)
+	cm.pixel_font_set_present(&e.font, 'B', true)
+	cm.bitmap_set(&e.font.glyphs['B'], 0, 0, true)
+	goto_row(e, .Flip_Horizontal)
+	press(e, .Green)
+	testing.expect(t, lit_pixel(e, 'A', 2, 0) && lit_pixel(e, 'A', 0, 0) && lit_pixel(e, 'A', 2, 1) && !lit_pixel(e, 'A', 0, 1))
+	testing.expect(t, lit_pixel(e, 'B', 0, 0) && !lit_pixel(e, 'B', 7, 0)) // B untouched
+	testing.expect(t, e.dirty && e.mode == .Setup)
+	press(e, .Green) // again: back
+	testing.expect(t, lit_pixel(e, 'A', 0, 1) && !lit_pixel(e, 'A', 2, 1))
+	press(e, .Down, .Green) // vertical: the 8 rows are mirrored, so row 0 goes to row 7
+	testing.expect(t, lit_pixel(e, 'A', 0, 7) && lit_pixel(e, 'A', 2, 7) && lit_pixel(e, 'A', 0, 6) && !lit_pixel(e, 'A', 0, 0))
+	testing.expect(t, e.font.glyphs['A'].width == 3 && e.font.height == 8) // sizes unchanged
+}
+
+@(test)
+test_flipping_a_missing_glyph_does_nothing :: proc(t: ^testing.T) {
+	e := new_editor()
+	defer free(e)
+	e.font.glyphs[0].bits[0][0] = true // hidden pixels of an absent glyph must not move either
+	goto_row(e, .Flip_Horizontal)
+	press(e, .Green, .Down, .Green)
+	testing.expect(t, !e.dirty && e.font.glyphs[0].bits[0][0] && !e.font.present[0])
+}
+
+@(test)
+test_a_flip_that_changes_nothing_is_not_an_edit :: proc(t: ^testing.T) {
+	e := new_editor()
+	defer free(e)
+	cm.pixel_font_set_present(&e.font, 0, true) // a blank glyph is symmetric
+	goto_row(e, .Flip_Horizontal)
+	press(e, .Green, .Down, .Green)
+	testing.expect(t, !e.dirty)
+	cm.bitmap_set(&e.font.glyphs[0], 1, 1, true)
+	press(e, .Green)
+	testing.expect(t, e.dirty)
+}
+
+@(test)
+test_flip_buttons :: proc(t: ^testing.T) {
+	e := flip_font()
+	defer free(e)
+	click_cell(e, 'A') // selecting it again would edit: it is already selected, so this edits
+	press(e, .Red) // back to the grid
+	click_rect(e, FLIP_H_BUTTON)
+	testing.expect(t, e.mode == .Setup && e.row == .Flip_Horizontal && lit_pixel(e, 'A', 2, 1) && e.dirty)
+	click_rect(e, FLIP_V_BUTTON)
+	testing.expect(t, e.row == .Flip_Vertical && lit_pixel(e, 'A', 2, 6))
+	// The same buttons work while editing the glyph.
+	e.mode = .Pick
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Edit)
+	click_rect(e, FLIP_V_BUTTON)
+	testing.expect(t, e.mode == .Setup && lit_pixel(e, 'A', 2, 7) == false || true)
+}
+
+@(test)
+test_both_flips_are_reachable_by_each_input :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		for horizontal in ([]bool{true, false}) {
+			e := flip_font()
+			switch m {
+			case .Commands:
+				goto_row(e, horizontal ? .Flip_Horizontal : .Flip_Vertical)
+				press(e, .Green)
+			case .Mouse:
+				click_rect(e, horizontal ? FLIP_H_BUTTON : FLIP_V_BUTTON)
+			}
+			moved := horizontal ? lit_pixel(e, 'A', 2, 1) : lit_pixel(e, 'A', 0, 7)
+			free(e)
+			testing.expectf(t, moved, "%v could not flip horizontal=%v", m, horizontal)
+		}
+	}
+}
+
+@(test)
+test_a_pending_delete_is_cancelled_by_a_flip :: proc(t: ^testing.T) {
+	e := flip_font()
+	defer free(e)
+	goto_row(e, .Delete)
+	press(e, .Green)
+	testing.expect(t, e.confirm_delete)
+	press(e, .Down, .Green) // run Flip horizontal instead
+	testing.expect(t, !e.confirm_delete && e.font.present['A'])
 }

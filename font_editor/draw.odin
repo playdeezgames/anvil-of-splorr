@@ -47,14 +47,14 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	case .Pick:
 		lines = {
 			move,
-			fmt.tprintf("%s: EDIT GLYPH  %s: SETUP / COPY / DELETE", l(e, .Green), l(e, .Yellow)),
+			fmt.tprintf("%s: EDIT GLYPH  %s: SETUP / COPY / DELETE / FLIP", l(e, .Green), l(e, .Yellow)),
 			fmt.tprintf("%s: SAVE / LOAD  %s: MAIN MENU", l(e, .Blue), l(e, .Red)),
 			"MOUSE: CLICK A CELL, AGAIN TO EDIT",
 		}
 	case .Edit:
 		lines = {
 			move,
-			fmt.tprintf("%s: TOGGLE PIXEL  %s: SETUP / COPY / DELETE", l(e, .Green), l(e, .Yellow)),
+			fmt.tprintf("%s: TOGGLE PIXEL  %s: SETUP / COPY / DELETE / FLIP", l(e, .Green), l(e, .Yellow)),
 			fmt.tprintf("%s: SAVE / LOAD  %s: BACK TO GRID", l(e, .Blue), l(e, .Red)),
 			"MOUSE: CLICK OR DRAG TO PAINT",
 		}
@@ -62,7 +62,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 		lines = {
 			fmt.tprintf("%s/%s: CHOOSE SETTING OR ACTION", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s/%s: CHANGE VALUE", l(e, .Left), l(e, .Right)),
-			fmt.tprintf("%s: RUN COPY / PASTE / DELETE", l(e, .Green)),
+			fmt.tprintf("%s: RUN COPY / PASTE / DELETE / FLIP", l(e, .Green)),
 			fmt.tprintf("%s: DONE  %s: SAVE / LOAD", l(e, .Red), l(e, .Blue)),
 		}
 	case .File:
@@ -243,6 +243,18 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}, {EDIT_BUTTON, edit_label}, {MENU_BUTTON, "MENU"}}) {
 		fill(r, btn.rc, PANEL)
 		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.txt, TEXT)
+	}
+
+	// Flip buttons, beside the width and height values; lit while their Setup row is selected, dim
+	// on a character with no glyph.
+	for btn in ([2]struct {
+			rc:  Rect,
+			txt: string,
+			row: Setup_Row,
+		}{{FLIP_H_BUTTON, "FLIP H", .Flip_Horizontal}, {FLIP_V_BUTTON, "FLIP V", .Flip_Vertical}}) {
+		lit := e.mode == .Setup && e.row == btn.row
+		fill(r, btn.rc, lit ? HILITE : PANEL)
+		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + 3, btn.txt, lit ? BG : (present(e) ? TEXT : DIM))
 	}
 
 	// Glyph actions: the one the Setup row is on is lit; Paste is dim with nothing to paste, and

@@ -75,6 +75,83 @@ bitmap_resize :: proc(g: ^Bitmap, width, height: int) -> bool {
 	return true
 }
 
+// Mirrors the visible pixels left to right. Hidden pixels are untouched. Returns true if anything
+// changed (a symmetric image flips to itself).
+bitmap_flip_horizontal :: proc(g: ^Bitmap) -> (changed: bool) {
+	for y in 0 ..< g.height {
+		for x in 0 ..< g.width / 2 {
+			a, b := &g.bits[y][x], &g.bits[y][g.width - 1 - x]
+			if a^ != b^ {
+				a^, b^ = b^, a^
+				changed = true
+			}
+		}
+	}
+	return
+}
+
+// Mirrors the visible pixels top to bottom. Hidden pixels are untouched. Returns true if anything
+// changed.
+bitmap_flip_vertical :: proc(g: ^Bitmap) -> (changed: bool) {
+	for y in 0 ..< g.height / 2 {
+		for x in 0 ..< g.width {
+			a, b := &g.bits[y][x], &g.bits[g.height - 1 - y][x]
+			if a^ != b^ {
+				a^, b^ = b^, a^
+				changed = true
+			}
+		}
+	}
+	return
+}
+
+// Inverts the visible pixels: every set pixel is cleared and every clear one is set. Hidden pixels
+// are untouched. Always changes the picture (an image has at least one pixel).
+bitmap_invert :: proc(g: ^Bitmap) {
+	for y in 0 ..< g.height {
+		for x in 0 ..< g.width {
+			g.bits[y][x] = !g.bits[y][x]
+		}
+	}
+}
+
+// Quarter turns of the visible pixels. The width and height swap (both stay within 1..BITMAP_MAX,
+// so a turn always fits). Every pixel of the new visible area is rewritten, so hidden pixels that
+// happened to sit there are replaced; pixels outside it are untouched. Return true if the picture
+// changed (a square, symmetric one can turn into itself).
+
+// Clockwise: the top row becomes the right column.
+bitmap_rotate_right :: proc(g: ^Bitmap) -> bool {
+	old := g^
+	g.width, g.height = old.height, old.width
+	for ny in 0 ..< g.height {
+		for nx in 0 ..< g.width {
+			g.bits[ny][nx] = old.bits[old.height - 1 - nx][ny]
+		}
+	}
+	return !bitmap_visible_equal(&old, g)
+}
+
+// Counter-clockwise: the top row becomes the left column.
+bitmap_rotate_left :: proc(g: ^Bitmap) -> bool {
+	old := g^
+	g.width, g.height = old.height, old.width
+	for ny in 0 ..< g.height {
+		for nx in 0 ..< g.width {
+			g.bits[ny][nx] = old.bits[nx][old.width - 1 - ny]
+		}
+	}
+	return !bitmap_visible_equal(&old, g)
+}
+
+// Half a turn: same size, every pixel moves to the opposite corner position.
+bitmap_rotate_180 :: proc(g: ^Bitmap) -> bool {
+	old := g^
+	bitmap_flip_horizontal(g)
+	bitmap_flip_vertical(g)
+	return !bitmap_visible_equal(&old, g)
+}
+
 // --- Packed form ---
 //
 // One bit per pixel, a pixel row at a time. Every row is padded to a whole number of bytes (widths

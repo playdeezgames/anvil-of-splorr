@@ -153,3 +153,159 @@ test_image4_json_errors :: proc(t: ^testing.T) {
 	_, err := image4_from_json(transmute([]u8)string(`{"name": "x", "width": 2, "height": 1, "bytes": [18]}`))
 	testing.expect_value(t, err, "") // extra fields are ignored
 }
+
+@(test)
+test_image4_flips :: proc(t: ^testing.T) {
+	for size in ([][2]int{{1, 1}, {2, 3}, {3, 2}, {5, 5}, {8, 4}, {9, 9}, {64, 64}}) {
+		w, h := size[0], size[1]
+		img := image4_make(w, h)
+		for y in 0 ..< h {
+			for x in 0 ..< w {
+				image4_set(&img, x, y, (x * 3 + y * 7) % 16)
+			}
+		}
+		orig := img
+		image4_flip_horizontal(&img)
+		for y in 0 ..< h {
+			for x in 0 ..< w {
+				testing.expectf(t, img.pixels[y][w - 1 - x] == orig.pixels[y][x], "%dx%d horizontal (%d,%d)", w, h, x, y)
+			}
+		}
+		image4_flip_horizontal(&img)
+		testing.expectf(t, image4_visible_equal(&img, &orig), "%dx%d: two horizontal flips must restore", w, h)
+		image4_flip_vertical(&img)
+		for y in 0 ..< h {
+			for x in 0 ..< w {
+				testing.expectf(t, img.pixels[h - 1 - y][x] == orig.pixels[y][x], "%dx%d vertical (%d,%d)", w, h, x, y)
+			}
+		}
+		image4_flip_vertical(&img)
+		testing.expectf(t, image4_visible_equal(&img, &orig), "%dx%d: two vertical flips must restore", w, h)
+	}
+}
+
+@(test)
+test_image4_flip_reports_changes_and_keeps_hidden_pixels :: proc(t: ^testing.T) {
+	img := image4_make(4, 4)
+	testing.expect(t, !image4_flip_horizontal(&img) && !image4_flip_vertical(&img)) // all colour 0
+	image4_set(&img, 0, 0, 7)
+	testing.expect(t, image4_flip_horizontal(&img) && img.pixels[0][3] == 7)
+	testing.expect(t, image4_flip_vertical(&img) && img.pixels[3][3] == 7)
+	image4_set(&img, 0, 3, 7)
+	testing.expect(t, !image4_flip_horizontal(&img)) // row 3 is now symmetric
+	// Two different colours are not "symmetric".
+	image4_set(&img, 0, 3, 8)
+	testing.expect(t, image4_flip_horizontal(&img) && img.pixels[3][0] == 7 && img.pixels[3][3] == 8)
+	// Hidden pixels stay put.
+	big := image4_make(8, 8)
+	big.pixels[0][20] = 5
+	image4_resize(&big, 4, 4)
+	image4_set(&big, 0, 0, 1)
+	image4_flip_horizontal(&big)
+	image4_flip_vertical(&big)
+	testing.expect_value(t, big.pixels[0][20], 5)
+	testing.expect(t, big.pixels[3][3] == 1 && big.pixels[0][0] == 0)
+}
+
+@(test)
+test_image4_clear :: proc(t: ^testing.T) {
+	img := sample_image(5, 4)
+	img.pixels[9][9] = 3 // hidden
+	testing.expect(t, image4_clear(&img, 7))
+	for y in 0 ..< 4 {
+		for x in 0 ..< 5 {
+			testing.expect_value(t, img.pixels[y][x], 7)
+		}
+	}
+	testing.expect_value(t, img.pixels[9][9], 3) // hidden pixels untouched
+	testing.expect(t, !image4_clear(&img, 7)) // already that colour
+	testing.expect(t, image4_clear(&img, 99) && img.pixels[0][0] == 15) // clamped
+	testing.expect(t, image4_clear(&img, -3) && img.pixels[3][4] == 0)
+}
+
+@(test)
+test_image4_replace_color :: proc(t: ^testing.T) {
+	img := image4_make(4, 3)
+	for y in 0 ..< 3 {
+		for x in 0 ..< 4 {
+			image4_set(&img, x, y, (x + y) % 3) // colours 0, 1, 2
+		}
+	}
+	img.pixels[8][8] = 1 // hidden: must not change
+	before := img
+	testing.expect(t, image4_replace_color(&img, 1, 9))
+	for y in 0 ..< 3 {
+		for x in 0 ..< 4 {
+			want: u8 = before.pixels[y][x] == 1 ? 9 : before.pixels[y][x]
+			testing.expectf(t, img.pixels[y][x] == want, "(%d,%d)", x, y)
+		}
+	}
+	testing.expect_value(t, img.pixels[8][8], 1)
+	testing.expect(t, !image4_replace_color(&img, 1, 5)) // no pixel of that colour left
+	testing.expect(t, !image4_replace_color(&img, 9, 9)) // same colour: nothing to do
+	testing.expect(t, image4_replace_color(&img, 2, 0) && img.pixels[0][2] == 0)
+}
+
+@(test)
+test_image4_flood_fill :: proc(t: ^testing.T) {
+	// 5 x 5, a ring of colour 1 around a centre of colour 0, and a stray 0 pixel outside the ring.
+	img := image4_make(5, 5)
+	for i in 0 ..< 5 {
+		image4_set(&img, i, 0, 1)
+		image4_set(&img, i, 4, 1)
+		image4_set(&img, 0, i, 1)
+		image4_set(&img, 4, i, 1)
+	}
+	testing.expect(t, image4_flood_fill(&img, 2, 2, 5)) // the inside
+	for y in 1 ..= 3 {
+		for x in 1 ..= 3 {
+			testing.expect_value(t, img.pixels[y][x], 5)
+		}
+	}
+	testing.expect_value(t, img.pixels[0][0], 1) // the ring is untouched
+	testing.expect(t, !image4_flood_fill(&img, 2, 2, 5)) // already that colour
+	testing.expect(t, image4_flood_fill(&img, 0, 0, 8)) // the whole ring (it is one connected region)
+	testing.expect(t, img.pixels[0][4] == 8 && img.pixels[4][0] == 8 && img.pixels[2][2] == 5)
+	testing.expect(t, !image4_flood_fill(&img, -1, 0, 3) && !image4_flood_fill(&img, 0, 9, 3))
+}
+
+@(test)
+test_image4_flood_fill_does_not_cross_diagonals :: proc(t: ^testing.T) {
+	img := image4_make(3, 3) // all 0
+	image4_set(&img, 1, 0, 1)
+	image4_set(&img, 0, 1, 1)
+	image4_set(&img, 2, 1, 1)
+	image4_set(&img, 1, 2, 1) // a diamond of 1s around the centre
+	testing.expect(t, image4_flood_fill(&img, 1, 1, 7)) // the centre is only diagonally next to the corners
+	testing.expect(t, img.pixels[1][1] == 7)
+	testing.expect(t, img.pixels[0][0] == 0 && img.pixels[0][2] == 0 && img.pixels[2][0] == 0 && img.pixels[2][2] == 0)
+}
+
+@(test)
+test_image4_flood_fill_handles_the_largest_image_and_a_snake :: proc(t: ^testing.T) {
+	img := image4_make(IMAGE_MAX, IMAGE_MAX)
+	testing.expect(t, image4_flood_fill(&img, 0, 0, 3)) // 4096 pixels in one region
+	for y in 0 ..< IMAGE_MAX {
+		for x in 0 ..< IMAGE_MAX {
+			if img.pixels[y][x] != 3 {
+				testing.expectf(t, false, "(%d,%d) was missed", x, y)
+				return
+			}
+		}
+	}
+	// A winding one pixel wide corridor (walls of colour 1): the fill follows it all the way.
+	snake := image4_make(IMAGE_MAX, IMAGE_MAX)
+	for y in 0 ..< IMAGE_MAX {
+		for x in 0 ..< IMAGE_MAX {
+			image4_set(&snake, x, y, y % 2 == 1 ? 1 : 0) // alternate rows are walls
+		}
+	}
+	for y in 1 ..< IMAGE_MAX {
+		if y % 2 == 1 { 	// a gap in each wall, alternating ends, joins the corridors
+			image4_set(&snake, (y / 2) % 2 == 0 ? IMAGE_MAX - 1 : 0, y, 0)
+		}
+	}
+	testing.expect(t, image4_flood_fill(&snake, 0, 0, 9))
+	testing.expect(t, snake.pixels[IMAGE_MAX - 2][IMAGE_MAX - 1] == 9 || snake.pixels[IMAGE_MAX - 2][0] == 9) // reached the far end
+	testing.expect(t, snake.pixels[1][1] == 1) // walls stay
+}

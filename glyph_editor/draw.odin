@@ -23,11 +23,16 @@ banner_text :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("UNSAVED   %s: LEAVE ANYWAY", label(e, .Red))
 	}
 	switch e.mode {
+	case .Rect:
+		return e.shape == .Fill ? "FILL: PLACE 2ND CORNER" : "FRAME: PLACE 2ND CORNER"
 	case .Setup:
 		return fmt.tprintf("SETUP   %s: DONE", label(e, .Red))
 	case .File:
 		return fmt.tprintf("%s: SAVE  %s: LOAD", label(e, .Green), label(e, .Yellow))
 	case .Draw:
+		if e.shape != .None { 	// a rectangle tool armed with the mouse
+			return fmt.tprintf("DRAG A %s  %s: CANCEL", e.shape == .Fill ? "FILL" : "FRAME", label(e, .Red))
+		}
 	}
 	return fmt.tprintf("DRAWING   %s: TOGGLE", label(e, .Green))
 }
@@ -36,12 +41,19 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	l :: label
 	mouse := "MOUSE: CLICK OR DRAG TO PAINT"
 	switch e.mode {
+	case .Rect:
+		lines = {
+			fmt.tprintf("%s/%s/%s/%s: MOVE CORNER", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
+			fmt.tprintf("%s: DRAW IT  %s: CANCEL", l(e, .Green), l(e, .Red)),
+			"FROM A LIT PIXEL IT ERASES (RED DOTS)",
+			"MOUSE: CLICK THE OPPOSITE CORNER",
+		}
 	case .Setup:
 		lines = {
-			fmt.tprintf("%s/%s: CHOOSE SETTING", l(e, .Up), l(e, .Down)),
+			fmt.tprintf("%s/%s: CHOOSE SETTING OR ACTION", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s/%s: CHANGE VALUE", l(e, .Left), l(e, .Right)),
+			fmt.tprintf("%s: RUN INVERT / FLIP / ROTATE / RECT", l(e, .Green)),
 			fmt.tprintf("%s: DONE  %s: SAVE / LOAD", l(e, .Red), l(e, .Blue)),
-			"MOUSE: - + BUTTONS, CLICK A COLOR (RIGHT = BG)",
 		}
 	case .File:
 		lines = {fmt.tprintf("%s: SAVE  %s: LOAD", l(e, .Green), l(e, .Yellow)), fmt.tprintf("%s: CANCEL", l(e, .Red)), mouse, ""}
@@ -57,6 +69,23 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	return lines, MAX_HELP_LINES
 }
 
+// Marks the pixels the rectangle being placed will change: a small yellow square in each cell when
+// it will draw, red when it will erase.
+draw_shape_preview :: proc(e: ^Editor, r: ^cm.Renderer) {
+	b := &e.bitmap
+	c := cell_size(b.width, b.height)
+	m := max(1, c / 2)
+	color := e.shape_on ? HILITE : WARN
+	for y in min(e.ay, e.cy) ..= max(e.ay, e.cy) {
+		for x in min(e.ax, e.cx) ..= max(e.ax, e.cx) {
+			if cm.shape_has_cell(e.shape, e.ax, e.ay, e.cx, e.cy, x, y) {
+				cr := cell_rect(b.width, b.height, x, y)
+				cm.renderer_fill_rect(r, cr.x + (c - m) / 2, cr.y + (c - m) / 2, m, m, color)
+			}
+		}
+	}
+}
+
 editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.renderer_clear(r, BG)
 	fill :: proc(r: ^cm.Renderer, rc: Rect, c: cm.Color) {
@@ -65,7 +94,10 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	b := &e.bitmap
 
 	// Canvas and cursor (the cursor is dimmed while a setup or file mode is active).
-	cm.canvas_draw(r, CANVAS, b, e.cx, e.cy, {on = ON, off = OFF, grid = BG, cursor = e.mode == .Draw ? HILITE : DIM})
+	cm.canvas_draw(r, CANVAS, b, e.cx, e.cy, {on = ON, off = OFF, grid = BG, cursor = e.mode == .Draw || e.mode == .Rect ? HILITE : DIM})
+	if e.mode == .Rect {
+		draw_shape_preview(e, r)
+	}
 
 	// Banner.
 	fill(r, BANNER, e.confirm_exit ? WARN : (e.mode == .Draw ? PANEL : HILITE))
@@ -166,13 +198,32 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.draw_text(r, CLIPPED_X, CLIPPED_Y, "CLIPPED", DIM)
 	}
 
-	// File buttons.
-	for btn in ([3]struct {
-			rc:  Rect,
-			txt: string,
-		}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}, {MENU_BUTTON, "MENU"}}) {
-		fill(r, btn.rc, PANEL)
-		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.txt, TEXT)
+	// Buttons. The transform and tool buttons are lit while their Setup row is selected, and a
+	// rectangle tool is also lit while it is armed.
+	for btn in ([11]struct {
+			rc:    Rect,
+			txt:   string,
+			row:   Maybe(Setup_Row),
+			shape: cm.Shape,
+		}{
+			{SAVE_BUTTON, "SAVE", nil, .None},
+			{LOAD_BUTTON, "LOAD", nil, .None},
+			{MENU_BUTTON, "MENU", nil, .None},
+			{FLIP_H_BUTTON, "FLIP H", .Flip_Horizontal, .None},
+			{FLIP_V_BUTTON, "FLIP V", .Flip_Vertical, .None},
+			{ROT_L_BUTTON, "ROT L", .Rotate_Left, .None},
+			{ROT_R_BUTTON, "ROT R", .Rotate_Right, .None},
+			{ROT_180_BUTTON, "ROT 180", .Rotate_180, .None},
+			{FRAME_BUTTON, "FRAME", .Frame, .Frame},
+			{FILL_BUTTON, "FILL", .Fill, .Fill},
+			{INVERT_BUTTON, "INVERT", .Invert, .None},
+		}) {
+		lit := btn.shape != .None && e.shape == btn.shape
+		if row, has := btn.row.?; has && e.mode == .Setup && e.row == row {
+			lit = true
+		}
+		fill(r, btn.rc, lit ? HILITE : PANEL)
+		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.txt, lit ? BG : TEXT)
 	}
 
 	// Help.

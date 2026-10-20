@@ -344,7 +344,7 @@ test_text_follows_labels_and_fits :: proc(t: ^testing.T) {
 @(test)
 test_layout_is_on_screen_and_does_not_overlap :: proc(t: ^testing.T) {
 	strip := Rect{PALETTE_X, PALETTE_Y, SWATCH_W * cm.PALETTE_SIZE, SWATCH_W}
-	rects := [?]Rect{CANVAS, BANNER, WIDTH_MINUS, WIDTH_PLUS, HEIGHT_MINUS, HEIGHT_PLUS, FG_CHIP, BG_CHIP, strip, PREVIEW_FRAME, SAVE_BUTTON, LOAD_BUTTON, MENU_BUTTON}
+	rects := [?]Rect{CANVAS, BANNER, WIDTH_MINUS, WIDTH_PLUS, HEIGHT_MINUS, HEIGHT_PLUS, FG_CHIP, BG_CHIP, strip, PREVIEW_FRAME, SAVE_BUTTON, LOAD_BUTTON, MENU_BUTTON, FLIP_H_BUTTON, FLIP_V_BUTTON, ROT_L_BUTTON, ROT_R_BUTTON, ROT_180_BUTTON, FRAME_BUTTON, FILL_BUTTON, INVERT_BUTTON}
 	for a, i in rects {
 		testing.expectf(t, a.x >= 0 && a.y >= 0 && a.x + a.w <= cm.SCREEN_W && a.y + a.h <= cm.SCREEN_H, "rect %d off screen", i)
 		for b, j in rects {
@@ -561,7 +561,7 @@ test_closing_the_window_warns_about_unsaved_changes :: proc(t: ^testing.T) {
 test_setup_row_selection_wraps :: proc(t: ^testing.T) {
 	e := editor_init()
 	press(&e, .Yellow, .Up)
-	testing.expect_value(t, e.row, Setup_Row.Background) // wrapped from the first row
+	testing.expect_value(t, e.row, Setup_Row.Fill) // wrapped from the first row
 	press(&e, .Down)
 	testing.expect_value(t, e.row, Setup_Row.Width)
 	press(&e, .Down, .Down, .Down)
@@ -774,5 +774,400 @@ test_all_on_screen_text_is_in_the_font :: proc(t: ^testing.T) {
 	// The default labels are fine too (user labels are the user's responsibility).
 	for a in cm.Action {
 		testing.expect(t, cm.text_is_drawable(cm.DEFAULT_LABELS[a]))
+	}
+}
+
+// --- Invert, flips, rotation and rectangles ---
+
+goto_row :: proc(e: ^Editor, row: Setup_Row) {
+	press(e, .Yellow)
+	for e.row != row {
+		press(e, .Down)
+	}
+}
+
+right_click_at :: proc(e: ^Editor, x, y: int) {
+	editor_handle_event(e, cm.Mouse_Button_Event{button = .Right, x = x, y = y, down = true})
+	editor_handle_event(e, cm.Mouse_Button_Event{button = .Right, x = x, y = y, down = false})
+}
+
+lit :: proc(e: ^Editor, x, y: int) -> bool {
+	return cm.bitmap_get(&e.bitmap, x, y)
+}
+
+lit_count :: proc(e: ^Editor) -> (n: int) {
+	for y in 0 ..< e.bitmap.height {
+		for x in 0 ..< e.bitmap.width {
+			if lit(e, x, y) {
+				n += 1
+			}
+		}
+	}
+	return
+}
+
+// 3 x 2: row 0 = # . #   row 1 = # . .
+fixture :: proc() -> Editor {
+	e := editor_init()
+	cm.bitmap_resize(&e.bitmap, 3, 2)
+	cm.bitmap_set(&e.bitmap, 0, 0, true)
+	cm.bitmap_set(&e.bitmap, 2, 0, true)
+	cm.bitmap_set(&e.bitmap, 0, 1, true)
+	return e
+}
+
+@(test)
+test_invert_swaps_every_pixel :: proc(t: ^testing.T) {
+	e := fixture()
+	goto_row(&e, .Invert)
+	press(&e, .Green)
+	testing.expect(t, !lit(&e, 0, 0) && lit(&e, 1, 0) && !lit(&e, 2, 0) && !lit(&e, 0, 1) && lit(&e, 1, 1) && lit(&e, 2, 1))
+	testing.expect(t, e.dirty && e.mode == .Setup)
+	press(&e, .Green) // again: back to how it was
+	testing.expect(t, lit(&e, 0, 0) && !lit(&e, 1, 0) && lit(&e, 2, 0) && lit(&e, 0, 1) && !lit(&e, 1, 1))
+	// A blank glyph inverts to a full one, and that is an edit.
+	e = editor_init()
+	goto_row(&e, .Invert)
+	press(&e, .Green)
+	testing.expect_value(t, lit_count(&e), 64)
+	testing.expect(t, e.dirty)
+}
+
+@(test)
+test_invert_button :: proc(t: ^testing.T) {
+	e := fixture()
+	click_rect(&e, INVERT_BUTTON)
+	testing.expect(t, e.mode == .Setup && e.row == .Invert && lit_count(&e) == 3 && !lit(&e, 0, 0))
+}
+
+@(test)
+test_flip_rows_and_buttons :: proc(t: ^testing.T) {
+	e := fixture()
+	goto_row(&e, .Flip_Horizontal)
+	press(&e, .Green)
+	testing.expect(t, lit(&e, 2, 0) && lit(&e, 0, 0) && lit(&e, 2, 1) && !lit(&e, 0, 1)) // row 1 moved right
+	press(&e, .Green)
+	testing.expect(t, lit(&e, 0, 1) && !lit(&e, 2, 1))
+	press(&e, .Down, .Green) // vertical
+	testing.expect(t, lit(&e, 0, 0) && lit(&e, 0, 1) && lit(&e, 2, 1) && !lit(&e, 2, 0))
+	e = fixture()
+	click_rect(&e, FLIP_V_BUTTON)
+	testing.expect(t, e.row == .Flip_Vertical && lit(&e, 0, 0) && lit(&e, 2, 1))
+	click_rect(&e, FLIP_H_BUTTON)
+	testing.expect(t, e.row == .Flip_Horizontal && lit(&e, 2, 0) && lit(&e, 0, 1))
+}
+
+@(test)
+test_flips_and_rotations_that_change_nothing_are_not_edits :: proc(t: ^testing.T) {
+	e := editor_init() // blank 8 x 8
+	for row in ([]Setup_Row{.Flip_Horizontal, .Flip_Vertical, .Rotate_Left, .Rotate_Right, .Rotate_180}) {
+		goto_row(&e, row)
+		press(&e, .Green)
+		testing.expectf(t, !e.dirty, "%v on a blank square marked it changed", row)
+	}
+	e.bitmap = cm.bitmap_make(3, 5) // blank but not square: a quarter turn changes its size
+	goto_row(&e, .Rotate_Left)
+	press(&e, .Green)
+	testing.expect(t, e.dirty && e.bitmap.width == 5 && e.bitmap.height == 3)
+}
+
+@(test)
+test_rotate_rows_and_buttons :: proc(t: ^testing.T) {
+	e := fixture()
+	goto_row(&e, .Rotate_Right)
+	press(&e, .Green)
+	testing.expect(t, e.bitmap.width == 2 && e.bitmap.height == 3)
+	// Clockwise: the top row (# . #) becomes the right column, top to bottom.
+	testing.expect(t, lit(&e, 1, 0) && !lit(&e, 1, 1) && lit(&e, 1, 2) && lit(&e, 0, 0) && !lit(&e, 0, 1))
+	press(&e, .Up, .Green) // Rotate left undoes it
+	testing.expect(t, e.bitmap.width == 3 && e.bitmap.height == 2 && lit(&e, 0, 0) && lit(&e, 2, 0) && lit(&e, 0, 1))
+	e = fixture()
+	click_rect(&e, ROT_180_BUTTON)
+	testing.expect(t, e.bitmap.width == 3 && lit(&e, 2, 1) && lit(&e, 0, 1) && lit(&e, 2, 0) && !lit(&e, 0, 0))
+	e = fixture()
+	click_rect(&e, ROT_L_BUTTON)
+	testing.expect(t, e.bitmap.width == 2 && e.bitmap.height == 3 && e.row == .Rotate_Left)
+	click_rect(&e, ROT_R_BUTTON)
+	testing.expect(t, e.bitmap.width == 3 && lit(&e, 0, 0) && lit(&e, 2, 0) && lit(&e, 0, 1))
+}
+
+@(test)
+test_rotation_keeps_the_cursor_inside :: proc(t: ^testing.T) {
+	e := editor_init()
+	cm.bitmap_resize(&e.bitmap, 8, 2)
+	e.cx, e.cy = 7, 1
+	goto_row(&e, .Rotate_Left)
+	press(&e, .Green)
+	testing.expect(t, e.bitmap.width == 2 && e.bitmap.height == 8 && e.cx == 1 && e.cy == 1)
+}
+
+@(test)
+test_frame_draws_from_a_clear_corner :: proc(t: ^testing.T) {
+	e := editor_init()
+	press(&e, .Right, .Down) // (1,1)
+	goto_row(&e, .Frame)
+	press(&e, .Green)
+	testing.expect(t, e.mode == .Rect && e.shape == .Frame && e.shape_on && !e.dirty)
+	press(&e, .Right, .Right, .Right, .Down, .Down, .Green) // to (4,3)
+	testing.expect(t, e.mode == .Draw && e.shape == .None && e.dirty)
+	testing.expect_value(t, lit_count(&e), 10) // a 4 x 3 outline
+	testing.expect(t, lit(&e, 1, 1) && lit(&e, 4, 3) && !lit(&e, 2, 2) && !lit(&e, 3, 2) == true)
+}
+
+@(test)
+test_fill_from_a_lit_corner_erases :: proc(t: ^testing.T) {
+	e := editor_init()
+	for y in 0 ..< 8 {
+		for x in 0 ..< 8 {
+			cm.bitmap_set(&e.bitmap, x, y, true)
+		}
+	}
+	e.cx, e.cy = 2, 2
+	goto_row(&e, .Fill)
+	press(&e, .Green)
+	testing.expect(t, e.mode == .Rect && !e.shape_on) // starting on a lit pixel erases
+	press(&e, .Right, .Right, .Down, .Green)
+	testing.expect_value(t, lit_count(&e), 64 - 3 * 2)
+	testing.expect(t, !lit(&e, 2, 2) && !lit(&e, 4, 3) && lit(&e, 5, 3) && lit(&e, 1, 2))
+}
+
+@(test)
+test_rectangle_corners_can_be_in_any_order :: proc(t: ^testing.T) {
+	e := editor_init()
+	e.cx, e.cy = 5, 5
+	goto_row(&e, .Fill)
+	press(&e, .Green, .Left, .Left, .Left, .Up, .Up, .Green)
+	testing.expect_value(t, lit_count(&e), 4 * 3)
+	testing.expect(t, lit(&e, 2, 3) && lit(&e, 5, 5) && !lit(&e, 1, 3))
+}
+
+@(test)
+test_rectangles_cancel_cleanly_and_ignore_other_commands :: proc(t: ^testing.T) {
+	e := editor_init()
+	goto_row(&e, .Fill)
+	press(&e, .Green, .Right, .Down, .Yellow, .Blue)
+	testing.expect(t, e.mode == .Rect && e.requests == {}) // other commands are ignored
+	press(&e, .Red)
+	testing.expect(t, e.mode == .Draw && e.shape == .None && !e.dirty && lit_count(&e) == 0)
+	testing.expect(t, !(func_take_exit(&e)))
+	press(&e, .Red)
+	testing.expect(t, func_take_exit(&e))
+	e = editor_init()
+	goto_row(&e, .Frame)
+	press(&e, .Green)
+	for _ in 0 ..< 20 {
+		press(&e, .Right, .Down)
+	}
+	testing.expect(t, e.cx == 7 && e.cy == 7) // the corner stays inside
+}
+
+func_take_exit :: proc(e: ^Editor) -> bool {
+	tl := tool(e)
+	return tl.take_exit(tl.data)
+}
+
+@(test)
+test_mouse_drag_draws_a_rectangle_with_an_armed_tool :: proc(t: ^testing.T) {
+	e := editor_init()
+	click_rect(&e, FRAME_BUTTON)
+	testing.expect(t, e.shape == .Frame && e.mode == .Draw)
+	x0, y0 := center_of_cell(&e, 1, 1)
+	mouse(&e, x0, y0, true)
+	testing.expect(t, e.rect_drag && e.mode == .Rect && e.shape_on && lit_count(&e) == 0)
+	x, y := center_of_cell(&e, 5, 4)
+	editor_handle_event(&e, cm.Mouse_Move{x, y})
+	mouse(&e, x, y, false)
+	testing.expect(t, !e.rect_drag && e.mode == .Draw && e.shape == .None && e.dirty)
+	testing.expect_value(t, lit_count(&e), 2 * 5 + 2 * 2) // a 5 x 4 outline: 14
+	// The tool is spent: the next click toggles one pixel as usual.
+	x, y = center_of_cell(&e, 7, 7)
+	click_at(&e, x, y)
+	testing.expect(t, lit(&e, 7, 7) && lit_count(&e) == 15)
+}
+
+@(test)
+test_dragging_from_a_lit_pixel_erases_a_region :: proc(t: ^testing.T) {
+	e := editor_init()
+	for y in 0 ..< 8 {
+		for x in 0 ..< 8 {
+			cm.bitmap_set(&e.bitmap, x, y, true)
+		}
+	}
+	click_rect(&e, FILL_BUTTON)
+	x0, y0 := center_of_cell(&e, 2, 2)
+	mouse(&e, x0, y0, true)
+	testing.expect(t, !e.shape_on)
+	x, y := center_of_cell(&e, 4, 3)
+	editor_handle_event(&e, cm.Mouse_Move{x, y})
+	mouse(&e, x, y, false)
+	testing.expect_value(t, lit_count(&e), 64 - 6)
+}
+
+@(test)
+test_tool_button_toggles_and_red_disarms :: proc(t: ^testing.T) {
+	e := editor_init()
+	click_rect(&e, FRAME_BUTTON)
+	click_rect(&e, FRAME_BUTTON)
+	testing.expect_value(t, e.shape, cm.Shape.None)
+	click_rect(&e, FRAME_BUTTON)
+	click_rect(&e, FILL_BUTTON)
+	testing.expect_value(t, e.shape, cm.Shape.Fill)
+	press(&e, .Red)
+	testing.expect(t, e.shape == .None && !func_take_exit(&e)) // red disarmed it instead of leaving
+	x, y := center_of_cell(&e, 3, 3)
+	click_at(&e, x, y)
+	testing.expect(t, lit(&e, 3, 3))
+}
+
+@(test)
+test_a_click_places_the_second_corner_of_a_keyboard_rectangle :: proc(t: ^testing.T) {
+	e := editor_init()
+	e.cx, e.cy = 1, 1
+	goto_row(&e, .Fill)
+	press(&e, .Green)
+	x, y := center_of_cell(&e, 3, 4)
+	click_at(&e, x, y)
+	testing.expect(t, e.mode == .Draw && e.shape == .None)
+	testing.expect_value(t, lit_count(&e), 3 * 4)
+}
+
+@(test)
+test_other_buttons_abandon_a_rectangle_but_colour_choices_do_not :: proc(t: ^testing.T) {
+	e := editor_init()
+	goto_row(&e, .Frame)
+	press(&e, .Green)
+	r := swatch_rect(6)
+	click_at(&e, r.x + 2, r.y + 2) // choosing the foreground keeps going
+	testing.expect(t, e.mode == .Rect && e.shape == .Frame && e.fg == 6)
+	right_click_at(&e, r.x + 2, r.y + 2) // so does choosing the background
+	testing.expect(t, e.mode == .Rect && e.bg == 6)
+	press(&e, .Green)
+	testing.expect(t, e.mode == .Draw)
+	goto_row(&e, .Frame)
+	press(&e, .Green)
+	click_rect(&e, WIDTH_PLUS) // any other button abandons it
+	testing.expect(t, e.shape == .None && e.mode == .Setup && !e.rect_drag)
+}
+
+@(test)
+test_rectangle_preview_colours :: proc(t: ^testing.T) {
+	count: [2]int // yellow squares, red squares
+	r := cm.Renderer {
+		data = &count,
+		clear = proc(d: rawptr, c: cm.Color) {},
+		fill_rect = proc(d: rawptr, x, y, w, h: int, c: cm.Color) {
+			k := (^[2]int)(d)
+			// Preview squares are smaller than a canvas cell; only they use these colours at that size.
+			if w == 8 && h == 8 {
+				if c == HILITE {
+					k[0] += 1
+				}
+				if c == WARN {
+					k[1] += 1
+				}
+			}
+		},
+		present = proc(d: rawptr) {},
+	}
+	e := editor_init() // 8 x 8: cells are 17 px, so the preview squares are 8 px
+	e.mode, e.shape = .Rect, .Frame
+	e.ax, e.ay, e.cx, e.cy = 1, 1, 4, 3
+	e.shape_on = true
+	editor_draw(&e, &r)
+	testing.expect(t, count[0] == 10 && count[1] == 0) // drawing: yellow, one per frame pixel
+	count = {}
+	e.shape_on = false
+	editor_draw(&e, &r)
+	testing.expect(t, count[0] == 0 && count[1] == 10) // erasing: red
+}
+
+@(test)
+test_new_text_is_drawable_and_fits :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := editor_init()
+	m := cm.default_input_map()
+	e.labels = &m
+	for round in 0 ..< 2 {
+		if round == 1 {
+			for a in cm.Action {
+				cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
+			}
+		}
+		for shape in ([]cm.Shape{.None, .Frame, .Fill}) {
+			e.shape = shape
+			for mode in Mode {
+				e.mode = mode
+				for confirm in ([]bool{false, true}) {
+					e.confirm_exit = confirm
+					text := banner_text(&e)
+					if round == 0 {
+						testing.expectf(t, cm.text_is_drawable(text), "banner: %s", text)
+					}
+					testing.expectf(t, cm.text_width(text) + 8 <= BANNER.w, "banner too wide: %s", text)
+				}
+				lines, n := help_lines(&e)
+				for line in lines[:n] {
+					if round == 0 {
+						testing.expectf(t, cm.text_is_drawable(line), "help: %s", line)
+					}
+					testing.expectf(t, 8 + cm.text_width(line) <= cm.SCREEN_W - 8, "help line too wide: %s", line)
+				}
+			}
+		}
+	}
+	for pair in ([]struct {
+			text: string,
+			rc:   Rect,
+		}{{"SAVE", SAVE_BUTTON}, {"FLIP H", FLIP_H_BUTTON}, {"ROT 180", ROT_180_BUTTON}, {"FRAME", FRAME_BUTTON}, {"INVERT", INVERT_BUTTON}}) {
+		testing.expectf(t, cm.text_width(pair.text) <= pair.rc.w - 2, "label %s does not fit its button", pair.text)
+	}
+}
+
+@(test)
+test_new_actions_reachable_by_each_input :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		for row in ([]Setup_Row{.Invert, .Flip_Horizontal, .Flip_Vertical, .Rotate_Left, .Rotate_Right, .Rotate_180}) {
+			e := fixture()
+			switch m {
+			case .Commands:
+				goto_row(&e, row)
+				press(&e, .Green)
+			case .Mouse:
+				btn: Rect
+				#partial switch row {
+				case .Invert:
+					btn = INVERT_BUTTON
+				case .Flip_Horizontal:
+					btn = FLIP_H_BUTTON
+				case .Flip_Vertical:
+					btn = FLIP_V_BUTTON
+				case .Rotate_Left:
+					btn = ROT_L_BUTTON
+				case .Rotate_Right:
+					btn = ROT_R_BUTTON
+				case .Rotate_180:
+					btn = ROT_180_BUTTON
+				}
+				click_rect(&e, btn)
+			}
+			testing.expectf(t, e.dirty, "%v could not run %v", m, row)
+		}
+		for shape in ([]cm.Shape{.Frame, .Fill}) {
+			e := editor_init()
+			switch m {
+			case .Commands:
+				e.cx, e.cy = 1, 1
+				goto_row(&e, shape == .Frame ? .Frame : .Fill)
+				press(&e, .Green, .Right, .Right, .Down, .Down, .Green)
+			case .Mouse:
+				click_rect(&e, shape == .Frame ? FRAME_BUTTON : FILL_BUTTON)
+				x0, y0 := center_of_cell(&e, 1, 1)
+				mouse(&e, x0, y0, true)
+				x, y := center_of_cell(&e, 3, 3)
+				editor_handle_event(&e, cm.Mouse_Move{x, y})
+				mouse(&e, x, y, false)
+			}
+			testing.expectf(t, lit_count(&e) == (shape == .Frame ? 8 : 9), "%v %v drew %d pixels", m, shape, lit_count(&e))
+		}
 	}
 }
