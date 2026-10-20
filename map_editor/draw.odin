@@ -60,7 +60,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 			fmt.tprintf("%s/%s/%s/%s: MOVE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
 			fmt.tprintf("%s: PAINT  %s: SETUP / TERRAIN", l(e, .Green), l(e, .Yellow)),
 			fmt.tprintf("%s: NEXT 16 TERRAINS  %s: BACK", l(e, .Blue), l(e, .Red)),
-			"MOUSE: CLICK/DRAG PAINTS, RIGHT CLICK PICKS",
+			"MOUSE: PAINT, RIGHT CLICK PICKS, WHEEL ZOOMS",
 		}
 	}
 	return lines, MAX_HELP_LINES
@@ -96,12 +96,12 @@ draw_terrain :: proc(e: ^Editor, r: ^cm.Renderer, area: Rect, set: ^cm.Terrain_S
 // Marks the cells the rectangle being placed will cover with a small yellow square in each.
 draw_shape_preview :: proc(e: ^Editor, r: ^cm.Renderer) {
 	m := current_map(e)
-	c := cell_size(m.width, m.height)
+	c := view_cell(e)
 	k := max(1, c / 2)
 	for y in min(e.ay, e.cy) ..= max(e.ay, e.cy) {
 		for x in min(e.ax, e.cx) ..= max(e.ax, e.cx) {
-			if cm.shape_has_cell(e.shape, e.ax, e.ay, e.cx, e.cy, x, y) {
-				cr := cell_rect(m.width, m.height, x, y)
+			if cell_visible(e, x, y) && cm.shape_has_cell(e.shape, e.ax, e.ay, e.cx, e.cy, x, y) {
+				cr := cell_rect(e, x, y)
 				fill(r, Rect{cr.x + (c - k) / 2, cr.y + (c - k) / 2, k, k}, HILITE)
 			}
 		}
@@ -137,14 +137,32 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	m := current_map(e)
 	set := current_set(e)
 
-	// The map: every cell shows its terrain's tile; the cursor is dimmed outside Draw and Rect.
-	fill(r, Rect{CANVAS.x, CANVAS.y, m.width * cell_size(m.width, m.height), m.height * cell_size(m.width, m.height)}, BG)
-	for y in 0 ..< m.height {
-		for x in 0 ..< m.width {
-			draw_terrain(e, r, cell_rect(m.width, m.height, x, y), set, int(m.cells[y][x]))
+	// The map: every visible cell shows its terrain's tile; the cursor is dimmed outside Draw and Rect.
+	vw, vh := view_size(e)
+	c := view_cell(e)
+	fill(r, Rect{CANVAS.x, CANVAS.y, vw * c, vh * c}, BG)
+	for y in e.vy ..< e.vy + vh {
+		for x in e.vx ..< e.vx + vw {
+			draw_terrain(e, r, cell_rect(e, x, y), set, int(m.cells[y][x]))
 		}
 	}
-	outline(r, cell_rect(m.width, m.height, e.cx, e.cy), e.mode == .Setup ? DIM : HILITE)
+	if cell_visible(e, e.cx, e.cy) {
+		outline(r, cell_rect(e, e.cx, e.cy), e.mode == .Setup ? DIM : HILITE)
+	}
+	for bar in Bar {
+		if !bar_shown(e, bar) {
+			continue
+		}
+		track := bar == .Horizontal ? HBAR : VBAR
+		fill(r, track, PANEL)
+		if bar == .Horizontal {
+			start, size := bar_thumb(m.width, vw, e.vx, track.w)
+			fill(r, Rect{track.x + start, track.y, size, track.h}, e.bar_drag == Bar.Horizontal ? HILITE : TEXT)
+		} else {
+			start, size := bar_thumb(m.height, vh, e.vy, track.h)
+			fill(r, Rect{track.x, track.y + start, track.w, size}, e.bar_drag == Bar.Vertical ? HILITE : TEXT)
+		}
+	}
 	if e.mode == .Rect {
 		draw_shape_preview(e, r)
 	}
@@ -163,7 +181,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	row_color :: proc(e: ^Editor, row: Setup_Row) -> cm.Color {
 		return e.mode == .Setup && e.row == row ? HILITE : TEXT
 	}
-	rows := [4]struct {
+	sizes := ZOOM_SIZES
+	zoom_text := e.zoom == 0 ? "FIT" : fmt.tprintf("%d PX", sizes[e.zoom])
+	rows := [5]struct {
 		minus, plus: Rect,
 		row:         Setup_Row,
 		name:        string,
@@ -173,6 +193,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		{COLUMNS_MINUS, COLUMNS_PLUS, .Columns, "COLUMNS", fmt.tprintf("%d", m.width)},
 		{ROWS_MINUS, ROWS_PLUS, .Rows, "ROWS", fmt.tprintf("%d", m.height)},
 		{SET_MINUS, SET_PLUS, .Set, "SET", cm.name_str(&m.set)},
+		{ZOOM_MINUS, ZOOM_PLUS, .Zoom, "ZOOM", zoom_text},
 	}
 	for row in rows {
 		for b in ([2]struct {

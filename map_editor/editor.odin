@@ -21,6 +21,11 @@ import "core:fmt"
 // pointer, the picker chooses a terrain, - and + buttons, tool buttons) and switches mode itself.
 // FRAME and FILL arm a drag tool; FLOOD and REPLACE arm a click tool (red or the button again
 // disarms; CLEAR acts at once).
+Bar :: enum {
+	Horizontal,
+	Vertical,
+}
+
 Mode :: enum {
 	Draw,
 	Setup,
@@ -32,6 +37,7 @@ Setup_Row :: enum {
 	Columns,
 	Rows,
 	Set,
+	Zoom,
 	Flip_Horizontal,
 	Flip_Vertical,
 	Rotate_Left,
@@ -66,6 +72,9 @@ Editor :: struct {
 	point_tool:     Point_Tool,
 	note:           string, // a one-line message about the last action; cleared by the next input
 	mx, my:         int, // the last mouse position
+	zoom:           int, // index into ZOOM_SIZES; 0 fits the whole map in the canvas
+	vx, vy:         int, // the top-left visible cell
+	bar_drag:       Maybe(Bar), // a scroll bar thumb being dragged
 	labels:         ^cm.Input_Map,
 }
 
@@ -114,11 +123,132 @@ terrain_name :: proc(e: ^Editor, index: int) -> string {
 	return ""
 }
 
+// --- The view: a zoom level and a scrolled window onto the map ---
+
+// Screen pixels per cell.
+view_cell :: proc(e: ^Editor) -> int {
+	m := current_map(e)
+	sizes := ZOOM_SIZES
+	if e.zoom <= 0 {
+		return cm.canvas_cell_size(CANVAS, m.width, m.height)
+	}
+	return sizes[e.zoom]
+}
+
+// How many columns and rows are visible.
+view_size :: proc(e: ^Editor) -> (vw, vh: int) {
+	m := current_map(e)
+	c := view_cell(e)
+	return min(m.width, max(CANVAS.w / c, 1)), min(m.height, max(CANVAS.h / c, 1))
+}
+
+@(private = "file")
+clamp_view :: proc(e: ^Editor) {
+	m := current_map(e)
+	vw, vh := view_size(e)
+	e.vx = clamp(e.vx, 0, m.width - vw)
+	e.vy = clamp(e.vy, 0, m.height - vh)
+}
+
+// Scrolls just enough to show the cursor.
+@(private = "file")
+follow_cursor :: proc(e: ^Editor) {
+	vw, vh := view_size(e)
+	if e.cx < e.vx {
+		e.vx = e.cx
+	} else if e.cx >= e.vx + vw {
+		e.vx = e.cx - vw + 1
+	}
+	if e.cy < e.vy {
+		e.vy = e.cy
+	} else if e.cy >= e.vy + vh {
+		e.vy = e.cy - vh + 1
+	}
+	clamp_view(e)
+}
+
 @(private = "file")
 clamp_cursor :: proc(e: ^Editor) {
 	m := current_map(e)
 	e.cx = clamp(e.cx, 0, m.width - 1)
 	e.cy = clamp(e.cy, 0, m.height - 1)
+	clamp_view(e)
+	follow_cursor(e)
+}
+
+// Changes the zoom level (0 = fit, up to the last in ZOOM_SIZES), keeping the cursor in view.
+@(private = "file")
+step_zoom :: proc(e: ^Editor, delta: int) {
+	sizes := ZOOM_SIZES
+	z := clamp(e.zoom + delta, 0, len(sizes) - 1)
+	if z == e.zoom {
+		return
+	}
+	e.zoom = z
+	vw, vh := view_size(e)
+	e.vx, e.vy = e.cx - vw / 2, e.cy - vh / 2 // centred on the cursor where the map allows
+	clamp_view(e)
+}
+
+// The map cell under a screen position, if that cell is visible.
+cell_at :: proc(e: ^Editor, px, py: int) -> (x, y: int, ok: bool) {
+	c := view_cell(e)
+	vw, vh := view_size(e)
+	cx, cy := px - CANVAS.x, py - CANVAS.y
+	if cx < 0 || cy < 0 || cx >= vw * c || cy >= vh * c {
+		return 0, 0, false
+	}
+	return e.vx + cx / c, e.vy + cy / c, true
+}
+
+// Where a map cell is on screen (outside the canvas if it is scrolled out of view).
+cell_rect :: proc(e: ^Editor, x, y: int) -> Rect {
+	c := view_cell(e)
+	return Rect{CANVAS.x + (x - e.vx) * c, CANVAS.y + (y - e.vy) * c, c, c}
+}
+
+cell_visible :: proc(e: ^Editor, x, y: int) -> bool {
+	vw, vh := view_size(e)
+	return x >= e.vx && x < e.vx + vw && y >= e.vy && y < e.vy + vh
+}
+
+// Scroll bar geometry: the thumb's start and size in pixels along a bar `length` long.
+bar_thumb :: proc(total, view, origin, length: int) -> (start, size: int) {
+	size = max(6, length * view / total)
+	size = min(size, length)
+	if total > view {
+		start = (length - size) * origin / (total - view)
+	}
+	return
+}
+
+// The origin whose thumb is centred on pixel `pos` of the bar.
+bar_origin :: proc(total, view, length, pos: int) -> int {
+	_, size := bar_thumb(total, view, 0, length)
+	if length <= size {
+		return 0
+	}
+	t := clamp(pos - size / 2, 0, length - size)
+	return (t * (total - view) + (length - size) / 2) / (length - size)
+}
+
+// True when the map is larger than the view in that direction.
+bar_shown :: proc(e: ^Editor, bar: Bar) -> bool {
+	m := current_map(e)
+	vw, vh := view_size(e)
+	return bar == .Horizontal ? m.width > vw : m.height > vh
+}
+
+@(private = "file")
+scroll_to_pointer :: proc(e: ^Editor, bar: Bar, x, y: int) {
+	m := current_map(e)
+	vw, vh := view_size(e)
+	if bar == .Horizontal {
+		e.vx = bar_origin(m.width, vw, HBAR.w, x - HBAR.x)
+	} else {
+		e.vy = bar_origin(m.height, vh, VBAR.h, y - VBAR.y)
+	}
+	clamp_view(e)
 }
 
 @(private = "file")
@@ -253,12 +383,14 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		editor_apply_action(e, v.action)
 	case cm.Mouse_Move:
 		e.mx, e.my = v.x, v.y
-		if e.rect_drag {
-			if x, y, ok := cell_at(m.width, m.height, v.x, v.y); ok {
+		if bar, dragging := e.bar_drag.?; dragging {
+			scroll_to_pointer(e, bar, v.x, v.y)
+		} else if e.rect_drag {
+			if x, y, ok := cell_at(e, v.x, v.y); ok {
 				e.cx, e.cy = x, y
 			}
 		} else if terrain, painting := e.paint.?; painting {
-			if x, y, ok := cell_at(m.width, m.height, v.x, v.y); ok {
+			if x, y, ok := cell_at(e, v.x, v.y); ok {
 				e.cx, e.cy = x, y
 				paint_cell(e, x, y, terrain)
 			}
@@ -271,6 +403,7 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 				click(e, v.x, v.y)
 			} else {
 				e.paint = nil
+				e.bar_drag = nil
 				if e.rect_drag { 	// letting go places the second corner
 					commit_shape(e)
 				}
@@ -284,11 +417,19 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 	case cm.Mouse_Wheel:
 		if in_picker(e.mx, e.my) {
 			step_terrain(e, -v.dy * PICKER_PAGE)
+		} else if rect_contains(CANVAS, e.mx, e.my) {
+			step_zoom(e, v.dy) // wheel up zooms in
 		}
 	}
 }
 
 editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
+	apply_action(e, a)
+	follow_cursor(e)
+}
+
+@(private = "file")
+apply_action :: proc(e: ^Editor, a: cm.Action) {
 	m := current_map(e)
 	switch e.mode {
 	case .Draw:
@@ -378,6 +519,8 @@ change_setting :: proc(e: ^Editor, delta: int) {
 		set_size(e, m.width, m.height + delta)
 	case .Set:
 		change_set(e, delta)
+	case .Zoom:
+		step_zoom(e, delta)
 	}
 }
 
@@ -386,7 +529,7 @@ change_setting :: proc(e: ^Editor, delta: int) {
 @(private = "file")
 pick :: proc(e: ^Editor, x, y: int) {
 	m := current_map(e)
-	if cx, cy, ok := cell_at(m.width, m.height, x, y); ok {
+	if cx, cy, ok := cell_at(e, x, y); ok {
 		if e.shape == .None {
 			e.cx, e.cy = cx, cy
 		}
@@ -440,7 +583,7 @@ toggle_point_tool :: proc(e: ^Editor, tool: Point_Tool) {
 @(private = "file")
 click :: proc(e: ^Editor, x, y: int) {
 	m := current_map(e)
-	if cx, cy, ok := cell_at(m.width, m.height, x, y); ok {
+	if cx, cy, ok := cell_at(e, x, y); ok {
 		e.cx, e.cy = cx, cy
 		switch {
 		case e.point_tool != .None: // a click tool armed with a button: run it from this cell
@@ -459,6 +602,17 @@ click :: proc(e: ^Editor, x, y: int) {
 			paint_cell(e, cx, cy, e.terrain)
 			e.paint = e.terrain // dragging paints the same terrain
 		}
+		return
+	}
+	// The scroll bars: click to jump, drag the thumb.
+	if bar_shown(e, .Horizontal) && rect_contains(Rect{HBAR.x, HBAR.y - 1, HBAR.w, HBAR.h + 2}, x, y) {
+		e.bar_drag = Bar.Horizontal
+		scroll_to_pointer(e, .Horizontal, x, y)
+		return
+	}
+	if bar_shown(e, .Vertical) && rect_contains(Rect{VBAR.x - 1, VBAR.y, VBAR.w + 2, VBAR.h}, x, y) {
+		e.bar_drag = Bar.Vertical
+		scroll_to_pointer(e, .Vertical, x, y)
 		return
 	}
 	// Choosing a terrain or a tool keeps a rectangle in progress; every other button abandons it.
@@ -492,6 +646,10 @@ click :: proc(e: ^Editor, x, y: int) {
 		setting(e, .Set, -1)
 	case rect_contains(SET_PLUS, x, y):
 		setting(e, .Set, 1)
+	case rect_contains(ZOOM_MINUS, x, y):
+		setting(e, .Zoom, -1)
+	case rect_contains(ZOOM_PLUS, x, y):
+		setting(e, .Zoom, 1)
 	case on_picker:
 		i, _ := picker_terrain_at(e, x, y)
 		e.terrain = i

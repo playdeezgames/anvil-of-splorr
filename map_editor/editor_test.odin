@@ -74,7 +74,7 @@ click_rect :: proc(e: ^Editor, rc: Rect) {
 
 click_cell :: proc(e: ^Editor, x, y: int) {
 	m := current_map(e)
-	rc := cell_rect(m.width, m.height, x, y)
+	rc := cell_rect(e, x, y)
 	click_at(e, rc.x + rc.w / 2, rc.y + rc.h / 2)
 }
 
@@ -305,18 +305,18 @@ test_mouse_paints_drags_and_picks :: proc(t: ^testing.T) {
 	defer free_both(e, world)
 	e.terrain = 2
 	m := current_map(e)
-	rc := cell_rect(m.width, m.height, 1, 1)
+	rc := cell_rect(e, 1, 1)
 	mouse(e, rc.x + 1, rc.y + 1, true)
 	testing.expect(t, cell(e, 1, 1) == 2 && e.cx == 1 && e.cy == 1)
-	rc2 := cell_rect(m.width, m.height, 3, 1)
+	rc2 := cell_rect(e, 3, 1)
 	editor_handle_event(e, cm.Mouse_Move{rc2.x + 1, rc2.y + 1})
 	testing.expect(t, cell(e, 3, 1) == 2)
 	mouse(e, rc2.x, rc2.y, false)
-	rc3 := cell_rect(m.width, m.height, 4, 1)
+	rc3 := cell_rect(e, 4, 1)
 	editor_handle_event(e, cm.Mouse_Move{rc3.x + 1, rc3.y + 1}) // no longer painting
 	testing.expect_value(t, cell(e, 4, 1), 0)
 	// Right click takes the terrain under the pointer and shows it in Setup.
-	rc4 := cell_rect(m.width, m.height, 1, 1)
+	rc4 := cell_rect(e, 1, 1)
 	e.terrain = 0
 	mouse(e, rc4.x + 1, rc4.y + 1, true, .Right)
 	testing.expect(t, e.terrain == 2 && e.mode == .Setup && e.row == .Terrain)
@@ -364,10 +364,10 @@ test_armed_mouse_tools :: proc(t: ^testing.T) {
 	e.terrain = 2
 	click_rect(e, FRAME_BUTTON)
 	testing.expect(t, e.shape == .Frame && e.mode == .Draw)
-	rc := cell_rect(m.width, m.height, 1, 0)
+	rc := cell_rect(e, 1, 0)
 	mouse(e, rc.x + 1, rc.y + 1, true)
 	testing.expect(t, e.rect_drag && e.mode == .Rect)
-	rc2 := cell_rect(m.width, m.height, 4, 2)
+	rc2 := cell_rect(e, 4, 2)
 	editor_handle_event(e, cm.Mouse_Move{rc2.x + 1, rc2.y + 1})
 	mouse(e, rc2.x + 1, rc2.y + 1, false)
 	testing.expect(t, e.shape == .None && e.mode == .Draw && cell(e, 1, 0) == 2 && cell(e, 4, 2) == 2 && cell(e, 2, 1) == 0)
@@ -561,6 +561,7 @@ test_every_tool_is_reachable_by_each_input :: proc(t: ^testing.T) {
 		.Columns         = COLUMNS_PLUS,
 		.Rows            = ROWS_PLUS,
 		.Set             = SET_PLUS,
+		.Zoom            = ZOOM_PLUS,
 		.Flip_Horizontal = FLIP_H_BUTTON,
 		.Flip_Vertical   = FLIP_V_BUTTON,
 		.Rotate_Left     = ROT_L_BUTTON,
@@ -579,7 +580,7 @@ test_every_tool_is_reachable_by_each_input :: proc(t: ^testing.T) {
 				found = true
 			}
 		}
-		if row == .Terrain || row == .Columns || row == .Rows || row == .Set {
+		if row == .Terrain || row == .Columns || row == .Rows || row == .Set || row == .Zoom {
 			continue // these have - and + buttons beside the value
 		}
 		testing.expectf(t, found, "%v has no button", row)
@@ -596,9 +597,9 @@ test_every_tool_is_reachable_by_each_input :: proc(t: ^testing.T) {
 			press(e, .Right, .Right, .Down, .Green)
 		case .Mouse:
 			click_rect(e, FRAME_BUTTON)
-			rc := cell_rect(6, 4, 1, 1)
+			rc := cell_rect(e, 1, 1)
 			mouse(e, rc.x + 1, rc.y + 1, true)
-			rc2 := cell_rect(6, 4, 3, 2)
+			rc2 := cell_rect(e, 3, 2)
 			editor_handle_event(e, cm.Mouse_Move{rc2.x + 1, rc2.y + 1})
 			mouse(e, rc2.x + 1, rc2.y + 1, false)
 		}
@@ -614,7 +615,7 @@ test_every_tool_is_reachable_by_each_input :: proc(t: ^testing.T) {
 @(test)
 test_layout_fits_the_screen_and_does_not_overlap :: proc(t: ^testing.T) {
 	rects := make([dynamic]Rect, context.temp_allocator)
-	append(&rects, CANVAS, BANNER, TERRAIN_MINUS, TERRAIN_PLUS, COLUMNS_MINUS, COLUMNS_PLUS, ROWS_MINUS, ROWS_PLUS, SET_MINUS, SET_PLUS)
+	append(&rects, CANVAS, BANNER, TERRAIN_MINUS, TERRAIN_PLUS, COLUMNS_MINUS, COLUMNS_PLUS, ROWS_MINUS, ROWS_PLUS, SET_MINUS, SET_PLUS, ZOOM_MINUS, ZOOM_PLUS, VBAR, HBAR)
 	append(&rects, Rect{PICKER_X, PICKER_Y, PICKER_COLS * PICKER_PITCH - 1, PICKER_ROWS * PICKER_PITCH - 1})
 	for b in buttons() {
 		append(&rects, b.rc)
@@ -745,5 +746,250 @@ test_every_screen_draws_on_screen_in_every_mode_and_size :: proc(t: ^testing.T) 
 			}
 		}
 		free_both(e, world)
+	}
+}
+
+// --- Zoom and scrolling ---
+
+@(test)
+test_zoom_steps_through_fit_and_the_pixel_sizes :: proc(t: ^testing.T) {
+	e, world := new_editor(5, 40, 40)
+	defer free_both(e, world)
+	testing.expect(t, e.zoom == 0 && view_cell(e) == 3) // 140 / 40
+	vw, vh := view_size(e)
+	testing.expect(t, vw == 40 && vh == 40 && !bar_shown(e, .Horizontal) && !bar_shown(e, .Vertical))
+	goto_row(e, .Zoom)
+	press(e, .Right)
+	testing.expect(t, e.zoom == 1 && view_cell(e) == 4)
+	vw, vh = view_size(e)
+	testing.expect(t, vw == 35 && vh == 35 && bar_shown(e, .Horizontal) && bar_shown(e, .Vertical))
+	for _ in 0 ..< 20 {
+		press(e, .Right)
+	}
+	testing.expect(t, e.zoom == 7 && view_cell(e) == 32)
+	vw, vh = view_size(e)
+	testing.expect_value(t, vw, 4)
+	for _ in 0 ..< 20 {
+		press(e, .Left)
+	}
+	testing.expect_value(t, e.zoom, 0)
+	// A small map never shows scroll bars, and the zoom cannot show more than the map.
+	small, w2 := new_editor(5, 6, 4)
+	defer free_both(small, w2)
+	goto_row(small, .Zoom)
+	press(small, .Right, .Right)
+	vw, vh = view_size(small)
+	testing.expect(t, vw == 6 && vh == 4 && !bar_shown(small, .Horizontal))
+}
+
+@(test)
+test_the_view_follows_the_cursor :: proc(t: ^testing.T) {
+	e, world := new_editor(5, 40, 40)
+	defer free_both(e, world)
+	e.zoom = 7 // 32 px: 4 x 4 cells
+	press(e, .Right, .Right, .Right)
+	testing.expect_value(t, e.vx, 0)
+	press(e, .Right)
+	testing.expect(t, e.cx == 4 && e.vx == 1)
+	for _ in 0 ..< 60 {
+		press(e, .Right, .Down)
+	}
+	testing.expect(t, e.cx == 39 && e.vx == 36 && e.vy == 36) // stops at the last full window
+	for _ in 0 ..< 60 {
+		press(e, .Left, .Up)
+	}
+	testing.expect(t, e.cx == 0 && e.vx == 0 && e.vy == 0)
+	// Zooming keeps the cursor visible and roughly centred.
+	e.cx, e.cy = 20, 20
+	e.zoom = 0
+	goto_row(e, .Zoom)
+	press(e, .Right, .Right, .Right, .Right, .Right, .Right, .Right)
+	testing.expect(t, cell_visible(e, 20, 20) && e.vx >= 18 && e.vx <= 19)
+	// Shrinking the map keeps the view valid.
+	goto_row(e, .Columns)
+	for _ in 0 ..< 36 {
+		press(e, .Left)
+	}
+	testing.expect(t, current_map(e).width == 4 && e.vx == 0 && cell_visible(e, e.cx, e.cy))
+}
+
+@(test)
+test_cells_are_found_and_drawn_relative_to_the_view :: proc(t: ^testing.T) {
+	e, world := new_editor(5, 40, 40)
+	defer free_both(e, world)
+	e.zoom = 7
+	e.vx, e.vy = 10, 20
+	x, y, ok := cell_at(e, CANVAS.x + 1, CANVAS.y + 1)
+	testing.expect(t, ok && x == 10 && y == 20)
+	x, y, ok = cell_at(e, CANVAS.x + 3 * 32 + 5, CANVAS.y + 2 * 32)
+	testing.expect(t, ok && x == 13 && y == 22)
+	_, _, ok = cell_at(e, CANVAS.x + 4 * 32, CANVAS.y) // the view is 4 cells wide
+	testing.expect(t, !ok)
+	rc := cell_rect(e, 11, 21)
+	testing.expect(t, rc.x == CANVAS.x + 32 && rc.y == CANVAS.y + 32 && rc.w == 32)
+	testing.expect(t, cell_visible(e, 13, 23) && !cell_visible(e, 14, 20) && !cell_visible(e, 9, 20))
+	// A click paints the cell it shows, not the one at the same place when zoomed out.
+	e.terrain = 3
+	click_cell(e, 12, 21)
+	testing.expect_value(t, cell(e, 12, 21), 3)
+	testing.expect_value(t, cell(e, 2, 1), 0)
+}
+
+@(test)
+test_the_wheel_zooms_over_the_map :: proc(t: ^testing.T) {
+	e, world := new_editor(5, 40, 40)
+	defer free_both(e, world)
+	editor_handle_event(e, cm.Mouse_Move{CANVAS.x + 20, CANVAS.y + 20})
+	editor_handle_event(e, cm.Mouse_Wheel{dy = 1})
+	testing.expect_value(t, e.zoom, 1)
+	editor_handle_event(e, cm.Mouse_Wheel{dy = 3})
+	testing.expect_value(t, e.zoom, 4)
+	editor_handle_event(e, cm.Mouse_Wheel{dy = -1})
+	testing.expect_value(t, e.zoom, 3)
+	editor_handle_event(e, cm.Mouse_Wheel{dy = -20})
+	testing.expect_value(t, e.zoom, 0)
+	editor_handle_event(e, cm.Mouse_Move{5, 5}) // outside the map: nothing
+	editor_handle_event(e, cm.Mouse_Wheel{dy = 1})
+	testing.expect_value(t, e.zoom, 0)
+	click_rect(e, ZOOM_PLUS)
+	click_rect(e, ZOOM_PLUS)
+	testing.expect(t, e.zoom == 2 && e.mode == .Setup && e.row == .Zoom)
+	click_rect(e, ZOOM_MINUS)
+	testing.expect_value(t, e.zoom, 1)
+}
+
+@(test)
+test_scroll_bars_jump_and_drag :: proc(t: ^testing.T) {
+	e, world := new_editor(5, 40, 40)
+	defer free_both(e, world)
+	e.zoom = 7 // 4 x 4 cells of 40: a long way to scroll
+	// The thumb grows with the view and moves with the origin.
+	start, size := bar_thumb(40, 4, 0, HBAR.w)
+	testing.expect(t, start == 0 && size == 14)
+	start, size = bar_thumb(40, 4, 36, HBAR.w)
+	testing.expect(t, start + size == HBAR.w)
+	// Clicking the track centres the thumb there; dragging follows the pointer.
+	click_at(e, HBAR.x + HBAR.w / 2, HBAR.y + 1)
+	testing.expect(t, e.vx >= 17 && e.vx <= 19 && e.vy == 0)
+	mouse(e, HBAR.x + 10, HBAR.y + 1, true)
+	testing.expect(t, e.bar_drag == Bar.Horizontal)
+	editor_handle_event(e, cm.Mouse_Move{HBAR.x + HBAR.w + 30, 100}) // beyond the end: clamped
+	testing.expect_value(t, e.vx, 36)
+	editor_handle_event(e, cm.Mouse_Move{HBAR.x - 30, 3})
+	testing.expect_value(t, e.vx, 0)
+	mouse(e, HBAR.x, HBAR.y, false)
+	testing.expect(t, e.bar_drag == nil)
+	editor_handle_event(e, cm.Mouse_Move{HBAR.x + 100, 3}) // no longer dragging
+	testing.expect_value(t, e.vx, 0)
+	click_at(e, VBAR.x + 1, VBAR.y + VBAR.h - 1)
+	testing.expect_value(t, e.vy, 36)
+	// Dragging a bar does not paint or move the cursor; the bars are hidden when the map fits.
+	testing.expect(t, e.cx == 0 && e.cy == 0 && cell(e, 0, 0) == 0 && !e.dirty)
+	e.zoom = 0
+	e.vx = 0
+	click_at(e, HBAR.x + 50, HBAR.y + 1) // bar hidden at 3 px cells? still too big: it is shown
+	small, w2 := new_editor(5, 6, 4)
+	defer free_both(small, w2)
+	click_at(small, HBAR.x + 50, HBAR.y + 1)
+	testing.expect(t, small.vx == 0 && !small.dirty)
+}
+
+@(test)
+test_bar_origin_round_trips :: proc(t: ^testing.T) {
+	for total in ([]int{5, 33, 64}) {
+		for view in ([]int{1, 4, 35}) {
+			if view >= total {
+				continue
+			}
+			for origin in 0 ..= total - view {
+				start, size := bar_thumb(total, view, origin, 140)
+				got := bar_origin(total, view, 140, start + size / 2)
+				testing.expectf(t, abs(got - origin) <= 1 + total / 70, "total %d view %d: origin %d came back as %d", total, view, origin, got)
+				testing.expect(t, start >= 0 && start + size <= 140)
+			}
+		}
+	}
+}
+
+@(test)
+test_every_cell_of_a_big_map_can_be_painted_by_each_input_at_every_zoom :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		for zoom in ([]int{0, 3, 7}) {
+			e, world := new_editor(5, 64, 64)
+			e.terrain = 2
+			e.zoom = zoom
+			for target in ([][2]int{{0, 0}, {63, 63}, {63, 0}, {0, 63}, {31, 40}}) {
+				switch m {
+				case .Commands:
+					for e.cx > target.x {
+						press(e, .Left)
+					}
+					for e.cx < target.x {
+						press(e, .Right)
+					}
+					for e.cy > target.y {
+						press(e, .Up)
+					}
+					for e.cy < target.y {
+						press(e, .Down)
+					}
+					press(e, .Green)
+				case .Mouse:
+					// Scroll the cell into view with the bars, then click it.
+					vw, vh := view_size(e)
+					if bar_shown(e, .Horizontal) {
+						click_at(e, HBAR.x + (HBAR.w * target.x) / 64, HBAR.y + 1)
+					}
+					if bar_shown(e, .Vertical) {
+						click_at(e, VBAR.x + 1, VBAR.y + (VBAR.h * target.y) / 64)
+					}
+					_ = vw
+					_ = vh
+					e.vx = clamp(e.vx, 0, 64 - vw) // (the bars may land a cell short of the target)
+					if !cell_visible(e, target.x, target.y) {
+						e.vx = clamp(target.x - vw / 2, 0, 64 - vw)
+						e.vy = clamp(target.y - vh / 2, 0, 64 - vh)
+					}
+					click_cell(e, target.x, target.y)
+				}
+			}
+			ok := true
+			for target in ([][2]int{{0, 0}, {63, 63}, {63, 0}, {0, 63}, {31, 40}}) {
+				ok &&= cell(e, target.x, target.y) == 2
+			}
+			free_both(e, world)
+			testing.expectf(t, ok, "%v at zoom %d could not paint every corner", m, zoom)
+		}
+	}
+}
+
+@(test)
+test_zoomed_screens_draw_on_screen :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	log: Draw_Log
+	r := logging_renderer(&log)
+	for zoom in 0 ..< 8 {
+		for size in ([][2]int{{64, 64}, {64, 3}, {2, 64}, {33, 17}}) {
+			e, world := new_editor(256, size[0], size[1])
+			for y in 0 ..< size[1] {
+				for x in 0 ..< size[0] {
+					current_map(e).cells[y][x] = u8((x * 7 + y * 3) % 256)
+				}
+			}
+			e.zoom = zoom
+			for pos in ([][2]int{{0, 0}, {size[0] - 1, size[1] - 1}}) {
+				e.cx, e.cy = pos.x, pos.y
+				press(e, .Left, .Right) // scrolls to the cursor
+				for mode in Mode {
+					e.mode = mode
+					e.shape = mode == .Rect ? .Frame : .None
+					log = {}
+					editor_draw(e, &r)
+					testing.expectf(t, log.out_of_bounds == 0, "zoom %d %dx%d %v: %d rects off screen", zoom, size[0], size[1], mode, log.out_of_bounds)
+					testing.expectf(t, log.rects < 40000, "zoom %d: %d rects", zoom, log.rects)
+				}
+			}
+			free_both(e, world)
+		}
 	}
 }

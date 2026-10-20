@@ -133,8 +133,11 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 			rc:  Rect,
 			txt: string,
 		}{{WIDTH_MINUS, "-"}, {WIDTH_PLUS, "+"}, {HEIGHT_MINUS, "-"}, {HEIGHT_PLUS, "+"}}) {
+		if e.lock_size {
+			continue // the tileset owns the size: nothing to press
+		}
 		fill(r, btn.rc, PANEL)
-		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + 3, btn.txt, e.lock_size ? DIM : TEXT)
+		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + 3, btn.txt, TEXT)
 	}
 	fill(r, Rect{COLOR_CHIP.x - 1, COLOR_CHIP.y - 1, COLOR_CHIP.w + 2, COLOR_CHIP.h + 2}, PANEL)
 	fill(r, COLOR_CHIP, e.palette[e.color])
