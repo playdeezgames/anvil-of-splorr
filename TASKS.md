@@ -25,5 +25,6 @@ Status: [x] done and committed, [~] done but not committed yet, [ ] to do.
 - [ ] Edit an image with the image editor's tools (reuse, not a copy)
 - [ ] 90 degree rotation is not offered when the tileset's width and height differ
 - [ ] Copy and paste images
-- [ ] Rename an image (needs a text-entry method that works with eight commands)
+- [~] Text entry keypad for the eight commands (grid + BKSP / CLEAR / DONE / CANCEL) — done; wiring it to renaming comes with the tileset editor
+- [ ] Rename an image (uses the keypad)
 - [ ] Add and delete images; file format (JSON, packed bytes); main menu entry; tests
