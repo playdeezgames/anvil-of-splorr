@@ -58,7 +58,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 			fmt.tprintf("%s/%s: CHOOSE SETTING OR ACTION", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s/%s: CHANGE VALUE", l(e, .Left), l(e, .Right)),
 			fmt.tprintf("%s: RUN A TRANSFORM OR TOOL", l(e, .Green)),
-			fmt.tprintf("%s: DONE  %s: SAVE / LOAD", l(e, .Red), l(e, .Blue)),
+			e.embedded ? fmt.tprintf("%s: DONE", l(e, .Red)) : fmt.tprintf("%s: DONE  %s: SAVE / LOAD", l(e, .Red), l(e, .Blue)),
 		}
 	case .File:
 		lines = {
@@ -72,7 +72,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 		lines = {
 			fmt.tprintf("%s/%s/%s/%s: MOVE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
 			fmt.tprintf("%s: PAINT  %s: SETUP / COLOR", l(e, .Green), l(e, .Yellow)),
-			fmt.tprintf("%s: SAVE / LOAD  %s: MAIN MENU", l(e, .Blue), l(e, .Red)),
+			e.embedded ? fmt.tprintf("%s: BACK TO THE TILES", l(e, .Red)) : fmt.tprintf("%s: SAVE / LOAD  %s: MAIN MENU", l(e, .Blue), l(e, .Red)),
 			"MOUSE: CLICK/DRAG PAINTS, RIGHT CLICK PICKS",
 		}
 	}
@@ -134,18 +134,22 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 			txt: string,
 		}{{WIDTH_MINUS, "-"}, {WIDTH_PLUS, "+"}, {HEIGHT_MINUS, "-"}, {HEIGHT_PLUS, "+"}}) {
 		fill(r, btn.rc, PANEL)
-		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + 3, btn.txt, TEXT)
+		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + 3, btn.txt, e.lock_size ? DIM : TEXT)
 	}
 	fill(r, Rect{COLOR_CHIP.x - 1, COLOR_CHIP.y - 1, COLOR_CHIP.w + 2, COLOR_CHIP.h + 2}, PANEL)
 	fill(r, COLOR_CHIP, e.palette[e.color])
 	cm.draw_text(r, ROW_LABEL_X, COLOR_CHIP.y + 2, "COLOR", row_color(e, .Color))
 	cm.draw_text(r, ROW_VALUE_X, COLOR_CHIP.y + 2, fmt.tprintf("%d", e.color), row_color(e, .Color))
 	mark(r, e, .Color, COLOR_CHIP.y + 2)
-	cm.draw_text(r, ROW_LABEL_X, WIDTH_MINUS.y + 3, "WIDTH", row_color(e, .Width))
-	cm.draw_text(r, ROW_VALUE_X, WIDTH_MINUS.y + 3, fmt.tprintf("%d", img.width), row_color(e, .Width))
+	// Width and height are dimmed when the tileset owns them.
+	size_color :: proc(e: ^Editor, row: Setup_Row) -> cm.Color {
+		return e.lock_size ? DIM : row_color(e, row)
+	}
+	cm.draw_text(r, ROW_LABEL_X, WIDTH_MINUS.y + 3, "WIDTH", size_color(e, .Width))
+	cm.draw_text(r, ROW_VALUE_X, WIDTH_MINUS.y + 3, fmt.tprintf("%d", img.width), size_color(e, .Width))
 	mark(r, e, .Width, WIDTH_MINUS.y + 3)
-	cm.draw_text(r, ROW_LABEL_X, HEIGHT_MINUS.y + 3, "HEIGHT", row_color(e, .Height))
-	cm.draw_text(r, ROW_VALUE_X, HEIGHT_MINUS.y + 3, fmt.tprintf("%d", img.height), row_color(e, .Height))
+	cm.draw_text(r, ROW_LABEL_X, HEIGHT_MINUS.y + 3, "HEIGHT", size_color(e, .Height))
+	cm.draw_text(r, ROW_VALUE_X, HEIGHT_MINUS.y + 3, fmt.tprintf("%d", img.height), size_color(e, .Height))
 	mark(r, e, .Height, HEIGHT_MINUS.y + 3)
 
 	// Palette strip; the drawing colour has a yellow ring.
@@ -217,12 +221,18 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 			{REPLACE_BUTTON, "REPLACE", .Replace_Color, .None, .Replace_Color},
 			{CLEAR_BUTTON, "CLEAR", .Clear, .None, .None},
 		}) {
+		if e.embedded && (btn.rc == SAVE_BUTTON || btn.rc == LOAD_BUTTON) {
+			continue // the tileset editor owns the file
+		}
 		lit := (btn.shape != .None && e.shape == btn.shape) || (btn.point != .None && e.point_tool == btn.point)
 		if row, has := btn.row.?; has && e.mode == .Setup && e.row == row {
 			lit = true
 		}
+		// A quarter turn is unavailable on a non-square tile in a tileset.
+		turn_blocked := e.lock_size && e.image.width != e.image.height && (btn.rc == ROT_L_BUTTON || btn.rc == ROT_R_BUTTON)
+		text := btn.rc == MENU_BUTTON && e.embedded ? "BACK" : btn.txt
 		fill(r, btn.rc, lit ? HILITE : PANEL)
-		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.txt, lit ? BG : TEXT)
+		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(text)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, text, lit ? BG : (turn_blocked ? DIM : TEXT))
 	}
 
 	// Help.

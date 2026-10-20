@@ -20,11 +20,11 @@ Status: [x] done and committed, [~] done but not committed yet, [ ] to do.
 ## Whole suite
 - [~] The editors' own text uses the hand-drawn default-font.json instead of the built-in 3x5 font
 
-## Tileset editor (new tool)
-- [ ] A tileset is a list of images, each with a name; all images share one fixed width and height
-- [ ] Edit an image with the image editor's tools (reuse, not a copy)
-- [ ] 90 degree rotation is not offered when the tileset's width and height differ
-- [ ] Copy and paste images
-- [~] Text entry keypad for the eight commands (grid + BKSP / CLEAR / DONE / CANCEL) — done; wiring it to renaming comes with the tileset editor
-- [ ] Rename an image (uses the keypad)
-- [ ] Add and delete images; file format (JSON, packed bytes); main menu entry; tests
+## Tileset editor (new tool) — implemented, awaiting QA
+- [~] A tileset is a list of images, each with a name; all images share one fixed width and height
+- [~] Edit an image with the image editor's tools (reuse, not a copy)
+- [~] 90 degree rotation is not offered when the tileset's width and height differ
+- [~] Copy and paste images
+- [~] Text entry keypad — done and wired to renaming
+- [~] Rename an image (uses the keypad)
+- [~] Add and delete images; file format (JSON, packed bytes); main menu entry; tests

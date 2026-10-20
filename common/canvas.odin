@@ -127,3 +127,50 @@ canvas_draw_image :: proc(r: ^Renderer, area: Rect, img: ^Image4, palette: ^Pale
 		fill(r, Rect{cr.x + cr.w, cr.y, 1, cr.h}, cursor)
 	}
 }
+
+// Draws img as a small picture centred in area and returns the rect it covered. An image that fits
+// is drawn at the largest whole-number scale (so a 4 x 4 tile in a 16 x 16 area is 4x); a bigger
+// one is sampled down (nearest pixel) to fit, keeping its proportions. Runs of one colour are
+// merged, so a flat image costs a few rects.
+canvas_draw_thumbnail :: proc(r: ^Renderer, area: Rect, img: ^Image4, palette: ^Palette) -> Rect {
+	w, h := img.width, img.height
+	if w <= 0 || h <= 0 || area.w <= 0 || area.h <= 0 {
+		return {}
+	}
+	if w <= area.w && h <= area.h {
+		s := min(area.w / w, area.h / h)
+		out := Rect{area.x + (area.w - w * s) / 2, area.y + (area.h - h * s) / 2, w * s, h * s}
+		for y in 0 ..< h {
+			x := 0
+			for x < w {
+				color := img.pixels[y][x]
+				start := x
+				for x < w && img.pixels[y][x] == color {
+					x += 1
+				}
+				renderer_fill_rect(r, out.x + start * s, out.y + y * s, (x - start) * s, s, palette[color & 0x0F])
+			}
+		}
+		return out
+	}
+	tw, th: int
+	if w * area.h >= h * area.w {
+		tw, th = area.w, max(1, h * area.w / w)
+	} else {
+		tw, th = max(1, w * area.h / h), area.h
+	}
+	out := Rect{area.x + (area.w - tw) / 2, area.y + (area.h - th) / 2, tw, th}
+	for dy in 0 ..< th {
+		sy := dy * h / th
+		dx := 0
+		for dx < tw {
+			color := img.pixels[sy][dx * w / tw]
+			start := dx
+			for dx < tw && img.pixels[sy][dx * w / tw] == color {
+				dx += 1
+			}
+			renderer_fill_rect(r, out.x + start, out.y + dy, dx - start, 1, palette[color & 0x0F])
+		}
+	}
+	return out
+}

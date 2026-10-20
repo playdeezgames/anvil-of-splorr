@@ -1282,7 +1282,7 @@ test_flood_fill_row_fills_the_connected_region :: proc(t: ^testing.T) {
 	e.color = 9
 	goto_row(&e, .Flood_Fill)
 	press(&e, .Green) // from the cursor at (0,0): the 1s joined through the left column
-	testing.expect(t, e.dirty && e.mode == .Setup)
+	testing.expect(t, e.dirty && e.mode == .Draw) // back to drawing after a fill
 	testing.expect(t, pixel(&e, 0, 0) == 9 && pixel(&e, 1, 0) == 9 && pixel(&e, 0, 1) == 9 && pixel(&e, 0, 2) == 9 && pixel(&e, 1, 2) == 9)
 	testing.expect(t, pixel(&e, 3, 2) == 1) // the separate 1 is not connected
 	testing.expect(t, pixel(&e, 2, 0) == 2 && pixel(&e, 1, 1) == 3) // other colours untouched
@@ -1533,10 +1533,13 @@ test_flood_fill_with_the_colour_already_there_says_so :: proc(t: ^testing.T) {
 	testing.expect(t, !e.dirty)
 	press(&e, .Up) // any input clears the message
 	testing.expect_value(t, e.note, "")
+	testing.expect_value(t, e.mode, Mode.Setup) // a fill that changed nothing stays put
 	e.color = 3 // with another colour it fills
 	e.row = .Flood_Fill
 	press(&e, .Green)
 	testing.expect(t, e.note == "" && pixel(&e, 2, 2) == 3 && pixel(&e, 3, 2) == 3 && e.dirty)
+	testing.expect_value(t, e.mode, Mode.Draw)
+	e.mode = .Setup
 	// Replace and clear report the same situation.
 	e.color = 3
 	e.row = .Replace_Color
@@ -1573,4 +1576,178 @@ test_the_notes_are_drawable_and_fit :: proc(t: ^testing.T) {
 	e.note = NOTE_SAME_FILL
 	editor_draw(&e, &r)
 	testing.expect(t, log.of_color[WARN] > 0)
+}
+
+// --- Embedded in the tileset editor ---
+
+embedded_fixture :: proc(w, h: int, lock := true) -> Editor {
+	img := cm.image4_make(w, h)
+	cm.image4_set(&img, 0, 0, 7)
+	pal := cm.default_palette()
+	pal[3] = {1, 2, 3}
+	e := editor_init()
+	editor_begin_embedded(&e, &img, &pal, lock)
+	return e
+}
+
+@(test)
+test_begin_embedded_copies_the_image_and_palette_and_starts_clean :: proc(t: ^testing.T) {
+	e := embedded_fixture(4, 2)
+	testing.expect(t, e.embedded && e.lock_size && e.mode == .Draw && !e.dirty)
+	testing.expect(t, e.image.width == 4 && e.image.height == 2 && pixel(&e, 0, 0) == 7)
+	testing.expect(t, e.palette[3] == cm.Color{1, 2, 3})
+	testing.expect(t, e.color == DEFAULT_COLOR && e.cx == 0 && e.cy == 0 && e.requests == {} && !e.exit_requested)
+	// Beginning again resets leftovers but keeps the labels.
+	m := cm.default_input_map()
+	e.labels = &m
+	e.confirm_exit, e.note, e.shape = true, "X", .Fill
+	img := cm.image4_make(2, 2)
+	pal := cm.default_palette()
+	editor_begin_embedded(&e, &img, &pal)
+	testing.expect(t, !e.confirm_exit && e.note == "" && e.shape == .None && e.labels == &m && e.image.width == 2)
+}
+
+@(test)
+test_embedded_red_leaves_at_once_even_with_changes :: proc(t: ^testing.T) {
+	e := embedded_fixture(4, 4)
+	press(&e, .Green) // paint: dirty
+	testing.expect(t, e.dirty)
+	press(&e, .Red)
+	testing.expect(t, e.exit_requested && !e.confirm_exit) // no "leave anyway?" prompt
+	// An armed tool is disarmed first, as everywhere.
+	e = embedded_fixture(4, 4)
+	click_rect(&e, FLOOD_BUTTON)
+	press(&e, .Red)
+	testing.expect(t, e.point_tool == .None && !e.exit_requested)
+	press(&e, .Red)
+	testing.expect(t, e.exit_requested)
+	// The BACK (menu) button does the same.
+	e = embedded_fixture(4, 4)
+	e.dirty = true
+	click_rect(&e, MENU_BUTTON)
+	testing.expect(t, e.exit_requested && !e.confirm_exit)
+}
+
+@(test)
+test_embedded_has_no_file_mode :: proc(t: ^testing.T) {
+	e := embedded_fixture(4, 4)
+	press(&e, .Blue)
+	testing.expect_value(t, e.mode, Mode.Draw)
+	press(&e, .Yellow, .Blue)
+	testing.expect_value(t, e.mode, Mode.Setup) // blue does nothing in Setup either
+	click_rect(&e, SAVE_BUTTON)
+	click_rect(&e, LOAD_BUTTON)
+	testing.expect(t, e.requests == {})
+}
+
+@(test)
+test_embedded_size_is_locked :: proc(t: ^testing.T) {
+	e := embedded_fixture(4, 3)
+	goto_row(&e, .Width)
+	press(&e, .Right, .Left, .Left)
+	testing.expect(t, e.image.width == 4 && e.image.height == 3 && !e.dirty)
+	testing.expect_value(t, e.note, NOTE_SIZE_LOCKED)
+	press(&e, .Down, .Right) // height row
+	testing.expect(t, e.image.height == 3 && e.note == NOTE_SIZE_LOCKED)
+	click_rect(&e, WIDTH_PLUS)
+	click_rect(&e, HEIGHT_MINUS)
+	testing.expect(t, e.image.width == 4 && e.image.height == 3 && !e.dirty)
+	// Unlocked (a standalone image) still resizes.
+	e = embedded_fixture(4, 3, false)
+	goto_row(&e, .Width)
+	press(&e, .Right)
+	testing.expect(t, e.image.width == 5 && e.dirty)
+}
+
+@(test)
+test_embedded_quarter_turns_only_on_square_tiles :: proc(t: ^testing.T) {
+	e := embedded_fixture(4, 3)
+	goto_row(&e, .Rotate_Left)
+	press(&e, .Green)
+	testing.expect(t, e.image.width == 4 && e.image.height == 3 && !e.dirty && e.note == NOTE_NO_TURN && pixel(&e, 0, 0) == 7)
+	click_rect(&e, ROT_R_BUTTON)
+	testing.expect(t, e.image.width == 4 && e.note == NOTE_NO_TURN)
+	// Half a turn and the flips keep the size, so they are allowed.
+	click_rect(&e, ROT_180_BUTTON)
+	testing.expect(t, e.dirty && pixel(&e, 3, 2) == 7 && e.note == "")
+	click_rect(&e, FLIP_H_BUTTON)
+	testing.expect(t, pixel(&e, 0, 2) == 7)
+	// A square tile turns freely.
+	sq := embedded_fixture(3, 3)
+	click_rect(&sq, ROT_R_BUTTON)
+	testing.expect(t, sq.dirty && sq.image.width == 3 && pixel(&sq, 2, 0) == 7 && sq.note == "")
+	click_rect(&sq, ROT_L_BUTTON)
+	testing.expect_value(t, pixel(&sq, 0, 0), 7)
+}
+
+@(test)
+test_embedded_drawing_tools_still_work :: proc(t: ^testing.T) {
+	e := embedded_fixture(5, 5)
+	e.color = 9
+	press(&e, .Right, .Green) // paint
+	testing.expect(t, pixel(&e, 1, 0) == 9 && e.dirty)
+	goto_row(&e, .Frame)
+	e.cx, e.cy = 0, 1
+	press(&e, .Green, .Right, .Right, .Down, .Green)
+	testing.expect(t, pixel(&e, 0, 1) == 9 && pixel(&e, 2, 2) == 9 && pixel(&e, 1, 1) == 9)
+	goto_row(&e, .Clear)
+	press(&e, .Green)
+	testing.expect_value(t, pixels_of_colour(&e, 9), 25)
+}
+
+@(test)
+test_embedded_screen_hides_save_and_load_and_says_back :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	Seen :: struct {
+		save, load, menu_rect: int,
+	}
+	seen: Seen
+	r := cm.Renderer {
+		data = &seen,
+		clear = proc(d: rawptr, c: cm.Color) {},
+		fill_rect = proc(d: rawptr, x, y, w, h: int, c: cm.Color) {
+			k := (^Seen)(d)
+			if x == SAVE_BUTTON.x && y == SAVE_BUTTON.y && w == SAVE_BUTTON.w {
+				k.save += 1
+			}
+			if x == LOAD_BUTTON.x && y == LOAD_BUTTON.y && w == LOAD_BUTTON.w {
+				k.load += 1
+			}
+			if x == MENU_BUTTON.x && y == MENU_BUTTON.y && w == MENU_BUTTON.w {
+				k.menu_rect += 1
+			}
+		},
+		present = proc(d: rawptr) {},
+	}
+	e := embedded_fixture(4, 4)
+	cm.renderer_clear(&r, {})
+	editor_draw(&e, &r)
+	testing.expect(t, seen.save == 0 && seen.load == 0 && seen.menu_rect == 1) // only the BACK button is there
+	standalone := editor_init()
+	seen = {}
+	editor_draw(&standalone, &r)
+	testing.expect(t, seen.save == 1 && seen.load == 1 && seen.menu_rect == 1)
+	// Help and banner text for the embedded editor fits and is drawable, with the longest labels too.
+	m := cm.default_input_map()
+	e.labels = &m
+	for round in 0 ..< 2 {
+		if round == 1 {
+			for a in cm.Action {
+				cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
+			}
+		}
+		for mode in ([]Mode{.Draw, .Setup, .Rect}) {
+			e.mode = mode
+			lines, n := help_lines(&e)
+			for line in lines[:n] {
+				if round == 0 {
+					testing.expectf(t, cm.text_is_drawable(line), "help: %s", line)
+				}
+				testing.expectf(t, 8 + cm.text_width(line) <= cm.SCREEN_W - 8, "help line too wide: %s", line)
+			}
+		}
+	}
+	for note in ([]string{NOTE_SIZE_LOCKED, NOTE_NO_TURN}) {
+		testing.expect(t, cm.text_is_drawable(note) && cm.text_width(note) <= cm.SCREEN_W - INFO_X - 4)
+	}
 }

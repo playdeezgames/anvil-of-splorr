@@ -61,6 +61,12 @@ Because one tool must run on two very different frontends, keep the tool logic o
 - The SDL2 frontend and the wasm frontend each implement only that renderer interface and translate native events into the common input events. Neither contains tool logic.
 - Shared code across tools (renderer interface, input mapping, widgets, palette/file formats) belongs in a common package, not duplicated per tool.
 
+## Tileset editor notes
+
+- `common/tileset.odin` holds the model (<=256 named Image4s sharing one width/height, names unique printable ASCII <=32) and JSON; `Tileset` is ~1 MB: use `new()`/globals, never copy by value. The web `FILE_CAP` (web.odin + index.html) is 4 MiB to fit the largest tileset.
+- `tileset_editor` modes: Pick (thumbnail grid), Edit (embeds the real `image_editor` via `editor_begin_embedded`, size locked, quarter turns refused unless square, image written back after every event), Setup (rows Rename..Height), File, Text (the `cm.Text_Entry` keypad; refused names resume it with a note).
+- Palette comes from `palette.json` via the aux-file hooks.
+
 ## Odin toolchain notes
 
 Odin is installed at `/home/yermom/.local/bin/odin`. The user's other repos (see `/home/yermom/git/bok-of-splorr/splorr/Tech/Odin wasm recipe.md` and `Gotchas.md`, the shared knowledge vault for their SPLORR!! projects) establish the wasm approach to reuse here:

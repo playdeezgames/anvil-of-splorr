@@ -90,9 +90,9 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 }
 
 // One static buffer for every file transfer (page-chosen files and browser-storage reads). It is
-// big enough for the largest font file and must stay off the stack. JS copies a chosen file's
+// big enough for the largest font or tileset file and must stay off the stack. JS copies a chosen file's
 // bytes into file_buffer and then calls file_loaded(len).
-FILE_CAP :: 2 * 1024 * 1024
+FILE_CAP :: 4 * 1024 * 1024 // big enough for the largest tileset file (see test_the_largest_tileset_round_trips...)
 file_buf: [FILE_CAP]u8
 
 @(export)

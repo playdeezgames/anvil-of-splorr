@@ -80,6 +80,8 @@ Editor :: struct {
 	rect_drag:      bool, // a mouse drag is placing the rectangle
 	point_tool:     Point_Tool, // flood fill / replace colour armed with the mouse
 	note:           string, // a one-line message about the last action ("" for none); cleared by the next input
+	embedded:       bool, // hosted by the tileset editor: no files, red leaves without a prompt (see editor_begin_embedded)
+	lock_size:      bool, // embedded in a tileset: width and height are the tileset's, and only a square tile can be turned a quarter
 	labels:         ^cm.Input_Map,
 }
 
@@ -88,6 +90,8 @@ Editor :: struct {
 NOTE_SAME_FILL :: "SAME COLOR: NOTHING TO FILL"
 NOTE_SAME_REPLACE :: "SAME COLOR: NOTHING TO REPLACE"
 NOTE_SAME_CLEAR :: "ALREADY ALL THAT COLOR"
+NOTE_SIZE_LOCKED :: "THE TILESET SETS THE SIZE"
+NOTE_NO_TURN :: "CANNOT TURN A NON-SQUARE TILE"
 
 DEFAULT_SIZE :: 8
 DEFAULT_COLOR :: 15 // white in the default palette
@@ -108,6 +112,21 @@ editor_enter :: proc(e: ^Editor) {
 	e.labels = labels
 	e.requests = {.Load}
 	e.aux_requests = {.Palette}
+}
+
+// Sets the editor up to edit a tile for the tileset editor, which owns the file, the palette and
+// the list of images: copies the image and palette in, starts in Draw mode, and turns off File mode
+// and the main-menu exit. Red (or the BACK button) sets exit_requested with no prompt. With
+// `lock_size` the size cannot be changed and a non-square image cannot be turned a quarter.
+// The host copies `image` back out when `dirty` and when the editor exits.
+editor_begin_embedded :: proc(e: ^Editor, image: ^cm.Image4, palette: ^cm.Palette, lock_size := true) {
+	labels := e.labels
+	e^ = fresh()
+	e.labels = labels
+	e.image = image^
+	e.palette = palette^
+	e.embedded = true
+	e.lock_size = lock_size
 }
 
 editor_mark_saved :: proc(e: ^Editor) {
@@ -132,6 +151,12 @@ clamp_cursor :: proc(e: ^Editor) {
 
 @(private = "file")
 set_size :: proc(e: ^Editor, w, h: int) {
+	if e.lock_size {
+		if w != e.image.width || h != e.image.height {
+			e.note = NOTE_SIZE_LOCKED
+		}
+		return
+	}
 	if cm.image4_resize(&e.image, w, h) {
 		e.dirty = true
 		clamp_cursor(e)
@@ -150,6 +175,10 @@ paint_pixel :: proc(e: ^Editor, x, y, color: int) {
 @(private = "file")
 transform :: proc(e: ^Editor, row: Setup_Row) {
 	changed := false
+	if (row == .Rotate_Left || row == .Rotate_Right) && e.lock_size && e.image.width != e.image.height {
+		e.note = NOTE_NO_TURN // a quarter turn would change the size
+		return
+	}
 	#partial switch row {
 	case .Flip_Horizontal:
 		changed = cm.image4_flip_horizontal(&e.image)
@@ -283,7 +312,9 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Yellow:
 			e.mode = .Setup
 		case .Blue:
-			e.mode = .File
+			if !e.embedded {
+				e.mode = .File
+			}
 		case .Red:
 			if e.shape != .None || e.point_tool != .None {
 				cancel_shape(e) // red first disarms a mouse-armed tool
@@ -320,7 +351,15 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 			#partial switch e.row {
 			case .Flip_Horizontal, .Flip_Vertical, .Rotate_Left, .Rotate_Right, .Rotate_180:
 				transform(e, e.row)
-			case .Flood_Fill, .Replace_Color, .Clear:
+			case .Flood_Fill:
+				before := e.dirty
+				e.dirty = false
+				transform(e, e.row)
+				if e.dirty { 	// one fill, then back to drawing (when nothing changed the note says why)
+					e.mode = .Draw
+				}
+				e.dirty ||= before
+			case .Replace_Color, .Clear:
 				transform(e, e.row) // acts at the cursor at once
 			case .Frame:
 				begin_shape(e, .Frame)
@@ -328,7 +367,9 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 				begin_shape(e, .Fill)
 			}
 		case .Blue:
-			e.mode = .File
+			if !e.embedded {
+				e.mode = .File
+			}
 		case .Red:
 			e.mode = .Draw
 		}
@@ -363,6 +404,10 @@ change_setting :: proc(e: ^Editor, delta: int) {
 // Leaving with unsaved changes needs a second request.
 @(private = "file")
 request_exit :: proc(e: ^Editor) {
+	if e.embedded {
+		e.exit_requested = true // the tileset editor keeps the changes: nothing to confirm
+		return
+	}
 	if e.dirty && !e.confirm_exit {
 		e.confirm_exit = true
 		return
@@ -501,9 +546,13 @@ click :: proc(e: ^Editor, x, y: int) {
 	case rect_contains(CLEAR_BUTTON, x, y):
 		action(e, .Clear)
 	case rect_contains(SAVE_BUTTON, x, y):
-		e.requests += {.Save}
+		if !e.embedded {
+			e.requests += {.Save}
+		}
 	case rect_contains(LOAD_BUTTON, x, y):
-		e.requests += {.Load}
+		if !e.embedded {
+			e.requests += {.Load}
+		}
 	case rect_contains(MENU_BUTTON, x, y):
 		request_exit(e)
 	}

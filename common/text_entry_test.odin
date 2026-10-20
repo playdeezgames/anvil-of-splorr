@@ -357,3 +357,25 @@ test_the_keypad_text_is_drawable_and_help_fits :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, text_entry_help(0, nil), "UP/DOWN/LEFT/RIGHT: SELECT")
 }
+
+@(test)
+test_a_refused_done_resumes_typing_with_a_note :: proc(t: ^testing.T) {
+	e := new_entry("TAKEN")
+	testing.expect_value(t, cmd(&e, .Up, .Right, .Right, .Green), Text_Entry_Result.Done)
+	text_entry_resume(&e, "NAME IN USE")
+	testing.expect(t, e.result == .Editing && e.note == "NAME IN USE" && text_entry_text(&e) == "TAKEN")
+	cmd(&e, .Left) // any input clears the note
+	testing.expect_value(t, e.note, "")
+	text_entry_resume(&e, "AGAIN")
+	click_cell(&e, 0, 0)
+	testing.expect_value(t, e.note, "")
+	text_entry_resume(&e, "HOVER")
+	text_entry_handle(&e, Mouse_Move{20, 60}) // moving the mouse alone keeps it
+	testing.expect_value(t, e.note, "HOVER")
+	// The note is drawn in red, inside the screen.
+	defer free_all(context.temp_allocator)
+	log: Keypad_Log
+	r := keypad_renderer(&log)
+	text_entry_draw(&e, &r, nil)
+	testing.expect(t, log.out_of_bounds == 0 && log.presents == 1)
+}

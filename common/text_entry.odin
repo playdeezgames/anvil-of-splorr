@@ -39,6 +39,7 @@ Text_Entry_Action :: enum {
 
 Text_Entry :: struct {
 	prompt:  string, // shown above the field; keep it alive (a string literal is fine)
+	note:    string, // an optional message in red beside the prompt (e.g. "NAME IN USE"); keep it alive too
 	buf:     [TEXT_ENTRY_MAX]u8,
 	len:     int,
 	max_len: int,
@@ -168,10 +169,25 @@ move :: proc(e: ^Text_Entry, a: Action) {
 	}
 }
 
+// After a Done the tool did not accept (say the name is taken): go back to typing, keeping the text,
+// and show `note` beside the prompt until the next press.
+text_entry_resume :: proc(e: ^Text_Entry, note: string) {
+	e.result = .Editing
+	e.note = note
+}
+
 // Feeds one input event to the keypad and says whether typing is still going on.
 text_entry_handle :: proc(e: ^Text_Entry, ev: Input_Event) -> Text_Entry_Result {
 	if e.result != .Editing {
 		return e.result
+	}
+	#partial switch v in ev {
+	case Command:
+		e.note = ""
+	case Mouse_Button_Event:
+		if v.down {
+			e.note = ""
+		}
 	}
 	switch v in ev {
 	case Command:
@@ -207,12 +223,16 @@ TE_PANEL :: Color{64, 64, 76}
 TE_TEXT :: Color{200, 200, 210}
 TE_DIM :: Color{120, 120, 134}
 TE_HILITE :: Color{255, 220, 80}
+TE_WARN :: Color{235, 100, 90}
 
 // Draws the whole keypad screen. `labels` supplies the on-screen names of the commands for the
 // help text (nil for the defaults).
 text_entry_draw :: proc(e: ^Text_Entry, r: ^Renderer, labels: ^Input_Map) {
 	renderer_clear(r, TE_BG)
 	draw_text(r, TE_X, TE_TITLE_Y, e.prompt, TE_HILITE)
+	if e.note != "" {
+		draw_text(r, TE_X + text_width(e.prompt) + 12, TE_TITLE_Y, e.note, TE_WARN)
+	}
 
 	// The field: the text so far and a block where the next character will go.
 	renderer_fill_rect(r, TE_FIELD.x, TE_FIELD.y, TE_FIELD.w, TE_FIELD.h, TE_PANEL)

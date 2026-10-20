@@ -309,3 +309,101 @@ test_image4_flood_fill_handles_the_largest_image_and_a_snake :: proc(t: ^testing
 	testing.expect(t, snake.pixels[IMAGE_MAX - 2][IMAGE_MAX - 1] == 9 || snake.pixels[IMAGE_MAX - 2][0] == 9) // reached the far end
 	testing.expect(t, snake.pixels[1][1] == 1) // walls stay
 }
+
+Thumb_Log :: struct {
+	rects:  [dynamic]Rect,
+	colors: [dynamic]Color,
+}
+
+thumb_renderer :: proc(l: ^Thumb_Log) -> Renderer {
+	return Renderer {
+		data = l,
+		clear = proc(d: rawptr, c: Color) {},
+		fill_rect = proc(d: rawptr, x, y, w, h: int, c: Color) {
+			k := (^Thumb_Log)(d)
+			append(&k.rects, Rect{x, y, w, h})
+			append(&k.colors, c)
+		},
+		present = proc(d: rawptr) {},
+	}
+}
+
+@(test)
+test_thumbnails_scale_up_whole_numbers_and_centre :: proc(t: ^testing.T) {
+	log: Thumb_Log
+	defer delete(log.rects)
+	defer delete(log.colors)
+	r := thumb_renderer(&log)
+	pal := default_palette()
+	img := image4_make(4, 3)
+	image4_set(&img, 0, 0, 5) // a one pixel dot on a blank image
+	area := Rect{10, 20, 16, 16}
+	out := canvas_draw_thumbnail(&r, area, &img, &pal)
+	testing.expect(t, out == Rect{10, 20 + (16 - 12) / 2, 16, 12}) // 4x scale: 16 x 12, centred vertically
+	// The first run is the dot (1 px wide at 4x), then the rest of that row, then one run per other row.
+	testing.expect(t, log.rects[0] == Rect{10, 22, 4, 4} && log.colors[0] == pal[5])
+	testing.expect(t, log.rects[1] == Rect{14, 22, 12, 4} && log.colors[1] == pal[0])
+	testing.expect_value(t, len(log.rects), 2 + 2) // 2 runs in row 0, 1 in each of rows 1 and 2
+	for rc in log.rects {
+		testing.expect(t, rc.x >= area.x && rc.y >= area.y && rc.x + rc.w <= area.x + area.w && rc.y + rc.h <= area.y + area.h)
+	}
+}
+
+@(test)
+test_thumbnails_sample_big_images_down_inside_the_area :: proc(t: ^testing.T) {
+	log: Thumb_Log
+	defer delete(log.rects)
+	defer delete(log.colors)
+	r := thumb_renderer(&log)
+	pal := default_palette()
+	for size in ([][2]int{{64, 64}, {64, 8}, {8, 64}, {17, 16}, {16, 17}, {40, 30}}) {
+		img := image4_make(size[0], size[1])
+		for y in 0 ..< size[1] {
+			for x in 0 ..< size[0] {
+				image4_set(&img, x, y, (x / 2 + y) % 16)
+			}
+		}
+		clear(&log.rects)
+		clear(&log.colors)
+		area := Rect{100, 50, 16, 16}
+		out := canvas_draw_thumbnail(&r, area, &img, &pal)
+		testing.expectf(t, out.w <= 16 && out.h <= 16 && out.w >= 1 && out.h >= 1, "%dx%d: bad thumbnail size %dx%d", size[0], size[1], out.w, out.h)
+		testing.expectf(t, out.x >= area.x && out.y >= area.y && out.x + out.w <= area.x + area.w && out.y + out.h <= area.y + area.h, "%dx%d: outside the area", size[0], size[1])
+		// The longer side fills the area, and the proportions are kept to within a pixel.
+		testing.expectf(t, max(out.w, out.h) == 16, "%dx%d: the long side should fill the area", size[0], size[1])
+		for rc in log.rects {
+			testing.expect(t, rc.x >= out.x && rc.y >= out.y && rc.x + rc.w <= out.x + out.w && rc.y + rc.h <= out.y + out.h)
+		}
+	}
+	// Nearest-pixel sampling: a 32 x 32 image whose left half is colour 1 and right half colour 2
+	// shows two colours, each half the width.
+	img := image4_make(32, 32)
+	for y in 0 ..< 32 {
+		for x in 0 ..< 32 {
+			image4_set(&img, x, y, x < 16 ? 1 : 2)
+		}
+	}
+	clear(&log.rects)
+	clear(&log.colors)
+	canvas_draw_thumbnail(&r, Rect{0, 0, 16, 16}, &img, &pal)
+	testing.expect_value(t, len(log.rects), 32) // two runs on each of the 16 rows
+	testing.expect(t, log.rects[0].w == 8 && log.colors[0] == pal[1] && log.rects[1].w == 8 && log.colors[1] == pal[2])
+}
+
+@(test)
+test_thumbnail_edge_cases :: proc(t: ^testing.T) {
+	log: Thumb_Log
+	defer delete(log.rects)
+	defer delete(log.colors)
+	r := thumb_renderer(&log)
+	pal := default_palette()
+	img := image4_make(1, 1)
+	testing.expect(t, canvas_draw_thumbnail(&r, Rect{0, 0, 0, 0}, &img, &pal) == Rect{}) // an empty area draws nothing
+	testing.expect_value(t, len(log.rects), 0)
+	out := canvas_draw_thumbnail(&r, Rect{0, 0, 20, 20}, &img, &pal) // a 1 x 1 image scales to fill
+	testing.expect(t, out == Rect{0, 0, 20, 20} && len(log.rects) == 1)
+	wide := image4_make(64, 1) // very thin: at least one pixel high
+	clear(&log.rects)
+	out = canvas_draw_thumbnail(&r, Rect{0, 0, 16, 16}, &wide, &pal)
+	testing.expect(t, out.w == 16 && out.h == 1)
+}
