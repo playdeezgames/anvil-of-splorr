@@ -1,171 +1,116 @@
 package common
 
-// Built-in 3x5 font so no frontend needs font loading. Uppercase only; lowercase maps to
-// uppercase and unknown characters draw as a hollow box.
+import "base:intrinsics"
 
-GLYPH_W :: 3
-GLYPH_H :: 5
-GLYPH_ADVANCE :: GLYPH_W + 1
-LINE_ADVANCE :: GLYPH_H + 1
+// The editors' own text is drawn with the user's hand-drawn font, default-font.json, compiled into
+// the program (`#load`) and parsed the first time text is measured or drawn. Edit that file in the
+// font editor, rebuild, and every tool's text changes.
+//
+// The font is a pure cell grid: every glyph's blank bottom row and blank right column are part of
+// the glyph, so nothing adds spacing. Text advances by each glyph's width, lines by the font's
+// height (GLYPH_H, also the line pitch), and text_width is the sum of the cell widths. Layout code
+// relies on GLYPH_H; a test fails if the file's height stops matching it.
 
-// One byte per row, low 3 bits used, bit 2 is the leftmost pixel.
-Glyph :: [GLYPH_H]u8
+DEFAULT_FONT_SOURCE :: #load("../default-font.json")
 
-glyph_for :: proc(ch: rune) -> Glyph {
-	switch ch {
-	case 'a' ..= 'z':
-		return glyph_for(ch - 'a' + 'A')
-	case 'A' ..= 'Z':
-		return letter_glyphs[ch - 'A']
-	case '0' ..= '9':
-		return digit_glyphs[ch - '0']
-	case ' ':
-		return {}
-	case '.':
-		return {0, 0, 0, 0, 0b010}
-	case ':':
-		return {0, 0b010, 0, 0b010, 0}
-	case '-':
-		return {0, 0, 0b111, 0, 0}
-	case '+':
-		return {0, 0b010, 0b111, 0b010, 0}
-	case '=':
-		return {0, 0b111, 0, 0b111, 0}
-	case '#':
-		return {0b010, 0b111, 0b010, 0b111, 0b010}
-	case '*':
-		return {0b101, 0b010, 0b111, 0b010, 0b101}
-	case '/':
-		return {0b001, 0b001, 0b010, 0b100, 0b100}
-	case '<':
-		return {0b001, 0b010, 0b100, 0b010, 0b001}
-	case '>':
-		return {0b100, 0b010, 0b001, 0b010, 0b100}
-	case '!':
-		return {0b010, 0b010, 0b010, 0, 0b010}
-	case '?':
-		return {0b110, 0b001, 0b010, 0, 0b010}
-	case '_':
-		return {0, 0, 0, 0, 0b111}
-	case ',':
-		return {0, 0, 0, 0b010, 0b100}
-	case '(':
-		return {0b010, 0b100, 0b100, 0b100, 0b010}
-	case ')':
-		return {0b010, 0b001, 0b001, 0b001, 0b010}
-	case '[':
-		return {0b110, 0b100, 0b100, 0b100, 0b110}
-	case ']':
-		return {0b011, 0b001, 0b001, 0b001, 0b011}
+GLYPH_H :: 6
+LINE_ADVANCE :: GLYPH_H
+
+// A character the font has no glyph for is drawn as a solid block this wide, so the gap is visible.
+MISSING_GLYPH_W :: 3
+MISSING_GLYPH_H :: 5
+MISSING_ADVANCE :: 4
+
+@(private = "file")
+ui_store: Pixel_Font // about 1 MB, filled once by ui_font()
+@(private = "file")
+ui_state: u32 // 0 = not loaded, 1 = loading, 2 = ready
+@(private = "file")
+ui_error_buf: [160]u8
+@(private = "file")
+ui_error_len: int
+
+// The UI font, loading it on first use. Safe to call from several threads (the tests do).
+ui_font :: proc() -> ^Pixel_Font {
+	if intrinsics.atomic_load_explicit(&ui_state, .Acquire) == 2 {
+		return &ui_store
 	}
-	return FALLBACK_GLYPH
+	if _, won := intrinsics.atomic_compare_exchange_strong(&ui_state, 0, 1); won {
+		if err := pixel_font_from_json(DEFAULT_FONT_SOURCE, &ui_store); err != "" {
+			pixel_font_reset(&ui_store, GLYPH_H) // no glyphs: every character shows as the missing block
+			ui_error_len = min(len(err), len(ui_error_buf))
+			copy(ui_error_buf[:], err[:ui_error_len])
+		}
+		intrinsics.atomic_store_explicit(&ui_state, 2, .Release)
+	} else {
+		for intrinsics.atomic_load_explicit(&ui_state, .Acquire) != 2 {
+			intrinsics.cpu_relax()
+		}
+	}
+	return &ui_store
 }
 
-// Drawn for any character the font does not have: a hollow box.
-FALLBACK_GLYPH :: Glyph{0b111, 0b101, 0b101, 0b101, 0b111}
+// Why default-font.json could not be loaded, or "" if it loaded fine.
+ui_font_error :: proc() -> string {
+	ui_font()
+	return string(ui_error_buf[:ui_error_len])
+}
 
-// False if drawing ch would show the fallback box. (Not "glyph differs from the fallback": the
-// digit 0 looks exactly like the fallback box. Keep this list in step with glyph_for; a test checks.)
+// True if the UI font has a glyph for ch (a character code 0..255).
 font_has :: proc(ch: rune) -> bool {
-	switch ch {
-	case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9':
-		return true
-	case ' ', '.', ':', '-', '+', '=', '#', '/', '<', '>', '!', '?', '_', ',', '(', ')', '[', ']', '*':
-		return true
-	}
-	return false
+	return ch >= 0 && ch < PIXEL_FONT_CHARS && ui_font().present[ch]
 }
 
-// True if every character of s is in the font. Tools' static text should pass this.
+// True if every character of s is in the UI font. Text strings in the tools should pass this.
 text_is_drawable :: proc(s: string) -> bool {
-	for ch in s {
-		if !font_has(ch) {
+	f := ui_font()
+	for i in 0 ..< len(s) {
+		if !f.present[s[i]] {
 			return false
 		}
 	}
 	return true
 }
 
-@(private = "file")
-letter_glyphs := [26]Glyph {
-	{0b010, 0b101, 0b111, 0b101, 0b101}, // A
-	{0b110, 0b101, 0b110, 0b101, 0b110}, // B
-	{0b011, 0b100, 0b100, 0b100, 0b011}, // C
-	{0b110, 0b101, 0b101, 0b101, 0b110}, // D
-	{0b111, 0b100, 0b110, 0b100, 0b111}, // E
-	{0b111, 0b100, 0b110, 0b100, 0b100}, // F
-	{0b011, 0b100, 0b101, 0b101, 0b011}, // G
-	{0b101, 0b101, 0b111, 0b101, 0b101}, // H
-	{0b111, 0b010, 0b010, 0b010, 0b111}, // I
-	{0b001, 0b001, 0b001, 0b101, 0b010}, // J
-	{0b101, 0b101, 0b110, 0b101, 0b101}, // K
-	{0b100, 0b100, 0b100, 0b100, 0b111}, // L
-	{0b101, 0b111, 0b111, 0b101, 0b101}, // M
-	{0b110, 0b101, 0b101, 0b101, 0b101}, // N
-	{0b010, 0b101, 0b101, 0b101, 0b010}, // O
-	{0b110, 0b101, 0b110, 0b100, 0b100}, // P
-	{0b010, 0b101, 0b101, 0b110, 0b011}, // Q
-	{0b110, 0b101, 0b110, 0b101, 0b101}, // R
-	{0b011, 0b100, 0b010, 0b001, 0b110}, // S
-	{0b111, 0b010, 0b010, 0b010, 0b010}, // T
-	{0b101, 0b101, 0b101, 0b101, 0b111}, // U
-	{0b101, 0b101, 0b101, 0b101, 0b010}, // V
-	{0b101, 0b101, 0b111, 0b111, 0b101}, // W
-	{0b101, 0b101, 0b010, 0b101, 0b101}, // X
-	{0b101, 0b101, 0b010, 0b010, 0b010}, // Y
-	{0b111, 0b001, 0b010, 0b100, 0b111}, // Z
-}
-
-@(private = "file")
-digit_glyphs := [10]Glyph {
-	{0b111, 0b101, 0b101, 0b101, 0b111}, // 0
-	{0b010, 0b110, 0b010, 0b010, 0b111}, // 1
-	{0b110, 0b001, 0b010, 0b100, 0b111}, // 2
-	{0b110, 0b001, 0b010, 0b001, 0b110}, // 3
-	{0b101, 0b101, 0b111, 0b001, 0b001}, // 4
-	{0b111, 0b100, 0b110, 0b001, 0b110}, // 5
-	{0b011, 0b100, 0b111, 0b101, 0b111}, // 6
-	{0b111, 0b001, 0b010, 0b010, 0b010}, // 7
-	{0b111, 0b101, 0b111, 0b101, 0b111}, // 8
-	{0b111, 0b101, 0b111, 0b001, 0b110}, // 9
-}
-
-// Width in logical pixels of s at the given integer scale (no trailing gap).
+// Width in pixels of s at the given integer scale: the sum of the glyph cell widths, including the
+// blank column each glyph carries on its right (0 for the empty string).
 text_width :: proc(s: string, scale := 1) -> int {
-	n := 0
-	for _ in s {
-		n += 1
-	}
-	if n == 0 {
+	if len(s) == 0 {
 		return 0
 	}
-	return (n * GLYPH_ADVANCE - 1) * scale
+	f := ui_font()
+	w := 0
+	for i in 0 ..< len(s) {
+		code := s[i]
+		w += f.present[code] ? f.glyphs[code].width : MISSING_ADVANCE
+	}
+	return w * scale
 }
 
 // Draws s with its top-left at (x, y). Horizontal runs of lit pixels become one fill_rect.
 draw_text :: proc(r: ^Renderer, x, y: int, s: string, c: Color, scale := 1) {
+	f := ui_font()
 	cx := x
-	for ch in s {
-		g := glyph_for(ch)
-		for row, ry in g {
+	for i in 0 ..< len(s) {
+		code := s[i]
+		if !f.present[code] {
+			renderer_fill_rect(r, cx, y, MISSING_GLYPH_W * scale, MISSING_GLYPH_H * scale, c)
+			cx += MISSING_ADVANCE * scale
+			continue
+		}
+		g := &f.glyphs[code]
+		for gy in 0 ..< g.height {
 			run_start := -1
-			for col in 0 ..= GLYPH_W {
-				lit := col < GLYPH_W && (row >> uint(GLYPH_W - 1 - col)) & 1 == 1
+			for gx in 0 ..= g.width {
+				lit := gx < g.width && g.bits[gy][gx]
 				if lit && run_start < 0 {
-					run_start = col
+					run_start = gx
 				} else if !lit && run_start >= 0 {
-					renderer_fill_rect(
-						r,
-						cx + run_start * scale,
-						y + ry * scale,
-						(col - run_start) * scale,
-						scale,
-						c,
-					)
+					renderer_fill_rect(r, cx + run_start * scale, y + gy * scale, (gx - run_start) * scale, scale, c)
 					run_start = -1
 				}
 			}
 		}
-		cx += GLYPH_ADVANCE * scale
+		cx += g.width * scale
 	}
 }

@@ -18,8 +18,7 @@ Status: [x] done and committed, [~] done but not committed yet, [ ] to do.
 - [~] Flip the selected glyph (no rotation, by request)
 
 ## Whole suite
-- [ ] The editors' own text uses the hand-drawn default-font.json instead of the built-in 3x5 font
-      (glyph height 6 instead of 5, real lower case, all printable characters; layouts need a pass)
+- [~] The editors' own text uses the hand-drawn default-font.json instead of the built-in 3x5 font
 
 ## Tileset editor (new tool)
 - [ ] A tileset is a list of images, each with a name; all images share one fixed width and height

@@ -351,39 +351,6 @@ test_old_string_font_files_still_load :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_builtin_font_converts_faithfully :: proc(t: ^testing.T) {
-	f := new_font()
-	defer free(f)
-	pixel_font_load_builtin(f)
-	testing.expect_value(t, f.height, GLYPH_H)
-	count := 0
-	for code in 0 ..< PIXEL_FONT_CHARS {
-		ch := rune(code)
-		testing.expectf(t, f.present[code] == font_has(ch), "code %d presence", code)
-		if !f.present[code] {
-			continue
-		}
-		count += 1
-		g := &f.glyphs[code]
-		testing.expect(t, g.width == GLYPH_ADVANCE && g.height == GLYPH_H)
-		rows := glyph_for(ch)
-		for y in 0 ..< GLYPH_H {
-			for x in 0 ..< GLYPH_W {
-				want := (rows[y] >> uint(GLYPH_W - 1 - x)) & 1 == 1
-				testing.expectf(t, g.bits[y][x] == want, "code %d pixel (%d,%d)", code, x, y)
-			}
-			testing.expectf(t, !g.bits[y][GLYPH_W], "code %d: the spacing column must be blank", code) // column 3
-		}
-	}
-	testing.expect_value(t, count, 81) // space, 52 letters, 10 digits, 18 punctuation marks
-	testing.expect(t, f.glyphs['a'] == f.glyphs['A']) // lowercase shares the capital shapes
-	testing.expect(t, f.glyphs['z'] == f.glyphs['Z'])
-	// The packed form of one glyph, as it appears in the file: 'A' is .#. / #.# / ### / #.# / #.#.
-	packed := bitmap_pack(&f.glyphs['A'])
-	testing.expect(t, len(packed) == 5 && packed[0] == 0x40 && packed[1] == 0xA0 && packed[2] == 0xE0 && packed[3] == 0xA0 && packed[4] == 0xA0)
-}
-
-@(test)
 test_the_committed_default_font_file_is_a_valid_font :: proc(t: ^testing.T) {
 	// default-font.json is hand drawn and the user's to edit, so it only has to be a valid font
 	// file (it is no longer generated from the built-in font).

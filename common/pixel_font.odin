@@ -58,30 +58,6 @@ pixel_font_set_height :: proc(f: ^Pixel_Font, height: int) -> bool {
 	return true
 }
 
-// Fills the font with the built-in 3 x 5 editor font (font.odin), so it can be saved as a normal
-// font file. Every character the editor can draw is present: space, digits, punctuation and the
-// letters (lowercase uses the capital shapes, as it does on screen). The height is the glyph
-// height, 5, and each glyph is GLYPH_ADVANCE (4) wide: the 3 pixel columns plus the blank column
-// the editor leaves between characters. Line spacing is not part of a font file.
-pixel_font_load_builtin :: proc(f: ^Pixel_Font) {
-	pixel_font_reset(f, GLYPH_H)
-	for code in 0 ..< PIXEL_FONT_CHARS {
-		ch := rune(code)
-		if !font_has(ch) {
-			continue
-		}
-		f.present[code] = true
-		g := &f.glyphs[code]
-		g.width = GLYPH_ADVANCE
-		rows := glyph_for(ch)
-		for y in 0 ..< GLYPH_H {
-			for x in 0 ..< GLYPH_W {
-				g.bits[y][x] = (rows[y] >> uint(GLYPH_W - 1 - x)) & 1 == 1
-			}
-		}
-	}
-}
-
 // Returns true if the glyph's presence changed.
 pixel_font_set_present :: proc(f: ^Pixel_Font, code: int, present: bool) -> bool {
 	if code < 0 || code >= PIXEL_FONT_CHARS || f.present[code] == present {
