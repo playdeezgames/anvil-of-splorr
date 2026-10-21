@@ -80,6 +80,15 @@ document.getElementById("open").addEventListener("change", async (ev) => {
   if (!file) return;
   const data = new Uint8Array(await file.arrayBuffer());
   const exp = memory.exports;
+  // game_tags.json is not the tool's own file: it is the list of tags the game needs, kept in browser
+  // storage where the world editor reads it (open its TAGS list afterwards).
+  if (file.name === "game_tags.json") {
+    try {
+      localStorage.setItem(STORAGE_PREFIX + "game_tags.json", new TextDecoder().decode(data));
+      say("Stored game_tags.json: open the TAGS list to read it.");
+    } catch (e) { say("game_tags.json: browser storage is unavailable."); }
+    return;
+  }
   if (!exp || !exp.file_buffer) { say("Editor is not ready yet."); return; }
   if (data.length > FILE_CAP) { say(`${file.name}: too large (${data.length} bytes).`); return; }
   bytesAt(exp.file_buffer(), data.length).set(data);
@@ -100,6 +109,15 @@ async function loadInputMap() {
   }
 }
 
+// game_tags.json (the tags a game needs) sits next to the page when there is one: keep it in browser
+// storage, where the world editor reads it. No file: nothing changes.
+async function loadGameTags() {
+  let res;
+  try { res = await fetch("game_tags.json", { cache: "no-store" }); } catch (e) { return; }
+  if (!res.ok) return;
+  try { localStorage.setItem(STORAGE_PREFIX + "game_tags.json", await res.text()); } catch (e) { /* storage unavailable */ }
+}
+
 // Closing or reloading the tab with unsaved edits asks the browser to confirm.
 window.addEventListener("beforeunload", (ev) => {
   const exp = memory.exports;
@@ -112,6 +130,7 @@ window.addEventListener("beforeunload", (ev) => {
 odin.runWasm("app.wasm", null, imports, memory)
   .then(() => {
     loadInputMap();
+    loadGameTags();
     // The "open file" button follows the running tool: only tools with files can use it.
     setInterval(() => {
       document.getElementById("open-label").hidden = !memory.exports.tool_has_files();

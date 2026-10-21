@@ -437,3 +437,19 @@ test_a_game_draws_the_map_and_where_its_characters_are_now :: proc(t: ^testing.T
 		testing.expect(t, rc.x >= 0 && rc.y >= 0 && rc.x + rc.w <= cm.SCREEN_W && rc.y + rc.h <= cm.SCREEN_H)
 	}
 }
+
+@(test)
+test_a_game_checks_its_tags_file_against_the_world_at_start_up :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := loaded_world() // has solid, spawn and thing
+	defer free(w)
+	g: Game_Tags
+	testing.expect_value(t, parse_game_tags(transmute([]u8)string(`{"tags": ["solid", {"name": "thing", "note": "pickup"}, "spawn"]}`), &g), "")
+	testing.expect_value(t, len(required_missing(w, &g)), 0)
+	testing.expect_value(t, parse_game_tags(transmute([]u8)string(`{"tags": ["solid", "thing", "spawn", "exit", "key"]}`), &g), "")
+	missing := required_missing(w, &g)
+	testing.expect(t, len(missing) == 2 && missing[0] == "exit" && missing[1] == "key")
+	// A bad file is an error and leaves what was read.
+	testing.expect(t, parse_game_tags(transmute([]u8)string(`{"tags": ["a", "a"]}`), &g) != "")
+	testing.expect_value(t, g.count, 5)
+}

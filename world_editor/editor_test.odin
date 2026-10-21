@@ -459,8 +459,10 @@ test_import_adds_a_tileset_of_the_right_size :: proc(t: ^testing.T) {
 	run(e, .Import)
 	testing.expect(t, e.aux_requests == {.Tileset} && e.note == NOTE_IMPORT_ASKED)
 	tl := tool(e)
+	e.aux_requests -= {.Game_Tags} // (opening the tags list asked for game_tags.json too; not this test's business)
+	testing.expect_value(t, cm.tool_aux_file_name(&tl), "tileset.json") // named by what is pending
 	testing.expect(t, tl.wants_aux_load(tl.data) && !tl.wants_aux_load(tl.data))
-	testing.expect_value(t, cm.tool_aux_file_name(&tl), "tileset.json")
+	testing.expect_value(t, cm.tool_aux_file_name(&tl), "") // nothing pending: no file
 	src := new(cm.Tileset)
 	defer free(src)
 	cm.tileset_reset(src, 8, 8)
@@ -1300,4 +1302,227 @@ test_tags_survive_save_and_load_in_the_tool :: proc(t: ^testing.T) {
 	testing.expect(t, tl2.load(tl2.data, transmute([]u8)text))
 	testing.expect(t, e2.world.tag_count == 2 && e2.world.sets[0].terrains[1].tags == cm.tag_bit(1))
 	testing.expect_value(t, cm.world_to_json(&e2.world), text)
+}
+
+// --- game_tags.json ---
+
+GAME_TAGS_TEXT :: `{"tags": [{"name": "solid", "note": "blocks the player"}, {"name": "thing", "note": "what the player picks up"}, {"name": "spawn", "note": "where the thing may appear"}]}`
+
+// An editor whose world has the extra tag "spare" and which has read game tags solid, thing, spawn.
+with_game_tags :: proc() -> (^Editor, cm.Tool) {
+	e := with_content()
+	cm.world_add_tag(&e.world, "spare")
+	tl := tool(e)
+	e.aux_requests = {.Game_Tags}
+	_ = tl.wants_aux_load(tl.data)
+	tl.load_aux(tl.data, transmute([]u8)string(GAME_TAGS_TEXT))
+	return e, tl
+}
+
+@(test)
+test_the_editor_asks_for_each_aux_file_in_turn_and_reads_the_game_tags :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	tl := tool(e)
+	testing.expect_value(t, cm.tool_aux_file_name(&tl), "")
+	tl.enter(tl.data) // opening the tool asks for the game's tags
+	testing.expect_value(t, cm.tool_aux_file_name(&tl), "game_tags.json")
+	e.aux_requests += {.Tileset}
+	testing.expect_value(t, cm.tool_aux_file_name(&tl), "tileset.json") // the tileset first
+	testing.expect(t, tl.wants_aux_load(tl.data))
+	testing.expect(t, !tl.load_aux(tl.data, transmute([]u8)string("not a tileset")))
+	testing.expect_value(t, cm.tool_aux_file_name(&tl), "game_tags.json")
+	testing.expect(t, tl.wants_aux_load(tl.data))
+	testing.expect(t, tl.load_aux(tl.data, transmute([]u8)string(GAME_TAGS_TEXT)))
+	testing.expect(t, e.game_tags.count == 3 && cm.game_tag_name(&e.game_tags, 1) == "thing")
+	testing.expect_value(t, cm.tool_aux_file_name(&tl), "")
+	// A bad file says so and keeps what was read before.
+	e.aux_requests = {.Game_Tags}
+	testing.expect(t, tl.wants_aux_load(tl.data))
+	testing.expect(t, !tl.load_aux(tl.data, transmute([]u8)string(`{"tags": ["a", "a"]}`)))
+	testing.expect(t, e.note == NOTE_GAME_TAGS_BAD && e.game_tags.count == 3)
+	// Opening the Tags list reads the file again.
+	e.mode = .Hub
+	goto_hub(e, .Tags)
+	press(e, .Green)
+	testing.expect_value(t, cm.tool_aux_file_name(&tl), "game_tags.json")
+}
+
+@(test)
+test_the_tags_list_marks_needed_tags_and_lists_the_missing_ones :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, tl := with_game_tags()
+	defer free(e)
+	_ = tl
+	e.mode = .Hub
+	goto_hub(e, .Tags)
+	press(e, .Green)
+	// Rows: solid, spare, then the missing thing and spawn.
+	testing.expect_value(t, section_count(e, .Tags), 4)
+	testing.expect_value(t, tags_missing(e), 2)
+	names := [4]string{"solid", "spare", "thing", "spawn"}
+	for name, i in names {
+		testing.expectf(t, section_item_name(e, .Tags, i) == name, "row %d is %s", i, section_item_name(e, .Tags, i))
+	}
+	testing.expect_value(t, tag_detail(e, 0), "FIXED, NEEDED") // rock uses solid, so it is not "unused"
+	testing.expect_value(t, tag_detail(e, 1), "")
+	testing.expect_value(t, tag_detail(e, 2), "MISSING")
+	testing.expect_value(t, tag_detail(e, 3), "MISSING")
+	for i in 0 ..< 4 {
+		testing.expect(t, cm.text_is_drawable(tag_detail(e, i)))
+	}
+	// The info line carries the game's note for the selected tag.
+	e.sel[.Tags] = 0
+	testing.expect_value(t, item_info(e), "1 OF 4  blocks the player")
+	e.sel[.Tags] = 2
+	testing.expect_value(t, item_info(e), "3 OF 4  what the player picks up")
+	e.sel[.Tags] = 1
+	testing.expect_value(t, item_info(e), "2 OF 4")
+	// A needed tag nothing uses is "unused" until something sets it.
+	cm.world_add_tag(&e.world, "thing") // (creates tag 2 by hand: now present in the world)
+	testing.expect_value(t, tag_detail(e, 2), "NEEDED, UNUSED")
+	cm.world_toggle_terrain_tag(&e.world, 0, 0, 2) // a terrain has it now
+	testing.expect_value(t, tag_detail(e, 2), "NEEDED")
+	testing.expect_value(t, section_count(e, .Tags), 4) // spare, thing... and spawn still missing
+	// The hub shows how many are missing.
+	e.mode = .Hub
+	testing.expect_value(t, tags_missing(e), 1)
+}
+
+@(test)
+test_missing_tags_cannot_be_renamed_deleted_or_opened_and_create_adds_them :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, _ := with_game_tags()
+	defer free(e)
+	e.mode = .Hub
+	goto_hub(e, .Tags)
+	press(e, .Green)
+	e.sel[.Tags] = 2 // the missing "thing"
+	for row in ([]Setup_Row{.Rename, .Delete, .Open}) {
+		e.note = ""
+		e.mode = .List
+		run(e, row)
+		testing.expectf(t, e.note == NOTE_TAG_MISSING && e.mode == .Setup && !e.confirm_delete && !e.confirm_rename, "%v on a missing tag", row)
+	}
+	// Create adds them all, in the file's order, in one action.
+	e.dirty = false
+	run(e, .Create)
+	testing.expect(t, e.note == "CREATED 2 TAGS" && e.dirty && e.world.tag_count == 4)
+	testing.expect(t, cm.name_str(&e.world.tags[2]) == "thing" && cm.name_str(&e.world.tags[3]) == "spawn")
+	testing.expect(t, tags_missing(e) == 0 && section_count(e, .Tags) == 4)
+	e.note = ""
+	run(e, .Create)
+	testing.expect_value(t, e.note, NOTE_NOTHING_MISSING)
+	// The button does the same (and needs no file to be read first: the list has what it read).
+	cm.world_delete_tag(&e.world, 3)
+	e.mode = .List
+	e.note = ""
+	click_rect(e, IMPORT_BUTTON)
+	testing.expect(t, e.note == "CREATED 1 TAG" && e.world.tag_count == 4)
+	// With no game tags file read there is nothing to create: it asks for the file.
+	e2 := new_editor()
+	defer free(e2)
+	open(e2, .Tags)
+	e2.aux_requests = {}
+	run(e2, .Create)
+	testing.expect(t, e2.note == NOTE_GAME_TAGS_ASKED && e2.aux_requests == {.Game_Tags})
+	// A full world creates what fits and says so.
+	e3, _ := with_game_tags()
+	defer free(e3)
+	for e3.world.tag_count < cm.WORLD_MAX_TAGS - 1 {
+		cm.world_add_tag(&e3.world)
+	}
+	open(e3, .Tags)
+	run(e3, .Create)
+	testing.expect(t, e3.note == NOTE_FULL && e3.world.tag_count == cm.WORLD_MAX_TAGS)
+}
+
+@(test)
+test_a_needed_tag_asks_twice_before_a_rename_or_a_delete :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, _ := with_game_tags()
+	defer free(e)
+	cm.world_create_missing_tags(&e.world, &e.game_tags) // solid, spare, thing, spawn
+	e.mode = .Hub
+	goto_hub(e, .Tags)
+	press(e, .Green)
+	e.sel[.Tags] = 2 // thing: needed
+	// Rename: the first green warns, any other command cancels the warning, the second green goes on.
+	run(e, .Rename)
+	testing.expect(t, e.confirm_rename && e.mode == .Setup)
+	testing.expect_value(t, banner_text(e), "NEEDED BY THE GAME  GREEN: RENAME")
+	press(e, .Up)
+	testing.expect(t, !e.confirm_rename)
+	e.row = .Rename
+	press(e, .Green)
+	testing.expect(t, e.confirm_rename && e.mode == .Setup)
+	press(e, .Green)
+	testing.expect(t, !e.confirm_rename && e.mode == .Text)
+	name_typed(e, "item")
+	testing.expect(t, cm.name_str(&e.world.tags[2]) == "item" && e.mode == .List)
+	testing.expect_value(t, tag_detail(e, 2), "") // "item" is not needed; the needed "thing" is missing again
+	testing.expect_value(t, tags_missing(e), 1)
+	// Delete: the banner changes and it takes the usual two presses.
+	e.sel[.Tags] = 3 // spawn: needed
+	run(e, .Delete)
+	testing.expect(t, e.confirm_delete && e.world.tag_count == 4)
+	testing.expect_value(t, banner_text(e), "NEEDED BY THE GAME  GREEN: DELETE")
+	press(e, .Green)
+	testing.expect(t, e.world.tag_count == 3 && cm.world_find_tag(&e.world, "spawn") < 0)
+	// A tag the game does not need gets the plain question.
+	e.sel[.Tags] = 1
+	run(e, .Delete)
+	testing.expect_value(t, banner_text(e), "DELETE IT?  GREEN: CONFIRM")
+	// By mouse: RENAME twice for a needed tag.
+	e.confirm_delete = false
+	e.mode = .List
+	e.sel[.Tags] = 0 // solid: needed and fixed -> the fixed note wins
+	e.note = ""
+	click_rect(e, RENAME_BUTTON)
+	testing.expect_value(t, e.note, NOTE_TAG_RESERVED)
+	cm.world_create_missing_tags(&e.world, &e.game_tags) // thing and spawn again
+	e.sel[.Tags] = e.world.tag_count - 1
+	click_rect(e, RENAME_BUTTON)
+	testing.expect(t, e.confirm_rename && e.mode == .Setup)
+	click_rect(e, NEW_BUTTON) // another click cancels
+	testing.expect(t, !e.confirm_rename)
+	// A tag the user just made is named at once, even if "tag" were a needed name.
+	e.mode = .List
+	run(e, .New)
+	testing.expect_value(t, e.mode, Mode.Text)
+}
+
+@(test)
+test_the_tags_text_and_buttons_fit :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, _ := with_game_tags()
+	defer free(e)
+	m := cm.default_input_map()
+	editor_set_labels(e, &m)
+	for round in 0 ..< 2 {
+		if round == 1 {
+			for a in cm.Action {
+				cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
+			}
+		}
+		for text in ([]string{"NEEDED BY THE GAME  %s: RENAME", "NEEDED BY THE GAME  %s: DELETE"}) {
+			label := cm.action_label(&m, .Green)
+			banner := text == "NEEDED BY THE GAME  %s: RENAME" ? "NEEDED BY THE GAME  " : "NEEDED BY THE GAME  "
+			full := strings.concatenate({banner, label, text == "NEEDED BY THE GAME  %s: RENAME" ? ": RENAME" : ": DELETE"}, context.temp_allocator)
+			testing.expectf(t, cm.text_width(full) + 8 <= BANNER.w, "banner too wide: %s", full)
+			if round == 0 {
+				testing.expectf(t, cm.text_is_drawable(full), "banner: %s", full)
+			}
+		}
+	}
+	for word in ([]string{"CREATE", "MISSING", "FIXED, NEEDED", "NEEDED, UNUSED", "NEEDED", "9 MISSING", NOTE_TAG_MISSING, NOTE_GAME_TAGS_ASKED, NOTE_GAME_TAGS_BAD, NOTE_NOTHING_MISSING, "CREATED 64 TAGS"}) {
+		testing.expectf(t, cm.text_is_drawable(word) && INFO_X + cm.text_width(word) <= cm.SCREEN_W - 4, "text: %s", word)
+	}
+	testing.expect(t, cm.text_width("CREATE") <= IMPORT_BUTTON.w - 2)
+	// The longest info line: a long note after a full position.
+	long := strings.repeat("W", 44, context.temp_allocator)
+	line := strings.concatenate({"64 OF 64  ", long, "  *"}, context.temp_allocator)
+	testing.expect(t, INFO_X + cm.text_width(line) <= cm.SCREEN_W)
+	testing.expect(t, LIST_X + 2 + cm.text_width("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW") + cm.text_width("NEEDED, UNUSED") + 6 <= LIST_W)
 }

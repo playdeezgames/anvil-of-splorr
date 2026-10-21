@@ -27,6 +27,10 @@ build_web() {
 	# A link, not a copy: the repo-root input_map.json is the one file to edit, and a rebuild must
 	# never overwrite edits made through the served path.
 	ln -sfn ../../../input_map.json "$out/input_map.json"
+	# game_tags.json (the tags a game needs), if there is one at the repo root, is served next to the page
+	# for the world editor; a game's own copy can also be dropped into the output folder or chosen with
+	# the page's "Open file" button.
+	if [ -e game_tags.json ]; then ln -sfn ../../../game_tags.json "$out/game_tags.json"; fi
 	sed -e "s/@TITLE@/$(cat "apps/$tool/title.txt")/" frontends/web/index.html > "$out/index.html"
 }
 

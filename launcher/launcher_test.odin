@@ -23,6 +23,7 @@ Probe :: struct {
 	aux:          string, // "" = no aux file
 	aux_pending:  bool,
 	aux_loaded:   int,
+	aux_named_while_pending: bool, // the name is "" unless a request is pending (like the world editor)
 }
 
 probe_tool :: proc(p: ^Probe) -> cm.Tool {
@@ -66,7 +67,10 @@ probe_tool :: proc(p: ^Probe) -> cm.Tool {
 		}
 	}
 	if p.aux != "" {
-		t.aux_file_name = proc(d: rawptr) -> string {return (^Probe)(d).aux}
+		t.aux_file_name = proc(d: rawptr) -> string {
+			p := (^Probe)(d)
+			return p.aux_named_while_pending && !p.aux_pending ? "" : p.aux
+		}
 		t.wants_aux_load = proc(d: rawptr) -> bool {
 			p := (^Probe)(d)
 			defer p.aux_pending = false
@@ -292,4 +296,21 @@ test_aux_file_hooks_follow_the_running_tool :: proc(t: ^testing.T) {
 	lt.handle_event(lt.data, cmd(.Green))
 	testing.expect_value(t, cm.tool_aux_file_name(&lt), "")
 	testing.expect(t, !lt.load_aux(lt.data, []u8{1}))
+}
+
+@(test)
+test_aux_bytes_arrive_even_after_the_tool_stops_naming_its_file :: proc(t: ^testing.T) {
+	f: Fixture
+	lt := setup(&f)
+	f.a.aux = "game_tags.json"
+	f.a.aux_named_while_pending = true
+	f.entries[0].tool = probe_tool(&f.a)
+	lt.handle_event(lt.data, cmd(.Green)) // open A
+	testing.expect_value(t, cm.tool_aux_file_name(&lt), "") // nothing pending: no file
+	f.a.aux_pending = true
+	testing.expect_value(t, cm.tool_aux_file_name(&lt), "game_tags.json") // the frontend reads the name first
+	testing.expect(t, lt.wants_aux_load(lt.data)) // ... the request is taken ...
+	testing.expect_value(t, cm.tool_aux_file_name(&lt), "") // ... so the name is gone when the bytes come
+	testing.expect(t, lt.load_aux(lt.data, []u8{1, 2, 3}))
+	testing.expect_value(t, f.a.aux_loaded, 3)
 }

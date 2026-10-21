@@ -194,8 +194,10 @@ tool :: proc(l: ^Launcher) -> cm.Tool {
 			}
 			return false
 		},
+		// (Not gated on the tool's file name: a tool that names the file it is waiting for answers ""
+		// once its request has been taken, which is exactly when the bytes arrive.)
 		load_aux = proc(data: rawptr, bytes: []u8) -> bool {
-			if t := running((^Launcher)(data)); t != nil && cm.tool_aux_file_name(t) != "" {
+			if t := running((^Launcher)(data)); t != nil && t.load_aux != nil {
 				return t.load_aux(t.data, bytes)
 			}
 			return false

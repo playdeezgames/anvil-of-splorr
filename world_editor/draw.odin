@@ -68,7 +68,13 @@ banner_text :: proc(e: ^Editor) -> string {
 	if e.confirm_exit {
 		return fmt.tprintf("UNSAVED   %s: LEAVE ANYWAY", label(e, .Red))
 	}
+	if e.confirm_rename {
+		return fmt.tprintf("NEEDED BY THE GAME  %s: RENAME", label(e, .Green))
+	}
 	if e.confirm_delete {
+		if e.section == .Tags && needed_index(e, selected(e)) >= 0 {
+			return fmt.tprintf("NEEDED BY THE GAME  %s: DELETE", label(e, .Green))
+		}
 		return fmt.tprintf("DELETE IT?  %s: CONFIRM", label(e, .Green))
 	}
 	switch e.mode {
@@ -129,7 +135,7 @@ fill :: proc(r: ^cm.Renderer, rc: Rect, c: cm.Color) {
 item_detail :: proc(e: ^Editor, s: Section, i: int) -> string {
 	switch s {
 	case .Tags:
-		return cm.tag_is_reserved(i) ? "FIXED" : ""
+		return tag_detail(e, i)
 	case .Tilesets:
 		n := e.world.tilesets[i].count
 		return fmt.tprintf("%d IMAGE%s", n, n == 1 ? "" : "S")
@@ -145,6 +151,23 @@ item_detail :: proc(e: ^Editor, s: Section, i: int) -> string {
 	return ""
 }
 
+// The word at the right of a row of the Tags list: whether the game needs the tag and how it stands.
+tag_detail :: proc(e: ^Editor, i: int) -> string {
+	if is_missing_row(e, i) {
+		return "MISSING"
+	}
+	needed := needed_index(e, i)
+	switch {
+	case needed >= 0 && cm.tag_is_reserved(i):
+		return "FIXED, NEEDED"
+	case needed >= 0:
+		return cm.game_tag_status(&e.world, &e.game_tags, needed) == .Unused ? "NEEDED, UNUSED" : "NEEDED"
+	case cm.tag_is_reserved(i):
+		return "FIXED"
+	}
+	return ""
+}
+
 // One line about the selected item, shown under the banner.
 item_info :: proc(e: ^Editor) -> string {
 	n := section_count(e, e.section)
@@ -152,7 +175,12 @@ item_info :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("NO %s YET (0 OF %d)", section_title(e.section), section_limit(e.section))
 	}
 	i := selected(e)
-	if e.confirm_delete && e.section == .Tags {
+	if e.section == .Tags && !e.confirm_delete {
+		if note := needed_note(e, i); note != "" {
+			return fmt.tprintf("%d OF %d  %s%s", i + 1, n, note, e.dirty ? "  *" : "")
+		}
+	}
+	if e.confirm_delete && e.section == .Tags && i < e.world.tag_count {
 		uses := cm.world_tag_uses(&e.world, i)
 		return fmt.tprintf("THIS TAG IS USED BY %d THING%s", uses, uses == 1 ? "" : "S")
 	}
@@ -169,6 +197,18 @@ Button :: struct {
 	rc:   Rect,
 	text: string,
 	row:  Maybe(Setup_Row),
+}
+
+// The game's one-line note about the tag in row i of the Tags list, cut to fit the info line.
+needed_note :: proc(e: ^Editor, i: int) -> string {
+	k := -1
+	if is_missing_row(e, i) {
+		k = cm.game_tag_find(&e.game_tags, missing_tag_name(e, i - e.world.tag_count))
+	} else {
+		k = needed_index(e, i)
+	}
+	note := cm.game_tag_note(&e.game_tags, k)
+	return len(note) > 44 ? note[:44] : note
 }
 
 list_buttons :: proc() -> [7]Button {
@@ -254,7 +294,11 @@ draw_hub :: proc(e: ^Editor, r: ^cm.Renderer) {
 		case .Tile_Height:
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d", w.tile_h), color)
 		case .Tags:
-			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.tag_count, cm.WORLD_MAX_TAGS), color)
+			text := fmt.tprintf("%d OF %d", w.tag_count, cm.WORLD_MAX_TAGS)
+			cm.draw_text(r, HUB_VALUE_X, y, text, color)
+			if missing := tags_missing(e); missing > 0 {
+				cm.draw_text(r, HUB_VALUE_X + cm.text_width(text) + 8, y, fmt.tprintf("%d MISSING", missing), WARN)
+			}
 		case .Tilesets:
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.tileset_count, cm.WORLD_MAX_TILESETS), color)
 		case .Terrain_Sets:
@@ -305,17 +349,22 @@ draw_list :: proc(e: ^Editor, r: ^cm.Renderer) {
 		color := isel && e.mode == .List ? BG : TEXT
 		cm.draw_text(r, rc.x + 2, rc.y + 2, section_item_name(e, e.section, index), color)
 		detail := item_detail(e, e.section, index)
-		cm.draw_text(r, LIST_X + LIST_W - cm.text_width(detail) - 3, rc.y + 2, detail, isel && e.mode == .List ? BG : DIM)
+		detail_color := isel && e.mode == .List ? BG : (detail == "MISSING" ? WARN : DIM)
+		cm.draw_text(r, LIST_X + LIST_W - cm.text_width(detail) - 3, rc.y + 2, detail, detail_color)
 	}
 	for btn in list_buttons() {
-		if btn.rc == IMPORT_BUTTON && e.section != .Tilesets {
+		if btn.rc == IMPORT_BUTTON && e.section != .Tilesets && e.section != .Tags {
 			continue
+		}
+		btn := btn
+		if btn.rc == IMPORT_BUTTON && e.section == .Tags { 	// the same button creates the tags the game needs
+			btn.text, btn.row = "CREATE", Setup_Row.Create
 		}
 		lit := false
 		if row, has := btn.row.?; has && e.mode == .Setup && e.row == row {
 			lit = true
 		}
-		needs := btn.row != nil && btn.row != Setup_Row.New && btn.row != Setup_Row.Import
+		needs := btn.row != nil && btn.row != Setup_Row.New && btn.row != Setup_Row.Import && btn.row != Setup_Row.Create
 		enabled := !needs || n > 0
 		fill(r, btn.rc, lit ? HILITE : PANEL)
 		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.text)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.text, lit ? BG : (enabled ? TEXT : DIM))

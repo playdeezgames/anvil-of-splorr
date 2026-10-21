@@ -189,3 +189,21 @@ authored_location :: proc(w: ^World, ci: int) -> (mi, x, y: int, ok: bool) {
 	}
 	return cm.world_character_location(w, w.characters[ci].uuid)
 }
+
+// --- Tags a game needs --------------------------------------------------------------------------
+
+// The tags a game requires, from its `game_tags.json` (see common/game_tags.odin for the format).
+// About 8 KB: a plain value is fine on the stack.
+Game_Tags :: cm.Game_Tags
+
+// Reads a game_tags.json into `g` (untouched on failure). "" means success; the error text is on
+// the temp allocator.
+parse_game_tags :: proc(bytes: []u8, g: ^Game_Tags) -> (err: string) {
+	return cm.game_tags_from_json(bytes, g)
+}
+
+// The required tags the world lacks, in the file's order (empty if it has them all): check this
+// once at start-up and stop with a clear message instead of failing later. On the temp allocator.
+required_missing :: proc(w: ^World, g: ^Game_Tags) -> []string {
+	return cm.game_tags_missing(w, g)
+}

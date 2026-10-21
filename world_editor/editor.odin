@@ -19,9 +19,11 @@ Request :: enum {
 
 Aux_Request :: enum {
 	Tileset, // import tileset.json
+	Game_Tags, // read game_tags.json: the tags the game needs
 }
 
 TILESET_FILE :: "tileset.json"
+GAME_TAGS_FILE :: "game_tags.json"
 
 // The world editor edits one cm.World: its palette, tile size, tilesets, terrain sets and maps.
 // Red always means "back". Modes:
@@ -82,6 +84,7 @@ Setup_Row :: enum {
 	Duplicate,
 	Delete,
 	Import,
+	Create, // (tags) add every tag the game needs and the world lacks
 }
 
 Editor :: struct {
@@ -92,6 +95,9 @@ Editor :: struct {
 	scroll:         int,
 	mode:           Mode,
 	row:            Setup_Row,
+	game_tags:      cm.Game_Tags, // the tags the game needs, from game_tags.json (none if it was not found)
+	aux_current:    Aux_Request, // which file the frontend is delivering
+	confirm_rename: bool, // renaming a needed tag was asked once: the next one goes ahead
 	open_after:     bool, // the keypad was opened by New / Duplicate / Import: open the item when it closes
 	dirty:          bool, // the world changed since the last save/load
 	requests:       bit_set[Request],
@@ -114,6 +120,10 @@ Editor :: struct {
 
 NOTE_NEED_SET :: "ADD A TERRAIN SET FIRST"
 NOTE_TAG_OPEN :: "A TAG IS A NAME: RENAME IT"
+NOTE_TAG_MISSING :: "THE GAME NEEDS THIS TAG: USE CREATE"
+NOTE_GAME_TAGS_ASKED :: "LOOKING FOR GAME_TAGS.JSON"
+NOTE_GAME_TAGS_BAD :: "GAME_TAGS.JSON IS NOT VALID"
+NOTE_NOTHING_MISSING :: "NOTHING IS MISSING"
 NOTE_TAG_COPY :: "TAGS CANNOT BE COPIED"
 NOTE_TAG_RESERVED :: "THE SOLID TAG IS FIXED"
 NOTE_EMPTY :: "NOTHING HERE YET: USE NEW"
@@ -140,6 +150,7 @@ editor_enter :: proc(e: ^Editor) {
 	editor_init(e)
 	cm.world_seed_uuids(&e.world, u64(time.now()._nsec)) // new character uuids differ from run to run
 	e.requests = {.Load}
+	e.aux_requests = {.Game_Tags}
 }
 
 editor_mark_saved :: proc(e: ^Editor) {
@@ -164,10 +175,48 @@ set_sub_labels :: proc(e: ^Editor) {
 
 // --- Lists ---
 
+// How many tags the game needs that the world lacks.
+tags_missing :: proc(e: ^Editor) -> (n: int) {
+	for i in 0 ..< e.game_tags.count {
+		if cm.world_find_tag(&e.world, cm.game_tag_name(&e.game_tags, i)) < 0 {
+			n += 1
+		}
+	}
+	return
+}
+
+// The name of the k-th missing needed tag, in the file's order.
+missing_tag_name :: proc(e: ^Editor, k: int) -> string {
+	seen := 0
+	for i in 0 ..< e.game_tags.count {
+		name := cm.game_tag_name(&e.game_tags, i)
+		if cm.world_find_tag(&e.world, name) < 0 {
+			if seen == k {
+				return name
+			}
+			seen += 1
+		}
+	}
+	return ""
+}
+
+// The Tags list shows the world's tags and then, as rows of their own, the needed ones it lacks.
+is_missing_row :: proc(e: ^Editor, i: int) -> bool {
+	return e.section == .Tags && i >= e.world.tag_count
+}
+
+// The index in the game's list of the world tag in row i of the Tags list, or -1 if it is not needed.
+needed_index :: proc(e: ^Editor, i: int) -> int {
+	if e.section != .Tags || i >= e.world.tag_count {
+		return -1
+	}
+	return cm.world_tag_required(&e.game_tags, &e.world, i)
+}
+
 section_count :: proc(e: ^Editor, s: Section) -> int {
 	switch s {
 	case .Tags:
-		return e.world.tag_count
+		return e.world.tag_count + tags_missing(e)
 	case .Tilesets:
 		return e.world.tileset_count
 	case .Terrain_Sets:
@@ -199,6 +248,9 @@ section_limit :: proc(s: Section) -> int {
 section_item_name :: proc(e: ^Editor, s: Section, i: int) -> string {
 	switch s {
 	case .Tags:
+		if i >= e.world.tag_count {
+			return missing_tag_name(e, i - e.world.tag_count)
+		}
 		return cm.name_str(&e.world.tags[i])
 	case .Tilesets:
 		return cm.name_str(&e.world.tileset_names[i])
@@ -277,7 +329,7 @@ open_item :: proc(e: ^Editor) {
 	i := selected(e)
 	switch e.section {
 	case .Tags:
-		e.note = NOTE_TAG_OPEN // a tag has no editor of its own
+		e.note = is_missing_row(e, i) ? NOTE_TAG_MISSING : NOTE_TAG_OPEN // a tag has no editor of its own
 	case .Tilesets:
 		te.editor_begin_embedded(&e.tileset_ed, &e.world, i)
 		e.opened = i
@@ -371,9 +423,19 @@ sync_embedded :: proc(e: ^Editor) {
 
 @(private = "file")
 begin_rename :: proc(e: ^Editor) {
-	if e.section == .Tags && has_items(e) && cm.tag_is_reserved(selected(e)) {
-		e.note = NOTE_TAG_RESERVED // "solid" keeps its name: game code looks for it
-		return
+	if e.section == .Tags && has_items(e) {
+		switch {
+		case is_missing_row(e, selected(e)):
+			e.note = NOTE_TAG_MISSING
+			return
+		case cm.tag_is_reserved(selected(e)):
+			e.note = NOTE_TAG_RESERVED // "solid" keeps its name: game code looks for it
+			return
+		case needed_index(e, selected(e)) >= 0 && !e.confirm_rename:
+			e.confirm_rename = true // the game looks this tag up by name: ask again
+			return
+		}
+		e.confirm_rename = false
 	}
 	if need_item(e) {
 		cm.text_entry_begin(&e.entry, "RENAME", section_item_name(e, e.section, selected(e)), cm.NAME_MAX)
@@ -434,6 +496,7 @@ finish_add :: proc(e: ^Editor, n: int) {
 	}
 	select(e, n)
 	touched(e)
+	e.confirm_rename = true // (a new item is named at once, whatever it is called)
 	begin_rename(e) // name it first, then open it
 	e.open_after = e.section != .Tags // (a tag has nothing to open)
 }
@@ -443,6 +506,11 @@ finish_add :: proc(e: ^Editor, n: int) {
 delete_item :: proc(e: ^Editor) {
 	if !need_item(e) {
 		e.confirm_delete = false
+		return
+	}
+	if e.section == .Tags && is_missing_row(e, selected(e)) {
+		e.confirm_delete = false
+		e.note = NOTE_TAG_MISSING
 		return
 	}
 	if e.section == .Tags && cm.tag_is_reserved(selected(e)) {
@@ -498,6 +566,41 @@ request_import :: proc(e: ^Editor) {
 	e.note = NOTE_IMPORT_ASKED
 }
 
+// Adds every tag the game needs and the world lacks, in one action.
+@(private = "file")
+create_missing_tags :: proc(e: ^Editor) {
+	if e.section != .Tags {
+		return
+	}
+	if e.game_tags.count == 0 {
+		e.note = NOTE_GAME_TAGS_ASKED
+		e.aux_requests += {.Game_Tags}
+		return
+	}
+	created, no_room := cm.world_create_missing_tags(&e.world, &e.game_tags)
+	switch {
+	case no_room > 0:
+		e.note = NOTE_FULL
+	case created == 0:
+		e.note = NOTE_NOTHING_MISSING
+	case:
+		e.note = fmt.tprintf("CREATED %d TAG%s", created, created == 1 ? "" : "S")
+	}
+	if created > 0 {
+		touched(e)
+	}
+}
+
+// The frontend read game_tags.json: remember which tags the game needs.
+editor_load_game_tags :: proc(e: ^Editor, bytes: []u8) -> bool {
+	if err := cm.game_tags_from_json(bytes, &e.game_tags); err != "" {
+		e.note = NOTE_GAME_TAGS_BAD
+		return false
+	}
+	fix_selection(e)
+	return true
+}
+
 // The frontend read tileset.json: add it as a new tileset if it fits the world.
 editor_import_tileset :: proc(e: ^Editor, bytes: []u8) -> bool {
 	src := new(cm.Tileset, context.temp_allocator)
@@ -538,13 +641,22 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 		delete_item(e)
 	case .Import:
 		request_import(e)
+	case .Create:
+		create_missing_tags(e)
 	}
 }
 
 // The rows offered in the current list (Import is for tilesets only).
 @(private = "file")
 row_offered :: proc(e: ^Editor, row: Setup_Row) -> bool {
-	return row != .Import || e.section == .Tilesets
+	switch row {
+	case .Import:
+		return e.section == .Tilesets
+	case .Create:
+		return e.section == .Tags
+	case .Open, .Rename, .New, .Duplicate, .Delete:
+	}
+	return true
 }
 
 @(private = "file")
@@ -633,6 +745,7 @@ run_hub :: proc(e: ^Editor, row: Hub_Row) {
 		open_palette(e)
 	case .Tags:
 		open_list(e, .Tags)
+		e.aux_requests += {.Game_Tags} // (re-read: the file may have changed)
 	case .Tilesets:
 		open_list(e, .Tilesets)
 	case .Terrain_Sets:
@@ -718,6 +831,9 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 	}
 	if !(e.mode == .Setup && e.row == .Delete && a == .Green) {
 		e.confirm_delete = false
+	}
+	if !(e.mode == .Setup && e.row == .Rename && a == .Green) {
+		e.confirm_rename = false
 	}
 	switch e.mode {
 	case .Hub:
@@ -823,6 +939,9 @@ click :: proc(e: ^Editor, x, y: int) {
 	if !rect_contains(DELETE_BUTTON, x, y) {
 		e.confirm_delete = false
 	}
+	if !rect_contains(RENAME_BUTTON, x, y) {
+		e.confirm_rename = false
+	}
 	if e.mode == .File {
 		e.mode = .Hub
 	}
@@ -890,9 +1009,11 @@ click :: proc(e: ^Editor, x, y: int) {
 		action(e, .Duplicate)
 	case rect_contains(DELETE_BUTTON, x, y):
 		action(e, .Delete) // a second click confirms
-	case rect_contains(IMPORT_BUTTON, x, y):
+	case rect_contains(IMPORT_BUTTON, x, y): // (the same button: IMPORT for tilesets, CREATE for tags)
 		if e.section == .Tilesets {
 			action(e, .Import)
+		} else if e.section == .Tags {
+			action(e, .Create)
 		}
 	case rect_contains(BACK_BUTTON, x, y):
 		e.mode = .Hub

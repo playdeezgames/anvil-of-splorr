@@ -20,16 +20,39 @@ tool :: proc(e: ^Editor) -> cm.Tool {
 		draw = proc(data: rawptr, r: ^cm.Renderer) {editor_draw((^Editor)(data), r)},
 		is_dirty = proc(data: rawptr) -> bool {return editor_dirty((^Editor)(data))},
 		// tileset.json, for importing a tileset into the world.
-		aux_file_name = proc(data: rawptr) -> string {return TILESET_FILE},
+		// The files the editor asks the frontend for: tileset.json (to import) and game_tags.json (the
+		// tags the game needs), one at a time, named by what is pending. No request: no file.
+		aux_file_name = proc(data: rawptr) -> string {
+			e := (^Editor)(data)
+			switch {
+			case .Tileset in e.aux_requests:
+				return TILESET_FILE
+			case .Game_Tags in e.aux_requests:
+				return GAME_TAGS_FILE
+			}
+			return ""
+		},
 		wants_aux_load = proc(data: rawptr) -> bool {
 			e := (^Editor)(data)
-			if .Tileset not_in e.aux_requests {
-				return false
+			switch {
+			case .Tileset in e.aux_requests:
+				e.aux_requests -= {.Tileset}
+				e.aux_current = .Tileset
+				return true
+			case .Game_Tags in e.aux_requests:
+				e.aux_requests -= {.Game_Tags}
+				e.aux_current = .Game_Tags
+				return true
 			}
-			e.aux_requests -= {.Tileset}
-			return true
+			return false
 		},
-		load_aux = proc(data: rawptr, bytes: []u8) -> bool {return editor_import_tileset((^Editor)(data), bytes)},
+		load_aux = proc(data: rawptr, bytes: []u8) -> bool {
+			e := (^Editor)(data)
+			if e.aux_current == .Game_Tags {
+				return editor_load_game_tags(e, bytes)
+			}
+			return editor_import_tileset(e, bytes)
+		},
 		take_save = proc(data: rawptr) -> (string, bool) {
 			e := (^Editor)(data)
 			if .Save not_in e.requests {
