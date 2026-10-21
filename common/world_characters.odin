@@ -625,6 +625,7 @@ read_characters :: proc(root: json.Object, tmp: ^World) -> (err: string) {
 		}
 	}
 	// Who stands where.
+	placed_somewhere := make(map[Uuid]bool, context.temp_allocator)
 	if list, present := root["maps"]; present {
 		maps, _ := list.(json.Array)
 		for item, mi in maps {
@@ -659,9 +660,10 @@ read_characters :: proc(root: json.Object, tmp: ^World) -> (err: string) {
 				if !uuid_is_none(m.characters[y][x]) {
 					return fmt.tprintf(`map "%s": two characters in the cell %d,%d`, name_str(&m.name), x, y)
 				}
-				if _, _, _, placed := world_character_location(tmp, u); placed {
+				if placed_somewhere[u] { 	// (a lookup, not a scan of every cell: a big world has many)
 					return fmt.tprintf(`map "%s": character %s stands in more than one cell`, name_str(&m.name), text)
 				}
+				placed_somewhere[u] = true
 				m.characters[y][x] = u
 			}
 		}

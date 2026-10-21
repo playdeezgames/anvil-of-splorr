@@ -61,6 +61,13 @@ Because one tool must run on two very different frontends, keep the tool logic o
 - The SDL2 frontend and the wasm frontend each implement only that renderer interface and translate native events into the common input events. Neither contains tool logic.
 - Shared code across tools (renderer interface, input mapping, widgets, palette/file formats) belongs in a common package, not duplicated per tool.
 
+## Game-side runtime (`anvil_runtime/`)
+
+What a game imports to use a world (it is not `runtime/`: Odin reserves that package name). `anvil_runtime` depends only on `common`, builds for native and `js_wasm32` (`./build.sh check` checks both) and has no platform code.
+- `world.odin`: `new_world`/`reset_world`, `load(w, bytes)` (readable error, `w` untouched on failure), `find_tag`, `find_map`, `missing_tags`, `terrain_at`, `cell_has_tag`, `cell_is_solid` (effective `solid`; outside the map counts as solid), `cells_with_tag`, `player`, `character_type/_sprite/_image/_has_tag`, `authored_location`, palette/tile/map sizes. A `World` is ~21 MB: a global or `new()`.
+- `play.odin`: `Play_State` (~32 KB, freely copyable): every character's current map and cell, copied from the authored placements by `play_init`. A game changes only this, never the loaded world: `play_position`, `play_character_at`, `play_characters_in_map`, `play_can_step`/`play_step` (refused by edges, solid cells and other characters; a game lets the player walk onto a pickup by `play_unplace`-ing it first), `play_place`, `play_unplace`.
+- Loading was made linear in the number of placed characters (a lookup, not a scan of every cell per character), so a full world loads quickly.
+
 ## Tileset editor notes
 
 - `common/tileset.odin` holds the model (<=256 named Image4s sharing one width/height, names unique printable ASCII <=32) and JSON; `Tileset` is ~1 MB: use `new()`/globals, never copy by value. The web `FILE_CAP` (web.odin + index.html) is 4 MiB to fit the largest tileset.

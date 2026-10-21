@@ -32,14 +32,15 @@ build_web() {
 
 case "$target" in
 	check)
-		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor world_editor glyph_editor font_editor gamepad_tester launcher; do odin check "$pkg" -no-entry-point; done
+		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime; do odin check "$pkg" -no-entry-point; done
+		odin check anvil_runtime -no-entry-point -target:js_wasm32
 		for t in apps/*/; do
 			t="$(basename "$t")"
 			odin check frontends/sdl2 "-collection:app=apps/$t"
 			odin check frontends/web -target:js_wasm32 "-collection:app=apps/$t"
 		done ;;
 	test)
-		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor world_editor glyph_editor font_editor gamepad_tester launcher; do odin test "$pkg"; done ;;
+		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime; do odin test "$pkg"; done ;;
 	native) mkdir -p build && odin build frontends/sdl2 "$coll" -out:"build/$tool" ;;
 	run)    "$0" native "$tool" && "./build/$tool" "$@" ;;
 	web)    build_web ;;
