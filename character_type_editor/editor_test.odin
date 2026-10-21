@@ -536,7 +536,7 @@ test_all_on_screen_text_is_in_the_font_and_fits :: proc(t: ^testing.T) {
 				cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
 			}
 		}
-		for mode in ([]Mode{.Pick, .Setup, .Sprite}) {
+		for mode in ([]Mode{.Pick, .Setup, .Sprite, .Tags}) {
 			for confirm in 0 ..< 2 {
 				e.mode = mode
 				e.confirm_delete = confirm == 1
@@ -607,7 +607,7 @@ test_every_screen_draws_on_screen :: proc(t: ^testing.T) {
 			if backdrop_on {
 				e.bg_set, e.bg_terrain = 0, 1
 			}
-			for mode in ([]Mode{.Pick, .Setup, .Sprite, .Text}) {
+			for mode in ([]Mode{.Pick, .Setup, .Sprite, .Text, .Tags}) {
 				for sel in ([]int{0, 30, 63}) {
 					e.sel = sel
 					fix_selection(e)
@@ -631,10 +631,58 @@ test_every_screen_draws_on_screen :: proc(t: ^testing.T) {
 	}
 	e, world := empty_editor()
 	defer free_both(e, world)
-	for mode in ([]Mode{.Pick, .Setup, .Sprite}) {
+	for mode in ([]Mode{.Pick, .Setup, .Sprite, .Tags}) {
 		e.mode = mode
 		log = {}
 		editor_draw(e, &r)
 		testing.expect_value(t, log.out_of_bounds, 0)
 	}
+}
+
+@(test)
+test_the_tag_list_sets_and_clears_tags_on_a_type_and_its_characters_inherit :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	cm.world_add_tag(world, "water")
+	cm.world_add_tag(world, "hostile")
+	run(e, .Tags) // slime
+	testing.expect_value(t, e.mode, Mode.Tags)
+	testing.expect_value(t, cm.tag_count_text(world, tag_view(e)), "NO TAGS")
+	press(e, .Down, .Green) // water
+	testing.expect(t, world.char_types[0].tags == cm.tag_bit(1) && e.dirty)
+	testing.expect_value(t, cm.tag_names_text(world, tag_view(e)), "WATER")
+	press(e, .Down, .Green, .Up, .Green) // hostile on, water off
+	testing.expect_value(t, world.char_types[0].tags, cm.tag_bit(2))
+	press(e, .Up, .Up, .Up)
+	testing.expect_value(t, e.tags.sel, 0)
+	testing.expect_value(t, world.char_types[1].tags, cm.Tag_Mask(0)) // the bat is untouched
+	// Goo is a slime: it inherits; its own setting wins.
+	testing.expect(t, cm.world_character_has_tag(world, 0, 2))
+	cm.world_cycle_character_tag(world, 0, 2) // set
+	cm.world_cycle_character_tag(world, 0, 2) // cleared
+	testing.expect(t, !cm.world_character_has_tag(world, 0, 2))
+	// Red returns to Setup; the mouse also toggles a row and BACK leaves.
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	click_rect(e, TAGS_BUTTON)
+	rc := cm.tag_list_rect(0)
+	click_at(e, rc.x + 5, rc.y + 3)
+	testing.expect_value(t, world.char_types[0].tags, cm.tag_bit(2) | cm.tag_bit(0))
+	click_rect(e, BACK_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	// With no types there is nothing to tag.
+	e2, w2 := empty_editor()
+	defer free_both(e2, w2)
+	run(e2, .Tags)
+	testing.expect(t, e2.mode == .Setup && e2.note == NOTE_NO_TYPES)
+	// A world's many tags scroll in the list.
+	for world.tag_count < 40 {
+		cm.world_add_tag(world)
+	}
+	e.mode = .Tags
+	for _ in 0 ..< 50 {
+		press(e, .Down)
+	}
+	testing.expect(t, e.tags.sel == 39 && e.tags.scroll == 40 - cm.TAG_LIST_ROWS)
 }

@@ -23,6 +23,7 @@ Mode :: enum {
 	Setup,
 	Image,
 	Text,
+	Tags, // the world's tags, set or cleared on this terrain
 }
 
 Setup_Row :: enum {
@@ -31,7 +32,7 @@ Setup_Row :: enum {
 	Duplicate,
 	Delete,
 	Default,
-	Solid,
+	Tags,
 	Tileset,
 	Image,
 	Choose,
@@ -48,6 +49,7 @@ Editor :: struct {
 	dirty:          bool, // the set changed since editor_begin
 	exit_requested: bool,
 	confirm_delete: bool,
+	tags:           cm.Tag_List, // Tags mode: the selected tag
 	note:           string,
 	pick_sel:       int, // Image mode: the highlighted image
 	pick_scroll:    int,
@@ -178,11 +180,24 @@ step_image :: proc(e: ^Editor, delta: int) {
 	}
 }
 
+// What the selected terrain's tags are, for the tag list and the readouts.
+tag_view :: proc(e: ^Editor) -> cm.Tag_View {
+	return cm.Tag_View{set = current_terrain(e).tags}
+}
+
 @(private = "file")
-toggle_solid :: proc(e: ^Editor) {
-	t := current_terrain(e)
-	t.solid = !t.solid
-	e.dirty = true
+begin_tags :: proc(e: ^Editor) {
+	e.back = e.mode
+	e.mode = .Tags
+	cm.tag_list_fix(&e.tags, e.world.tag_count)
+}
+
+// Green on a tag: it is on for this terrain or it is not.
+@(private = "file")
+toggle_tag :: proc(e: ^Editor, tag: int) {
+	if cm.world_toggle_terrain_tag(e.world, e.set_index, e.sel, tag) {
+		e.dirty = true
+	}
 }
 
 @(private = "file")
@@ -316,7 +331,9 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 		make_default(e)
 	case .Choose:
 		begin_image(e)
-	case .Solid, .Tileset, .Image:
+	case .Tags:
+		begin_tags(e)
+	case .Tileset, .Image:
 		// Values, not actions: left/right change them.
 	}
 }
@@ -324,8 +341,6 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 @(private = "file")
 change_setting :: proc(e: ^Editor, row: Setup_Row, delta: int) {
 	#partial switch row {
-	case .Solid:
-		toggle_solid(e)
 	case .Tileset:
 		step_tileset(e, delta)
 	case .Image:
@@ -338,6 +353,10 @@ change_setting :: proc(e: ^Editor, row: Setup_Row, delta: int) {
 editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 	if e.mode == .Text {
 		handle_text(e, ev)
+		return
+	}
+	if e.mode == .Tags {
+		handle_tags(e, ev)
 		return
 	}
 	#partial switch v in ev {
@@ -362,6 +381,37 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		} else {
 			e.scroll = clamp(e.scroll - v.dy, 0, max(grid_total_rows(current_set(e).count) - GRID_ROWS, 0))
 		}
+	}
+}
+
+// Tags mode: up and down choose a tag, green sets or clears it, red goes back; the mouse clicks a
+// row (which also toggles it) and the wheel scrolls.
+@(private = "file")
+handle_tags :: proc(e: ^Editor, ev: cm.Input_Event) {
+	n := e.world.tag_count
+	#partial switch v in ev {
+	case cm.Command:
+		#partial switch v.action {
+		case .Up:
+			cm.tag_list_move(&e.tags, n, -1)
+		case .Down:
+			cm.tag_list_move(&e.tags, n, 1)
+		case .Green:
+			toggle_tag(e, e.tags.sel)
+		case .Red:
+			e.mode = e.back
+		}
+	case cm.Mouse_Button_Event:
+		if v.button == .Left && v.down {
+			if tag, ok := cm.tag_list_at(&e.tags, n, v.x, v.y); ok {
+				e.tags.sel = tag
+				toggle_tag(e, tag)
+			} else if rect_contains(BACK_BUTTON, v.x, v.y) {
+				e.mode = e.back
+			}
+		}
+	case cm.Mouse_Wheel:
+		cm.tag_list_scroll(&e.tags, n, v.dy)
 	}
 }
 
@@ -438,7 +488,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 			e.mode = e.back
 		}
 		e.pick_scroll = scroll_to(e.pick_scroll, e.pick_sel / GRID_COLS, grid_total_rows(n))
-	case .Text:
+	case .Text, .Tags:
 	}
 }
 
@@ -500,9 +550,8 @@ click :: proc(e: ^Editor, x, y: int) {
 		setting(e, .Image, -1)
 	case rect_contains(IMAGE_PLUS, x, y):
 		setting(e, .Image, 1)
-	case rect_contains(SOLID_MINUS, x, y), rect_contains(SOLID_PLUS, x, y), rect_contains(SOLID_BUTTON, x, y):
-		e.mode, e.row = .Setup, .Solid
-		toggle_solid(e)
+	case rect_contains(TAGS_BUTTON, x, y):
+		action(e, .Tags)
 	case rect_contains(DEFAULT_SWITCH, x, y), rect_contains(DEFAULT_BUTTON, x, y):
 		action(e, .Default)
 	case rect_contains(RENAME_BUTTON, x, y):

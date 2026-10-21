@@ -34,6 +34,11 @@ map_flip_horizontal :: proc(m: ^World_Map) -> (changed: bool) {
 				ca^, cb^ = cb^, ca^
 				changed = true
 			}
+			ta, tb := &m.cell_tags[y][x], &m.cell_tags[y][m.width - 1 - x]
+			if ta^ != tb^ { 	// so do a cell's own tags
+				ta^, tb^ = tb^, ta^
+				changed = true
+			}
 		}
 	}
 	return
@@ -50,6 +55,11 @@ map_flip_vertical :: proc(m: ^World_Map) -> (changed: bool) {
 			ca, cb := &m.characters[y][x], &m.characters[m.height - 1 - y][x]
 			if ca^ != cb^ {
 				ca^, cb^ = cb^, ca^
+				changed = true
+			}
+			ta, tb := &m.cell_tags[y][x], &m.cell_tags[m.height - 1 - y][x]
+			if ta^ != tb^ {
+				ta^, tb^ = tb^, ta^
 				changed = true
 			}
 		}
@@ -71,6 +81,7 @@ rotate :: proc(m: ^World_Map, clockwise: bool) -> (changed: bool) {
 	n := m.width
 	old := m.cells
 	old_chars := m.characters
+	old_tags := m.cell_tags
 	for y in 0 ..< n {
 		for x in 0 ..< n {
 			v := clockwise ? old[n - 1 - x][y] : old[x][n - 1 - y]
@@ -81,6 +92,11 @@ rotate :: proc(m: ^World_Map, clockwise: bool) -> (changed: bool) {
 			c := clockwise ? old_chars[n - 1 - x][y] : old_chars[x][n - 1 - y]
 			if m.characters[y][x] != c {
 				m.characters[y][x] = c
+				changed = true
+			}
+			tg := clockwise ? old_tags[n - 1 - x][y] : old_tags[x][n - 1 - y]
+			if m.cell_tags[y][x] != tg {
+				m.cell_tags[y][x] = tg
 				changed = true
 			}
 		}

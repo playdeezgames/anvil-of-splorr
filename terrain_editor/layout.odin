@@ -21,7 +21,7 @@ INFO_X :: 154
 INFO_Y :: 19 // "TERRAIN 3 OF 7 *"
 NAME_Y :: 28 // the selected terrain's name
 
-// Setting rows with - and + buttons: tileset, image, solid; then the default row (one button).
+// Setting rows with - and + buttons: tileset, image; a readout of the tags; then the default row.
 ROW_MARKER_X :: 149
 ROW_LABEL_X :: 154
 ROW_VALUE_X :: 226
@@ -30,8 +30,7 @@ TILESET_MINUS :: Rect{194, 38, 12, 10}
 TILESET_PLUS :: Rect{208, 38, 12, 10}
 IMAGE_MINUS :: Rect{194, 50, 12, 10}
 IMAGE_PLUS :: Rect{208, 50, 12, 10}
-SOLID_MINUS :: Rect{194, 62, 12, 10}
-SOLID_PLUS :: Rect{208, 62, 12, 10}
+TAGS_ROW_Y :: 62 // the readout of the terrain's tags (the TAGS button opens the list)
 DEFAULT_SWITCH :: Rect{194, 74, 26, 10}
 
 PREVIEW_FRAME :: Rect{154, 88, 24, 24}
@@ -48,7 +47,7 @@ DUPLICATE_BUTTON :: Rect{234, 115, BUTTON_W, BUTTON_H}
 DELETE_BUTTON :: Rect{274, 115, BUTTON_W, BUTTON_H}
 PICK_BUTTON :: Rect{154, 126, BUTTON_W, BUTTON_H} // choose the image from a grid
 DEFAULT_BUTTON :: Rect{194, 126, BUTTON_W, BUTTON_H}
-SOLID_BUTTON :: Rect{234, 126, BUTTON_W, BUTTON_H}
+TAGS_BUTTON :: Rect{234, 126, BUTTON_W, BUTTON_H}
 BACK_BUTTON :: Rect{274, 137, BUTTON_W, BUTTON_H}
 
 HELP_Y :: 150

@@ -573,6 +573,7 @@ test_every_tool_is_reachable_by_each_input :: proc(t: ^testing.T) {
 		.Replace         = REPLACE_BUTTON,
 		.Clear           = CLEAR_BUTTON,
 		.Layer           = LAYER_BUTTON,
+		.Tags            = TAGS_BUTTON,
 	}
 	for row in Setup_Row {
 		if !row_offered(.Terrain, row) {
@@ -584,7 +585,7 @@ test_every_tool_is_reachable_by_each_input :: proc(t: ^testing.T) {
 				found = true
 			}
 		}
-		if row == .Terrain || row == .Columns || row == .Rows || row == .Set || row == .Zoom {
+		if row == .Terrain || row == .Columns || row == .Rows || row == .Set || row == .Zoom || row == .Tags {
 			continue // these have - and + buttons beside the value
 		}
 		testing.expectf(t, found, "%v has no button", row)
@@ -619,7 +620,7 @@ test_every_tool_is_reachable_by_each_input :: proc(t: ^testing.T) {
 @(test)
 test_layout_fits_the_screen_and_does_not_overlap :: proc(t: ^testing.T) {
 	rects := make([dynamic]Rect, context.temp_allocator)
-	append(&rects, CANVAS, BANNER, TERRAIN_MINUS, TERRAIN_PLUS, COLUMNS_MINUS, COLUMNS_PLUS, ROWS_MINUS, ROWS_PLUS, SET_MINUS, SET_PLUS, ZOOM_MINUS, ZOOM_PLUS, VBAR, HBAR)
+	append(&rects, CANVAS, BANNER, TERRAIN_MINUS, TERRAIN_PLUS, COLUMNS_MINUS, COLUMNS_PLUS, ROWS_MINUS, ROWS_PLUS, SET_MINUS, SET_PLUS, ZOOM_MINUS, ZOOM_PLUS, TAGS_BUTTON, VBAR, HBAR)
 	append(&rects, Rect{PICKER_X, PICKER_Y, PICKER_COLS * PICKER_PITCH - 1, PICKER_ROWS * PICKER_PITCH - 1})
 	for b in buttons() {
 		append(&rects, b.rc)
@@ -732,7 +733,7 @@ test_every_screen_draws_on_screen_in_every_mode_and_size :: proc(t: ^testing.T) 
 			}
 		}
 		for k in 0 ..< 16 {
-			world.sets[0].terrains[k].solid = k % 2 == 0
+			world.sets[0].terrains[k].tags = k % 2 == 0 ? cm.tag_bit(cm.TAG_SOLID) : 0
 		}
 		cm.name_assign(&world.sets[0].terrains[3].image, "nope") // not set: drawn dark red
 		e.cx, e.cy = size[0] - 1, size[1] - 1

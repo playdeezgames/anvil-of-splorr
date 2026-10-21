@@ -35,7 +35,7 @@ row_offered :: proc(layer: Layer, row: Setup_Row) -> bool {
 		return layer == .Terrain
 	case .Character, .Char_Type, .Char_Player, .Char_Rename, .Char_New, .Char_Unplace, .Char_Delete:
 		return layer == .Characters
-	case .Zoom, .Layer:
+	case .Zoom, .Layer, .Tags:
 		return true
 	}
 	return true
@@ -260,6 +260,8 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 		delete_character(e)
 	case .Layer:
 		toggle_layer(e)
+	case .Tags:
+		begin_tags(e)
 	}
 }
 
@@ -274,6 +276,8 @@ change_row :: proc(e: ^Editor, row: Setup_Row, delta: int) {
 		toggle_player(e)
 	case .Zoom:
 		step_zoom(e, delta)
+	case .Tags:
+		begin_tags(e)
 	}
 }
 
@@ -322,7 +326,7 @@ char_action :: proc(e: ^Editor, a: cm.Action) -> bool {
 			e.mode = .Draw
 		}
 		return true
-	case .Rect, .Text:
+	case .Rect, .Text, .Tags:
 	}
 	return false
 }
@@ -409,6 +413,8 @@ char_click :: proc(e: ^Editor, x, y: int) {
 		action(e, .Char_Player)
 	case rect_contains(CHAR_RENAME_BUTTON, x, y):
 		action(e, .Char_Rename)
+	case rect_contains(TAGS_BUTTON, x, y):
+		action(e, .Tags)
 	case rect_contains(LAYER_BUTTON, x, y):
 		toggle_layer(e)
 	case rect_contains(BACK_BUTTON, x, y):
@@ -425,4 +431,80 @@ char_place_text :: proc(e: ^Editor, index: int) -> string {
 		return fmt.tprintf("ON %s", cm.name_str(&e.world.maps[mi].name))
 	}
 	return "OFF MAP"
+}
+
+// --- Tags ---
+
+// What the tags of the thing being tagged are: in the Characters layer the current character's own
+// settings over its type's tags, in the Terrain layer the cursor cell's own settings over its terrain's.
+tag_view :: proc(e: ^Editor) -> cm.Tag_View {
+	if e.layer == .Characters {
+		c := current_character(e)
+		inherited: cm.Tag_Mask
+		if ti := cm.world_find_char_type(e.world, cm.name_str(&c.type)); ti >= 0 {
+			inherited = e.world.char_types[ti].tags
+		}
+		return cm.Tag_View{set = c.tags_set, cleared = c.tags_cleared, inherited = inherited, instance = true}
+	}
+	m := current_map(e)
+	inherited: cm.Tag_Mask
+	if set := current_set(e); set != nil {
+		inherited = set.terrains[clamp(int(cm.map_get(m, e.cx, e.cy)), 0, set.count - 1)].tags
+	}
+	ct := m.cell_tags[e.cy][e.cx]
+	return cm.Tag_View{set = ct.set, cleared = ct.cleared, inherited = inherited, instance = true}
+}
+
+begin_tags :: proc(e: ^Editor) {
+	if e.layer == .Characters && !has_characters(e) {
+		e.note = NOTE_NO_CHARACTERS
+		return
+	}
+	e.back = e.mode
+	e.mode = .Tags
+	cm.tag_list_fix(&e.tags, e.world.tag_count)
+}
+
+// Green on a tag: inherit -> set -> cleared -> inherit, for the cell or the character.
+@(private = "file")
+cycle_tag :: proc(e: ^Editor, tag: int) {
+	ok := false
+	if e.layer == .Characters {
+		ok = cm.world_cycle_character_tag(e.world, clamp(e.cur_char, 0, char_count(e) - 1), tag)
+	} else {
+		ok = cm.world_cycle_cell_tag(e.world, e.index, e.cx, e.cy, tag)
+	}
+	if ok {
+		e.dirty = true
+	}
+}
+
+// Tags mode: up and down choose a tag, green cycles it, red goes back; the mouse clicks a row (which
+// also cycles it) and the wheel scrolls.
+handle_tags :: proc(e: ^Editor, ev: cm.Input_Event) {
+	n := e.world.tag_count
+	#partial switch v in ev {
+	case cm.Command:
+		#partial switch v.action {
+		case .Up:
+			cm.tag_list_move(&e.tags, n, -1)
+		case .Down:
+			cm.tag_list_move(&e.tags, n, 1)
+		case .Green:
+			cycle_tag(e, e.tags.sel)
+		case .Red:
+			e.mode = e.back
+		}
+	case cm.Mouse_Button_Event:
+		if v.button == .Left && v.down {
+			if tag, ok := cm.tag_list_at(&e.tags, n, v.x, v.y); ok {
+				e.tags.sel = tag
+				cycle_tag(e, tag)
+			} else if rect_contains(BACK_BUTTON, v.x, v.y) {
+				e.mode = e.back
+			}
+		}
+	case cm.Mouse_Wheel:
+		cm.tag_list_scroll(&e.tags, n, v.dy)
+	}
 }

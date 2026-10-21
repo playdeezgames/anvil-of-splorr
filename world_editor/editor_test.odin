@@ -48,6 +48,8 @@ open :: proc(e: ^Editor, s: Section) {
 	e.mode = .Hub
 	row: Hub_Row
 	switch s {
+	case .Tags:
+		row = .Tags
 	case .Tilesets:
 		row = .Tilesets
 	case .Terrain_Sets:
@@ -588,7 +590,7 @@ Input_Method :: enum {
 @(test)
 test_every_part_can_be_opened_by_each_input :: proc(t: ^testing.T) {
 	for m in Input_Method {
-		for row in ([]Hub_Row{.Palette, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Character_Types, .Characters, .Maps}) {
+		for row in ([]Hub_Row{.Palette, .Tags, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Character_Types, .Characters, .Maps}) {
 			e := with_content()
 			switch m {
 			case .Commands:
@@ -662,6 +664,9 @@ test_every_list_action_is_reachable_by_each_input :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	for m in Input_Method {
 		for s in Section {
+			if s == .Tags {
+				continue // a tag has no editor to open and cannot be copied (see test_tags_are_listed_...)
+			}
 			e := with_content()
 			e.section = s
 			open(e, s)
@@ -850,7 +855,7 @@ test_all_on_screen_text_is_in_the_font_and_fits :: proc(t: ^testing.T) {
 			testing.expect(t, HELP_Y + n * cm.LINE_ADVANCE <= cm.SCREEN_H)
 		}
 	}
-	for note in ([]string{NOTE_NEED_SET, NOTE_EMPTY, NOTE_FULL, NOTE_NAME_EMPTY, NOTE_NAME_USED, NOTE_NAME_BAD, NOTE_IMPORT_ASKED, NOTE_IMPORT_BAD, "TILESET IS 64X64, WORLD 64X64", "USED BY 256 TERRAINS", "USED BY 64 MAPS", "UNSAVED CHANGES *", "NO UNSAVED CHANGES"}) {
+	for note in ([]string{NOTE_NEED_SET, NOTE_EMPTY, NOTE_FULL, NOTE_NAME_EMPTY, NOTE_NAME_USED, NOTE_NAME_BAD, NOTE_IMPORT_ASKED, NOTE_IMPORT_BAD, NOTE_TAG_OPEN, NOTE_TAG_COPY, NOTE_TAG_RESERVED, "REMOVED FROM 4096 THINGS", "THIS TAG IS USED BY 4096 THINGS", "TILESET IS 64X64, WORLD 64X64", "USED BY 256 TERRAINS", "USED BY 64 MAPS", "UNSAVED CHANGES *", "NO UNSAVED CHANGES"}) {
 		testing.expectf(t, cm.text_is_drawable(note) && INFO_X + cm.text_width(note) <= cm.SCREEN_W - 4, "note: %s", note)
 	}
 	for row in Hub_Row {
@@ -1218,4 +1223,81 @@ test_a_map_opened_from_the_world_places_characters_that_stay_in_the_world :: pro
 	press(e, .Red)
 	testing.expect_value(t, e.mode, Mode.List)
 	testing.expect_value(t, cm.world_character_at(&e.world, 0, 1, 1), c)
+}
+
+@(test)
+test_tags_are_listed_named_and_deleted_from_the_world_editor :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	e.mode = .Hub
+	goto_hub(e, .Tags)
+	press(e, .Green)
+	testing.expect(t, e.mode == .List && e.section == .Tags && section_count(e, .Tags) == 1)
+	testing.expect_value(t, item_detail(e, .Tags, 0), "FIXED")
+	// The solid tag is fixed: no rename, no delete, and "open" says what a tag is.
+	run(e, .Rename)
+	testing.expect(t, e.mode == .Setup && e.note == NOTE_TAG_RESERVED)
+	e.note = ""
+	run(e, .Delete)
+	testing.expect(t, e.note == NOTE_TAG_RESERVED && !e.confirm_delete && e.world.tag_count == 1)
+	e.note = ""
+	run(e, .Open)
+	testing.expect_value(t, e.note, NOTE_TAG_OPEN)
+	e.note = ""
+	run(e, .Duplicate)
+	testing.expect_value(t, e.note, NOTE_TAG_COPY)
+	// New: the keypad names it and nothing opens afterwards.
+	run(e, .New)
+	testing.expect(t, e.mode == .Text && e.world.tag_count == 2 && e.sel[.Tags] == 1 && e.dirty)
+	name_typed(e, "water")
+	testing.expect(t, e.mode == .List && cm.name_str(&e.world.tags[1]) == "water")
+	// A taken name keeps the keypad up (solid is taken too).
+	run(e, .Rename)
+	name_typed(e, "solid")
+	testing.expect(t, e.mode == .Text && strings.contains(e.entry.note, "USE"))
+	name_typed(e, "wet")
+	testing.expect_value(t, cm.name_str(&e.world.tags[1]), "wet")
+	// Use it, then delete it: the confirmation says how many things use it, and it is cleared.
+	ct := cm.world_add_char_type(&e.world, "slime")
+	cm.world_add_character(&e.world, ct)
+	cm.world_toggle_terrain_tag(&e.world, 0, 0, 1)
+	cm.world_cycle_character_tag(&e.world, 0, 1)
+	cm.world_cycle_cell_tag(&e.world, 0, 0, 0, 1)
+	e.mode = .List
+	run(e, .Delete)
+	testing.expect(t, e.confirm_delete && e.world.tag_count == 2)
+	testing.expect_value(t, item_info(e), "THIS TAG IS USED BY 3 THINGS")
+	testing.expect(t, cm.text_is_drawable(item_info(e)))
+	press(e, .Green)
+	testing.expect(t, e.world.tag_count == 1 && e.note == "REMOVED FROM 3 THINGS" && e.dirty)
+	testing.expect(t, e.world.sets[0].terrains[0].tags == 0 && e.world.characters[0].tags_set == 0 && e.world.maps[0].cell_tags[0][0] == cm.Cell_Tags{})
+	testing.expect_value(t, e.sel[.Tags], 0)
+	// The limit.
+	for e.world.tag_count < cm.WORLD_MAX_TAGS {
+		cm.world_add_tag(&e.world)
+	}
+	e.note = ""
+	run(e, .New)
+	testing.expect_value(t, e.note, NOTE_FULL)
+}
+
+@(test)
+test_tags_survive_save_and_load_in_the_tool :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	cm.world_add_tag(&e.world, "water")
+	cm.world_toggle_terrain_tag(&e.world, 0, 1, 1)
+	cm.world_cycle_cell_tag(&e.world, 0, 2, 0, cm.TAG_SOLID)
+	tl := tool(e)
+	press(e, .Blue, .Green)
+	text, ok := tl.take_save(tl.data)
+	testing.expect(t, ok && strings.contains(text, `"tags": ["solid", "water"]`))
+	e2 := new_editor()
+	defer free(e2)
+	tl2 := tool(e2)
+	testing.expect(t, tl2.load(tl2.data, transmute([]u8)text))
+	testing.expect(t, e2.world.tag_count == 2 && e2.world.sets[0].terrains[1].tags == cm.tag_bit(1))
+	testing.expect_value(t, cm.world_to_json(&e2.world), text)
 }

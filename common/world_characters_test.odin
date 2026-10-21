@@ -277,7 +277,7 @@ test_characters_round_trip_in_the_world_file :: proc(t: ^testing.T) {
 	world_set_player(w, w.characters[2].uuid)
 	text := world_to_json(w)
 	testing.expect(t, strings.contains(text, `"character_types": [`))
-	testing.expect(t, strings.contains(text, `{"name": "slime", "sprite_set": "creatures", "sprite": "slime"}`))
+	testing.expect(t, strings.contains(text, `{"name": "slime", "sprite_set": "creatures", "sprite": "slime", "tags": []}`))
 	testing.expect(t, strings.contains(text, uuid_to_string(w.characters[0].uuid)))
 	testing.expect(t, strings.contains(text, `"x": 1, "y": 0, "character": "`))
 	testing.expect(t, strings.contains(text, `"player": "`+""))
@@ -311,10 +311,10 @@ test_bad_character_data_is_rejected :: proc(t: ^testing.T) {
 	flap := uuid_to_string(w.characters[1].uuid)
 	variations := [][2]string {
 		{`"name": "slime", "sprite_set": "creatures"`, `"name": "bat", "sprite_set": "creatures"`}, // duplicate type name
-		{`"sprite_set": "creatures", "sprite": "slime"}`, `"sprite_set": "nope", "sprite": "slime"}`},
-		{`"sprite_set": "creatures", "sprite": "slime"}`, `"sprite_set": "creatures", "sprite": "nope"}`},
-		{`"sprite_set": "creatures", "sprite": "slime"}`, `"sprite_set": "creatures", "sprite": ""}`},
-		{`"type": "slime"}`, `"type": "ghost"}`},
+		{`"sprite_set": "creatures", "sprite": "slime", "tags"`, `"sprite_set": "nope", "sprite": "slime", "tags"`},
+		{`"sprite_set": "creatures", "sprite": "slime", "tags"`, `"sprite_set": "creatures", "sprite": "nope", "tags"`},
+		{`"sprite_set": "creatures", "sprite": "slime", "tags"`, `"sprite_set": "creatures", "sprite": "", "tags"`},
+		{`"type": "slime", "tags"`, `"type": "ghost", "tags"`},
 		{cat(`"uuid": "`, goo, `"`), `"uuid": "not-a-uuid"`},
 		{cat(`"uuid": "`, goo, `"`), `"uuid": "00000000-0000-0000-0000-000000000000"`},
 		{cat(`"uuid": "`, goo, `"`), cat(`"uuid": "`, flap, `"`)}, // a uuid twice in the table

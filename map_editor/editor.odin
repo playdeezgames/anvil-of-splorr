@@ -31,6 +31,7 @@ Mode :: enum {
 	Setup,
 	Rect,
 	Text, // the keypad, for a character's name
+	Tags, // the world's tags for the cell under the cursor (Terrain layer) or the current character
 }
 
 Setup_Row :: enum {
@@ -50,6 +51,7 @@ Setup_Row :: enum {
 	Replace,
 	Clear,
 	Layer, // switch between painting terrain and placing characters
+	Tags, // the tags of the cell (Terrain layer) or of the current character (Characters layer)
 	Character,
 	Char_Type,
 	Char_Player,
@@ -88,6 +90,7 @@ Editor :: struct {
 	cur_char:       int, // the current character: an index in the world's table
 	back:           Mode, // where the keypad returns to
 	confirm_delete: bool, // Delete (a character) was run once: the next one is the confirmation
+	tags:           cm.Tag_List, // Tags mode: the selected tag
 	entry:          cm.Text_Entry,
 	labels:         ^cm.Input_Map,
 }
@@ -391,6 +394,10 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		char_handle_text(e, ev)
 		return
 	}
+	if e.mode == .Tags { 	// so does the tag list
+		handle_tags(e, ev)
+		return
+	}
 	// Any command or button press clears the message; moving the mouse or letting go does not.
 	#partial switch v in ev {
 	case cm.Command:
@@ -485,8 +492,8 @@ apply_action :: proc(e: ^Editor, a: cm.Action) {
 				e.exit_requested = true
 			}
 		}
-	case .Text:
-		// The keypad owns the input (see editor_handle_event).
+	case .Text, .Tags:
+		// The keypad and the tag list own the input (see editor_handle_event).
 	case .Rect:
 		#partial switch a {
 		case .Up:
@@ -532,6 +539,8 @@ apply_action :: proc(e: ^Editor, a: cm.Action) {
 				begin_shape(e, .Fill)
 			case .Layer:
 				toggle_layer(e)
+			case .Tags:
+				begin_tags(e)
 			}
 		case .Blue:
 			step_terrain(e, PICKER_PAGE)
@@ -555,6 +564,8 @@ change_setting :: proc(e: ^Editor, delta: int) {
 		change_set(e, delta)
 	case .Zoom:
 		step_zoom(e, delta)
+	case .Tags:
+		begin_tags(e)
 	}
 }
 
@@ -710,6 +721,8 @@ click :: proc(e: ^Editor, x, y: int) {
 		toggle_point_tool(e, .Replace)
 	case rect_contains(CLEAR_BUTTON, x, y):
 		action(e, .Clear)
+	case rect_contains(TAGS_BUTTON, x, y):
+		setting(e, .Tags, 0)
 	case rect_contains(LAYER_BUTTON, x, y):
 		toggle_layer(e)
 	case rect_contains(BACK_BUTTON, x, y):

@@ -29,6 +29,8 @@ banner_text :: proc(e: ^Editor) -> string {
 	switch e.mode {
 	case .Text:
 		return ""
+	case .Tags:
+		return fmt.tprintf("TAGS   %s: CYCLE", label(e, .Green))
 
 	case .Rect:
 		return e.shape == .Fill ? "FILL: PLACE 2ND CORNER" : "FRAME: PLACE 2ND CORNER"
@@ -51,6 +53,16 @@ banner_text :: proc(e: ^Editor) -> string {
 
 help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	l :: label
+	if e.mode == .Tags {
+		what := e.layer == .Characters ? "THIS CHARACTER" : "THIS CELL"
+		lines = {
+			fmt.tprintf("%s/%s: CHOOSE A TAG", l(e, .Up), l(e, .Down)),
+			fmt.tprintf("%s: INHERIT, THEN SET, THEN CLEAR FOR %s", l(e, .Green), what),
+			fmt.tprintf("%s: BACK", l(e, .Red)),
+			"MOUSE: CLICK A TAG; WHEEL SCROLLS",
+		}
+		return lines, 4
+	}
 	if e.layer == .Characters {
 		if e.mode == .Setup {
 			lines = {
@@ -70,7 +82,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 		return lines, 4
 	}
 	switch e.mode {
-	case .Text:
+	case .Text, .Tags:
 		return lines, 0
 	case .Rect:
 		lines = {
@@ -183,6 +195,10 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.text_entry_draw(&e.entry, r, e.labels)
 		return
 	}
+	if e.mode == .Tags {
+		draw_tags_screen(e, r)
+		return
+	}
 	cm.renderer_clear(r, BG)
 	m := current_map(e)
 	set := current_set(e)
@@ -274,6 +290,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 			{ZOOM_MINUS, ZOOM_PLUS, .Zoom, "ZOOM", zoom_text, true},
 		}
 	}
+	// The TAGS button sits right of the zoom value, in both layers.
+	fill(r, TAGS_BUTTON, PANEL)
+	cm.draw_text(r, TAGS_BUTTON.x + (TAGS_BUTTON.w - cm.text_width("TAGS")) / 2, TAGS_BUTTON.y + 3, "TAGS", e.mode == .Setup && e.row == .Tags ? HILITE : TEXT)
 	for row in rows {
 		for b in ([2]struct {
 				rc:  Rect,
@@ -306,7 +325,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 				if page + slot == e.terrain {
 					outline(r, rc, HILITE)
 				}
-				if set != nil && set.terrains[page + slot].solid {
+				if set != nil && set.terrains[page + slot].tags & cm.tag_bit(cm.TAG_SOLID) != 0 {
 					fill(r, Rect{rc.x + rc.w - 3, rc.y, 3, 3}, WARN) // a corner mark for solid terrain
 				}
 			} else {
@@ -407,4 +426,40 @@ draw_character_picker :: proc(e: ^Editor, r: ^cm.Renderer) {
 			fill(r, Rect{rc.x, rc.y, 3, 3}, HILITE)
 		}
 	}
+}
+
+// The Tags screen: the world's tags with a box (on or off) and where each value comes from (the
+// thing's own setting or its type's), with what is being tagged beside the list.
+draw_tags_screen :: proc(e: ^Editor, r: ^cm.Renderer) {
+	w := e.world
+	cm.renderer_clear(r, BG)
+	fill(r, BANNER, HILITE)
+	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, banner_text(e), BG)
+	cm.tag_list_draw(r, w, &e.tags, tag_view(e), true)
+	preview := Rect{214, 28, 24, 24}
+	fill(r, preview, PANEL)
+	inner := Rect{preview.x + 1, preview.y + 1, preview.w - 2, preview.h - 2}
+	fill(r, inner, cm.Color{22, 22, 28})
+	title, name := "", ""
+	if e.layer == .Characters {
+		if has_characters(e) {
+			c := current_character(e)
+			draw_character_sprite(e, r, inner, c, true)
+			title, name = "CHARACTER", cm.name_str(&c.name)
+		}
+	} else {
+		m := current_map(e)
+		draw_terrain(e, r, inner, current_set(e), int(cm.map_get(m, e.cx, e.cy)))
+		title, name = fmt.tprintf("CELL %d,%d", e.cx, e.cy), terrain_name(e, int(cm.map_get(m, e.cx, e.cy)))
+	}
+	cm.draw_text(r, INFO_X, INFO_Y, e.note != "" ? e.note : title, e.note != "" ? WARN : TEXT)
+	cm.draw_text(r, 214, 58, shown(name), HILITE)
+	cm.draw_text(r, 214, 68, cm.tag_count_text(w, tag_view(e)), TEXT)
+	fill(r, BACK_BUTTON, PANEL)
+	cm.draw_text(r, BACK_BUTTON.x + (BACK_BUTTON.w - cm.text_width("BACK")) / 2, BACK_BUTTON.y + (BACK_BUTTON.h - cm.GLYPH_H) / 2, "BACK", TEXT)
+	lines, n := help_lines(e)
+	for line, i in lines[:n] {
+		cm.draw_text(r, 8, HELP_Y + i * cm.LINE_ADVANCE, line, TEXT)
+	}
+	cm.renderer_present(r)
 }

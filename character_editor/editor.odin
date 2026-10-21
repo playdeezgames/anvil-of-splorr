@@ -21,6 +21,7 @@ Mode :: enum {
 	List,
 	Setup,
 	Text,
+	Tags, // the world's tags: inherit, set or clear on this character
 }
 
 Setup_Row :: enum {
@@ -31,6 +32,7 @@ Setup_Row :: enum {
 	Type,
 	Player,
 	Unplace,
+	Tags,
 }
 
 Editor :: struct {
@@ -43,6 +45,7 @@ Editor :: struct {
 	dirty:          bool, // the characters changed since editor_begin
 	exit_requested: bool,
 	confirm_delete: bool,
+	tags:           cm.Tag_List, // Tags mode: the selected tag
 	note:           string,
 	entry:          cm.Text_Entry,
 	labels:         ^cm.Input_Map,
@@ -120,6 +123,67 @@ location_text :: proc(e: ^Editor, index: int) -> string {
 		return fmt.tprintf("%s AT %d,%d", cm.name_str(&e.world.maps[mi].name), x, y)
 	}
 	return ""
+}
+
+// --- Tags ---
+
+// What the selected character's tags are: its own settings over its type's tags.
+tag_view :: proc(e: ^Editor) -> cm.Tag_View {
+	c := current(e)
+	inherited: cm.Tag_Mask
+	if ti := cm.world_find_char_type(e.world, cm.name_str(&c.type)); ti >= 0 {
+		inherited = e.world.char_types[ti].tags
+	}
+	return cm.Tag_View{set = c.tags_set, cleared = c.tags_cleared, inherited = inherited, instance = true}
+}
+
+@(private = "file")
+begin_tags :: proc(e: ^Editor) {
+	if !need_character(e) {
+		return
+	}
+	e.back = e.mode
+	e.mode = .Tags
+	cm.tag_list_fix(&e.tags, e.world.tag_count)
+}
+
+// Green on a tag: inherit -> set -> cleared -> inherit.
+@(private = "file")
+cycle_tag :: proc(e: ^Editor, tag: int) {
+	if cm.world_cycle_character_tag(e.world, e.sel, tag) {
+		e.dirty = true
+	}
+}
+
+// Tags mode: up and down choose a tag, green cycles it, red goes back; the mouse clicks a row (which
+// also cycles it) and the wheel scrolls.
+@(private = "file")
+handle_tags :: proc(e: ^Editor, ev: cm.Input_Event) {
+	n := e.world.tag_count
+	#partial switch v in ev {
+	case cm.Command:
+		#partial switch v.action {
+		case .Up:
+			cm.tag_list_move(&e.tags, n, -1)
+		case .Down:
+			cm.tag_list_move(&e.tags, n, 1)
+		case .Green:
+			cycle_tag(e, e.tags.sel)
+		case .Red:
+			e.mode = e.back
+		}
+	case cm.Mouse_Button_Event:
+		if v.button == .Left && v.down {
+			if tag, ok := cm.tag_list_at(&e.tags, n, v.x, v.y); ok {
+				e.tags.sel = tag
+				cycle_tag(e, tag)
+			} else if rect_contains(BACK_BUTTON, v.x, v.y) {
+				e.mode = e.back
+			}
+		}
+	case cm.Mouse_Wheel:
+		cm.tag_list_scroll(&e.tags, n, v.dy)
+	}
 }
 
 // --- Actions ---
@@ -263,6 +327,8 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 		toggle_player(e)
 	case .Unplace:
 		unplace_character(e)
+	case .Tags:
+		begin_tags(e)
 	case .Type:
 		// A value, not an action: left/right change it.
 	}
@@ -273,6 +339,10 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 	if e.mode == .Text {
 		handle_text(e, ev)
+		return
+	}
+	if e.mode == .Tags {
+		handle_tags(e, ev)
 		return
 	}
 	#partial switch v in ev {
@@ -337,7 +407,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Red:
 			e.mode = .List
 		}
-	case .Text:
+	case .Text, .Tags:
 	}
 }
 
@@ -381,6 +451,8 @@ click :: proc(e: ^Editor, x, y: int) {
 		action(e, .Player)
 	case rect_contains(UNPLACE_BUTTON, x, y):
 		action(e, .Unplace)
+	case rect_contains(TAGS_BUTTON, x, y):
+		action(e, .Tags)
 	case rect_contains(BACK_BUTTON, x, y):
 		e.exit_requested = true
 	}

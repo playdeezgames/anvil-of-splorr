@@ -25,7 +25,7 @@ make_world :: proc() -> ^cm.World {
 	water := cm.world_add_terrain(w, si)
 	cm.name_assign(&w.sets[si].terrains[rock].name, "rock")
 	cm.name_assign(&w.sets[si].terrains[rock].image, "a0_2")
-	w.sets[si].terrains[rock].solid = true
+	w.sets[si].terrains[rock].tags = cm.tag_bit(cm.TAG_SOLID)
 	cm.name_assign(&w.sets[si].terrains[water].name, "water")
 	cm.name_assign(&w.sets[si].terrains[water].tileset, "b")
 	cm.name_assign(&w.sets[si].terrains[water].image, "b0")
@@ -143,16 +143,9 @@ test_moving_over_the_terrains_and_leaving :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_solid_and_default_changes :: proc(t: ^testing.T) {
+test_default_changes_and_tags_open_the_tag_list :: proc(t: ^testing.T) {
 	e, world := new_editor()
 	defer free_both(e, world)
-	goto_row(e, .Solid)
-	press(e, .Right)
-	testing.expect(t, current_terrain(e).solid && e.dirty)
-	press(e, .Left)
-	testing.expect(t, !current_terrain(e).solid)
-	press(e, .Green) // a value row: nothing happens
-	testing.expect(t, !current_terrain(e).solid)
 	e.mode = .Pick
 	press(e, .Right)
 	run(e, .Default)
@@ -160,6 +153,60 @@ test_solid_and_default_changes :: proc(t: ^testing.T) {
 	e.dirty = false
 	run(e, .Default) // already the default: nothing changes
 	testing.expect(t, !e.dirty)
+	// The Tags row opens the list for the selected terrain and red comes back to where it was.
+	e.sel = 1
+	run(e, .Tags)
+	testing.expect_value(t, e.mode, Mode.Tags)
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	click_rect(e, TAGS_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Tags)
+	e.mode = .Pick
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Image) // green in Pick is still the picture
+}
+
+@(test)
+test_the_tag_list_sets_and_clears_tags_on_a_terrain :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	cm.world_add_tag(world, "water")
+	cm.world_add_tag(world, "hostile")
+	e.sel = 0 // grass: no tags
+	run(e, .Tags)
+	press(e, .Green) // solid
+	testing.expect(t, world.sets[0].terrains[0].tags == 1 && e.dirty)
+	press(e, .Down, .Down, .Green)
+	testing.expect_value(t, world.sets[0].terrains[0].tags, cm.tag_bit(0) | cm.tag_bit(2))
+	press(e, .Up, .Up, .Green) // solid off again
+	testing.expect_value(t, world.sets[0].terrains[0].tags, cm.tag_bit(2))
+	press(e, .Up, .Up, .Up, .Up, .Up)
+	testing.expect_value(t, e.tags.sel, 0) // the ends stop it
+	press(e, .Down, .Down, .Down, .Down)
+	testing.expect_value(t, e.tags.sel, 2)
+	// The readout shows the tags that are on; other terrains are untouched.
+	testing.expect_value(t, cm.tag_names_text(world, tag_view(e)), "HOSTILE")
+	testing.expect_value(t, world.sets[0].terrains[1].tags, cm.tag_bit(0)) // rock: still just solid
+	// By mouse: a click selects the row and toggles it; BACK returns.
+	rc := cm.tag_list_rect(1)
+	click_at(e, rc.x + 5, rc.y + 3)
+	testing.expect(t, e.tags.sel == 1 && world.sets[0].terrains[0].tags == cm.tag_bit(1) | cm.tag_bit(2))
+	click_at(e, rc.x + 5, rc.y + 3)
+	testing.expect_value(t, world.sets[0].terrains[0].tags, cm.tag_bit(2))
+	click_rect(e, BACK_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	// Many tags scroll.
+	for world.tag_count < 40 {
+		cm.world_add_tag(world)
+	}
+	e.mode = .Tags
+	for _ in 0 ..< 50 {
+		press(e, .Down)
+	}
+	testing.expect(t, e.tags.sel == 39 && e.tags.scroll == 40 - cm.TAG_LIST_ROWS)
+	editor_handle_event(e, cm.Mouse_Wheel{dy = 100})
+	testing.expect_value(t, e.tags.scroll, 0)
 }
 
 @(test)
@@ -369,15 +416,18 @@ test_every_function_is_reachable_by_each_input :: proc(t: ^testing.T) {
 	for m in Input_Method {
 		e, world := new_editor()
 		s := &world.sets[0]
-		// Solid
+		// Tags: open the list, set a tag, come back
 		switch m {
 		case .Commands:
-			goto_row(e, .Solid)
-			press(e, .Right)
+			goto_row(e, .Tags)
+			press(e, .Green, .Green, .Red)
 		case .Mouse:
-			click_rect(e, SOLID_PLUS)
+			click_rect(e, TAGS_BUTTON)
+			rc := cm.tag_list_rect(0)
+			click_at(e, rc.x + 5, rc.y + 3)
+			click_rect(e, BACK_BUTTON)
 		}
-		testing.expectf(t, s.terrains[0].solid, "%v solid", m)
+		testing.expectf(t, s.terrains[0].tags == 1 && e.mode == .Setup, "%v tags", m)
 		// Tileset and image
 		switch m {
 		case .Commands:
@@ -474,7 +524,7 @@ test_every_function_is_reachable_by_each_input :: proc(t: ^testing.T) {
 @(test)
 test_layout_fits_the_screen_and_does_not_overlap :: proc(t: ^testing.T) {
 	rects := make([dynamic]Rect, context.temp_allocator)
-	append(&rects, Rect{GRID_X - 1, GRID_Y - 1, GRID_COLS * GRID_PITCH + 1, GRID_ROWS * GRID_PITCH + 1}, BANNER, TILESET_MINUS, TILESET_PLUS, IMAGE_MINUS, IMAGE_PLUS, SOLID_MINUS, SOLID_PLUS, DEFAULT_SWITCH, PREVIEW_FRAME)
+	append(&rects, Rect{GRID_X - 1, GRID_Y - 1, GRID_COLS * GRID_PITCH + 1, GRID_ROWS * GRID_PITCH + 1}, BANNER, TILESET_MINUS, TILESET_PLUS, IMAGE_MINUS, IMAGE_PLUS, DEFAULT_SWITCH, PREVIEW_FRAME)
 	for b in buttons() {
 		append(&rects, b.rc)
 		testing.expectf(t, cm.text_width(b.text) <= b.rc.w - 2 && cm.GLYPH_H <= b.rc.h && cm.text_is_drawable(b.text), "label %s", b.text)
@@ -527,7 +577,7 @@ test_all_on_screen_text_is_in_the_font_and_fits :: proc(t: ^testing.T) {
 				cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
 			}
 		}
-		for mode in ([]Mode{.Pick, .Setup, .Image}) {
+		for mode in ([]Mode{.Pick, .Setup, .Image, .Tags}) {
 			for confirm in 0 ..< 2 {
 				e.mode = mode
 				e.confirm_delete = confirm == 1
@@ -584,15 +634,18 @@ test_every_screen_draws_on_screen :: proc(t: ^testing.T) {
 				cm.image4_set(&world.tilesets[0].images[i], k, k, k + i)
 			}
 		}
+		for world.tag_count < cm.WORLD_MAX_TAGS {
+			cm.world_add_tag(world, "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW")
+		}
 		for world.sets[0].count < cm.TERRAIN_MAX {
 			n := cm.world_add_terrain(world, 0)
-			world.sets[0].terrains[n].solid = n % 3 == 0
+			world.sets[0].terrains[n].tags = n % 3 == 0 ? cm.tag_bit(cm.TAG_SOLID) : 0
 		}
 		for k in 0 ..< 200 {
 			cm.tileset_insert_blank(&world.tilesets[1], world.tilesets[1].count, "more")
 			_ = k
 		}
-		for mode in ([]Mode{.Pick, .Setup, .Image, .Text}) {
+		for mode in ([]Mode{.Pick, .Setup, .Image, .Text, .Tags}) {
 			for sel in ([]int{0, 100, 255}) {
 				e.sel = sel
 				fix_selection(e)

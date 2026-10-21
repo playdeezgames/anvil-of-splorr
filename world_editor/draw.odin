@@ -29,6 +29,8 @@ hub_label :: proc(row: Hub_Row) -> string {
 		return "TILE WIDTH"
 	case .Tile_Height:
 		return "TILE HEIGHT"
+	case .Tags:
+		return "TAGS"
 	case .Tilesets:
 		return "TILESETS"
 	case .Terrain_Sets:
@@ -47,6 +49,8 @@ hub_label :: proc(row: Hub_Row) -> string {
 
 section_title :: proc(s: Section) -> string {
 	switch s {
+	case .Tags:
+		return "TAGS"
 	case .Tilesets:
 		return "TILESETS"
 	case .Terrain_Sets:
@@ -124,6 +128,8 @@ fill :: proc(r: ^cm.Renderer, rc: Rect, c: cm.Color) {
 // The detail text of list item i ("12 IMAGES", "5 TERRAINS", "32X16").
 item_detail :: proc(e: ^Editor, s: Section, i: int) -> string {
 	switch s {
+	case .Tags:
+		return cm.tag_is_reserved(i) ? "FIXED" : ""
 	case .Tilesets:
 		n := e.world.tilesets[i].count
 		return fmt.tprintf("%d IMAGE%s", n, n == 1 ? "" : "S")
@@ -146,6 +152,10 @@ item_info :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("NO %s YET (0 OF %d)", section_title(e.section), section_limit(e.section))
 	}
 	i := selected(e)
+	if e.confirm_delete && e.section == .Tags {
+		uses := cm.world_tag_uses(&e.world, i)
+		return fmt.tprintf("THIS TAG IS USED BY %d THING%s", uses, uses == 1 ? "" : "S")
+	}
 	extra := ""
 	if e.section == .Maps {
 		extra = fmt.tprintf("  SET %s", cm.name_str(&e.world.maps[i].set))
@@ -243,6 +253,8 @@ draw_hub :: proc(e: ^Editor, r: ^cm.Renderer) {
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d", w.tile_w), color)
 		case .Tile_Height:
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d", w.tile_h), color)
+		case .Tags:
+			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.tag_count, cm.WORLD_MAX_TAGS), color)
 		case .Tilesets:
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.tileset_count, cm.WORLD_MAX_TILESETS), color)
 		case .Terrain_Sets:

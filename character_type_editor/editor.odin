@@ -25,6 +25,7 @@ Mode :: enum {
 	Setup,
 	Sprite,
 	Text,
+	Tags, // the world's tags, set or cleared on this character type
 }
 
 Setup_Row :: enum {
@@ -35,6 +36,7 @@ Setup_Row :: enum {
 	Set,
 	Sprite,
 	Choose,
+	Tags,
 	Bg_Set,
 	Bg_Terrain,
 }
@@ -51,6 +53,7 @@ Editor :: struct {
 	dirty:          bool, // the types changed since editor_begin
 	exit_requested: bool,
 	confirm_delete: bool,
+	tags:           cm.Tag_List, // Tags mode: the selected tag
 	note:           string,
 	pick_sel:       int, // Sprite mode: the highlighted sprite
 	pick_scroll:    int,
@@ -129,6 +132,62 @@ need_type :: proc(e: ^Editor) -> bool {
 		return false
 	}
 	return true
+}
+
+// --- Tags ---
+
+// What the selected type's tags are, for the tag list and the readouts.
+tag_view :: proc(e: ^Editor) -> cm.Tag_View {
+	return cm.Tag_View{set = current_type(e).tags}
+}
+
+@(private = "file")
+begin_tags :: proc(e: ^Editor) {
+	if !need_type(e) {
+		return
+	}
+	e.back = e.mode
+	e.mode = .Tags
+	cm.tag_list_fix(&e.tags, e.world.tag_count)
+}
+
+// Green on a tag: every character of this type has it, or none does (unless its own setting says so).
+@(private = "file")
+toggle_tag :: proc(e: ^Editor, tag: int) {
+	if cm.world_toggle_char_type_tag(e.world, e.sel, tag) {
+		e.dirty = true
+	}
+}
+
+// Tags mode: up and down choose a tag, green sets or clears it, red goes back; the mouse clicks a
+// row (which also toggles it) and the wheel scrolls.
+@(private = "file")
+handle_tags :: proc(e: ^Editor, ev: cm.Input_Event) {
+	n := e.world.tag_count
+	#partial switch v in ev {
+	case cm.Command:
+		#partial switch v.action {
+		case .Up:
+			cm.tag_list_move(&e.tags, n, -1)
+		case .Down:
+			cm.tag_list_move(&e.tags, n, 1)
+		case .Green:
+			toggle_tag(e, e.tags.sel)
+		case .Red:
+			e.mode = e.back
+		}
+	case cm.Mouse_Button_Event:
+		if v.button == .Left && v.down {
+			if tag, ok := cm.tag_list_at(&e.tags, n, v.x, v.y); ok {
+				e.tags.sel = tag
+				toggle_tag(e, tag)
+			} else if rect_contains(BACK_BUTTON, v.x, v.y) {
+				e.mode = e.back
+			}
+		}
+	case cm.Mouse_Wheel:
+		cm.tag_list_scroll(&e.tags, n, v.dy)
+	}
 }
 
 // --- The backdrop ---
@@ -371,6 +430,8 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 		delete_type(e)
 	case .Choose:
 		begin_sprite(e)
+	case .Tags:
+		begin_tags(e)
 	case .Set, .Sprite, .Bg_Set, .Bg_Terrain:
 		// Values, not actions: left/right change them.
 	}
@@ -395,6 +456,10 @@ change_setting :: proc(e: ^Editor, row: Setup_Row, delta: int) {
 editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 	if e.mode == .Text {
 		handle_text(e, ev)
+		return
+	}
+	if e.mode == .Tags {
+		handle_tags(e, ev)
 		return
 	}
 	#partial switch v in ev {
@@ -489,7 +554,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 			e.mode = e.back
 		}
 		e.pick_scroll = scroll_to(e.pick_scroll, e.pick_sel / GRID_COLS, grid_total_rows(n))
-	case .Text:
+	case .Text, .Tags:
 	}
 }
 
@@ -572,6 +637,8 @@ click :: proc(e: ^Editor, x, y: int) {
 		action(e, .Delete) // a second click confirms
 	case rect_contains(PICK_BUTTON, x, y):
 		action(e, .Choose)
+	case rect_contains(TAGS_BUTTON, x, y):
+		action(e, .Tags)
 	case rect_contains(BACK_BUTTON, x, y):
 		e.exit_requested = true
 	}

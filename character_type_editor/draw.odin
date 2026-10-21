@@ -30,6 +30,8 @@ banner_text :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("SETUP   %s: DONE", label(e, .Red))
 	case .Sprite:
 		return fmt.tprintf("SPRITE   %s: USE", label(e, .Green))
+	case .Tags:
+		return fmt.tprintf("TAGS   %s: SET / CLEAR", label(e, .Green))
 	case .Text:
 	}
 	return ""
@@ -42,7 +44,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 		lines = {
 			fmt.tprintf("%s/%s: CHOOSE SETTING OR ACTION", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s/%s: CHANGE THE VALUE", l(e, .Left), l(e, .Right)),
-			fmt.tprintf("%s: RUN RENAME / NEW / DUP / DELETE / PICK", l(e, .Green)),
+			fmt.tprintf("%s: RUN RENAME / NEW / DUP / DELETE / PICK / TAGS", l(e, .Green)),
 			fmt.tprintf("%s: DONE", l(e, .Red)),
 		}
 		return lines, 4
@@ -54,6 +56,14 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 			"",
 		}
 		return lines, 3
+	case .Tags:
+		lines = {
+			fmt.tprintf("%s/%s: CHOOSE A TAG", l(e, .Up), l(e, .Down)),
+			fmt.tprintf("%s: SET OR CLEAR IT FOR THIS TYPE", l(e, .Green)),
+			fmt.tprintf("%s: BACK", l(e, .Red)),
+			"MOUSE: CLICK A TAG; WHEEL SCROLLS",
+		}
+		return lines, 4
 	case .Pick, .Text:
 		lines = {
 			fmt.tprintf("%s/%s/%s/%s: MOVE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
@@ -106,13 +116,14 @@ Button :: struct {
 	row:  Maybe(Setup_Row),
 }
 
-buttons :: proc() -> [6]Button {
+buttons :: proc() -> [7]Button {
 	return {
 		{RENAME_BUTTON, "RENAME", .Rename},
 		{NEW_BUTTON, "NEW", .New},
 		{DUPLICATE_BUTTON, "DUP", .Duplicate},
 		{DELETE_BUTTON, "DEL", .Delete},
 		{PICK_BUTTON, "PICK SPR", .Choose},
+		{TAGS_BUTTON, "TAGS", .Tags},
 		{BACK_BUTTON, "BACK", nil},
 	}
 }
@@ -131,6 +142,10 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	}
 	w := e.world
 	cm.renderer_clear(r, BG)
+	if e.mode == .Tags {
+		draw_tags_screen(e, r)
+		return
+	}
 
 	// The grid: types (Pick, Setup) or the sprites of the type's sprite set (Sprite).
 	if e.mode == .Sprite && has_types(e) {
@@ -186,6 +201,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	if has_types(e) {
 		ct = current_type(e)
 		cm.draw_text(r, INFO_X, NAME_Y, shown(type_name(e, e.sel)), HILITE)
+		cm.draw_text(r, INFO_X, USES_Y, cm.tag_count_text(w, tag_view(e)), DIM)
 		uses := cm.world_char_type_uses(w, type_name(e, e.sel))
 		cm.draw_text(r, INFO_X + 90, USES_Y, uses == 0 ? "NO CHARACTERS" : fmt.tprintf("%d CHARACTER%s", uses, uses == 1 ? "" : "S"), DIM)
 	}
@@ -252,6 +268,28 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.text)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.text, lit ? BG : (enabled ? TEXT : DIM))
 	}
 
+	lines, n := help_lines(e)
+	for line, i in lines[:n] {
+		cm.draw_text(r, 8, HELP_Y + i * cm.LINE_ADVANCE, line, TEXT)
+	}
+	cm.renderer_present(r)
+}
+
+// The Tags screen: the world's tags with a box for each (on or off for this type), the type and
+// its picture beside the list (which ends at x 208).
+draw_tags_screen :: proc(e: ^Editor, r: ^cm.Renderer) {
+	fill(r, BANNER, HILITE)
+	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, banner_text(e), BG)
+	cm.tag_list_draw(r, e.world, &e.tags, tag_view(e), true)
+	cm.draw_text(r, INFO_X, INFO_Y, e.note != "" ? e.note : fmt.tprintf("TYPE %s", shown(type_name(e, e.sel))), e.note != "" ? WARN : TEXT)
+	preview := Rect{214, 28, 24, 24}
+	fill(r, preview, PANEL)
+	fill(r, Rect{preview.x + 1, preview.y + 1, preview.w - 2, preview.h - 2}, EMPTY_SLOT)
+	draw_type(e, r, Rect{preview.x + 1, preview.y + 1, preview.w - 2, preview.h - 2}, current_type(e))
+	cm.draw_text(r, 214, 58, shown(type_name(e, e.sel)), HILITE)
+	cm.draw_text(r, 214, 68, cm.tag_count_text(e.world, tag_view(e)), TEXT)
+	fill(r, BACK_BUTTON, PANEL)
+	cm.draw_text(r, BACK_BUTTON.x + (BACK_BUTTON.w - cm.text_width("BACK")) / 2, BACK_BUTTON.y + (BACK_BUTTON.h - cm.GLYPH_H) / 2, "BACK", TEXT)
 	lines, n := help_lines(e)
 	for line, i in lines[:n] {
 		cm.draw_text(r, 8, HELP_Y + i * cm.LINE_ADVANCE, line, TEXT)

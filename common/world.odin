@@ -89,7 +89,7 @@ unique_among :: proc(base: string, taken: []string) -> string {
 
 Terrain :: struct {
 	name:    Name,
-	solid:   bool,
+	tags:    Tag_Mask, // the tags this terrain has (bit i = world tag i)
 	tileset: Name, // empty = not set
 	image:   Name, // the image's name within that tileset; empty = not set
 }
@@ -121,6 +121,7 @@ World_Map :: struct {
 	width, height: int, // columns and rows, 1..MAP_MAX
 	cells:         [MAP_MAX][MAP_MAX]u8, // [row][column]: a terrain index in the set; only the visible region counts
 	characters:    [MAP_MAX][MAP_MAX]Uuid, // [row][column]: the character standing there (a uuid of the world's table) or none
+	cell_tags:     [MAP_MAX][MAP_MAX]Cell_Tags, // [row][column]: a cell's own tag settings (else its terrain's)
 }
 
 World :: struct {
@@ -141,6 +142,8 @@ World :: struct {
 	characters:     [WORLD_MAX_CHARACTERS]Character, // the table every map cell and the player refer into, by uuid
 	player:         Uuid, // the player's character, or none
 	uuid_state:     u64, // the generator for new uuids (see world_new_uuid)
+	tag_count:      int,
+	tags:           [WORLD_MAX_TAGS]Name, // tag 0 is always "solid"
 }
 
 world_reset :: proc(w: ^World) {
@@ -148,6 +151,8 @@ world_reset :: proc(w: ^World) {
 	w.tile_w, w.tile_h = TILESET_DEFAULT_SIZE, TILESET_DEFAULT_SIZE
 	w.palette = default_palette()
 	w.uuid_state = 0x9E3779B97F4A7C15
+	w.tag_count = 1
+	name_assign(&w.tags[TAG_SOLID], TAG_SOLID_NAME)
 }
 
 // --- Finding -----------------------------------------------------------------------------------
@@ -697,6 +702,7 @@ world_map_set_size :: proc(w: ^World, mi, width, height: int) -> bool {
 		for x in 0 ..< MAP_MAX {
 			if x >= nw || y >= nh || x >= m.width || y >= m.height {
 				m.cells[y][x] = default // cut off, or newly shown
+				m.cell_tags[y][x] = {}
 			}
 		}
 	}
@@ -772,7 +778,11 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 	for c, i in w.palette {
 		fmt.sbprintf(&b, "    {{\"r\": %d, \"g\": %d, \"b\": %d}}%s\n", c.r, c.g, c.b, i + 1 < PALETTE_SIZE ? "," : "")
 	}
-	strings.write_string(&b, "  ],\n  \"tilesets\": [")
+	strings.write_string(&b, "  ],\n  \"tags\": [")
+	for i in 0 ..< w.tag_count {
+		fmt.sbprintf(&b, "%s\"%s\"", i == 0 ? "" : ", ", escape_name(name_str(&w.tags[i])))
+	}
+	strings.write_string(&b, "],\n  \"tilesets\": [")
 	for i in 0 ..< w.tileset_count {
 		strings.write_string(&b, i == 0 ? "\n" : ",\n")
 		fmt.sbprintf(&b, "    {{\"name\": \"%s\", \"tileset\": %s}}", escape_name(name_str(&w.tileset_names[i])), strings.trim_space(tileset_to_json(&w.tilesets[i])))
@@ -791,14 +801,9 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 		for ti in 0 ..< s.count {
 			t := &s.terrains[ti]
 			strings.write_string(&b, ti == 0 ? "\n" : ",\n")
-			fmt.sbprintf(
-				&b,
-				"      {{\"name\": \"%s\", \"solid\": %v, \"tileset\": \"%s\", \"image\": \"%s\"}}",
-				escape_name(name_str(&t.name)),
-				t.solid,
-				escape_name(name_str(&t.tileset)),
-				escape_name(name_str(&t.image)),
-			)
+			fmt.sbprintf(&b, "      {{\"name\": \"%s\", \"tags\": ", escape_name(name_str(&t.name)))
+			write_tag_list(&b, w, t.tags)
+			fmt.sbprintf(&b, ", \"tileset\": \"%s\", \"image\": \"%s\"}}", escape_name(name_str(&t.tileset)), escape_name(name_str(&t.image)))
 		}
 		strings.write_string(&b, "\n    ]}")
 	}
@@ -854,6 +859,21 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 				}
 			}
 		}
+		strings.write_string(&b, "],\n      \"cell_tags\": [")
+		first_tags := true
+		for y in 0 ..< m.height {
+			for x in 0 ..< m.width {
+				ct := m.cell_tags[y][x]
+				if ct.set != 0 || ct.cleared != 0 {
+					fmt.sbprintf(&b, "%s{{\"x\": %d, \"y\": %d, \"tags\": ", first_tags ? "" : ", ", x, y)
+					write_tag_list(&b, w, ct.set)
+					strings.write_string(&b, ", \"tags_cleared\": ")
+					write_tag_list(&b, w, ct.cleared)
+					strings.write_string(&b, "}")
+					first_tags = false
+				}
+			}
+		}
 		strings.write_string(&b, "]}")
 	}
 	strings.write_string(&b, w.map_count == 0 ? "],\n" : "\n  ],\n")
@@ -903,6 +923,10 @@ world_from_json :: proc(data: []u8, dst: ^World) -> (err: string) {
 			}
 			tmp.palette[i][ch] = u8(n)
 		}
+	}
+
+	if msg := read_tags(root, tmp); msg != "" {
+		return msg
 	}
 
 	tilesets, _ := list_of(root, "tilesets")
@@ -980,11 +1004,20 @@ world_from_json :: proc(data: []u8, dst: ^World) -> (err: string) {
 			}
 			t := &s.terrains[ti]
 			name_assign(&t.name, tname)
-			solid, solid_ok := tobj["solid"].(json.Boolean)
-			if !solid_ok {
-				return fmt.tprintf(`terrain "%s": "solid" must be true or false`, tname)
+			tag_mask, tag_err := read_tag_mask(tobj, "tags", tmp, fmt.tprintf(`terrain "%s"`, tname))
+			if tag_err != "" {
+				return tag_err
 			}
-			t.solid = bool(solid)
+			if old_solid, has_old := tobj["solid"]; has_old { 	// files from before tags
+				flag, flag_ok := old_solid.(json.Boolean)
+				if !flag_ok {
+					return fmt.tprintf(`terrain "%s": "solid" must be true or false`, tname)
+				}
+				if bool(flag) {
+					tag_mask |= tag_bit(TAG_SOLID)
+				}
+			}
+			t.tags = tag_mask
 			ts_name, ts_ok := tobj["tileset"].(json.String)
 			img_name, img_ok := tobj["image"].(json.String)
 			if !ts_ok || !img_ok {
@@ -1069,6 +1102,9 @@ world_from_json :: proc(data: []u8, dst: ^World) -> (err: string) {
 				return fmt.tprintf(`map "%s": cell %d is not a position in its "terrains" list`, name, k)
 			}
 			m.cells[k / int(cols)][k % int(cols)] = u8(table[n])
+		}
+		if msg := read_cell_tags(obj, m, tmp); msg != "" {
+			return msg
 		}
 		tmp.map_count += 1
 	}

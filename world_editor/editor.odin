@@ -53,6 +53,7 @@ Mode :: enum {
 }
 
 Section :: enum {
+	Tags,
 	Tilesets,
 	Terrain_Sets,
 	Sprite_Sets,
@@ -63,6 +64,7 @@ Hub_Row :: enum {
 	Palette,
 	Tile_Width,
 	Tile_Height,
+	Tags,
 	Tilesets,
 	Terrain_Sets,
 	Sprite_Sets,
@@ -111,6 +113,9 @@ Editor :: struct {
 }
 
 NOTE_NEED_SET :: "ADD A TERRAIN SET FIRST"
+NOTE_TAG_OPEN :: "A TAG IS A NAME: RENAME IT"
+NOTE_TAG_COPY :: "TAGS CANNOT BE COPIED"
+NOTE_TAG_RESERVED :: "THE SOLID TAG IS FIXED"
 NOTE_EMPTY :: "NOTHING HERE YET: USE NEW"
 NOTE_FULL :: "THAT LIST IS FULL"
 NOTE_NAME_EMPTY :: "A NAME CANNOT BE EMPTY"
@@ -161,6 +166,8 @@ set_sub_labels :: proc(e: ^Editor) {
 
 section_count :: proc(e: ^Editor, s: Section) -> int {
 	switch s {
+	case .Tags:
+		return e.world.tag_count
 	case .Tilesets:
 		return e.world.tileset_count
 	case .Terrain_Sets:
@@ -175,6 +182,8 @@ section_count :: proc(e: ^Editor, s: Section) -> int {
 
 section_limit :: proc(s: Section) -> int {
 	switch s {
+	case .Tags:
+		return cm.WORLD_MAX_TAGS
 	case .Tilesets:
 		return cm.WORLD_MAX_TILESETS
 	case .Terrain_Sets:
@@ -189,6 +198,8 @@ section_limit :: proc(s: Section) -> int {
 
 section_item_name :: proc(e: ^Editor, s: Section, i: int) -> string {
 	switch s {
+	case .Tags:
+		return cm.name_str(&e.world.tags[i])
 	case .Tilesets:
 		return cm.name_str(&e.world.tileset_names[i])
 	case .Terrain_Sets:
@@ -236,6 +247,10 @@ touched :: proc(e: ^Editor) {
 	e.dirty = true
 }
 
+has_items :: proc(e: ^Editor) -> bool {
+	return section_count(e, e.section) > 0
+}
+
 @(private = "file")
 need_item :: proc(e: ^Editor) -> bool {
 	if section_count(e, e.section) == 0 {
@@ -261,6 +276,8 @@ open_item :: proc(e: ^Editor) {
 	}
 	i := selected(e)
 	switch e.section {
+	case .Tags:
+		e.note = NOTE_TAG_OPEN // a tag has no editor of its own
 	case .Tilesets:
 		te.editor_begin_embedded(&e.tileset_ed, &e.world, i)
 		e.opened = i
@@ -354,6 +371,10 @@ sync_embedded :: proc(e: ^Editor) {
 
 @(private = "file")
 begin_rename :: proc(e: ^Editor) {
+	if e.section == .Tags && has_items(e) && cm.tag_is_reserved(selected(e)) {
+		e.note = NOTE_TAG_RESERVED // "solid" keeps its name: game code looks for it
+		return
+	}
 	if need_item(e) {
 		cm.text_entry_begin(&e.entry, "RENAME", section_item_name(e, e.section, selected(e)), cm.NAME_MAX)
 		e.mode = .Text
@@ -365,6 +386,8 @@ begin_rename :: proc(e: ^Editor) {
 new_item :: proc(e: ^Editor) {
 	n := -1
 	switch e.section {
+	case .Tags:
+		n = cm.world_add_tag(&e.world)
 	case .Tilesets:
 		n = cm.world_add_tileset(&e.world)
 	case .Terrain_Sets:
@@ -388,6 +411,9 @@ duplicate_item :: proc(e: ^Editor) {
 	}
 	n := -1
 	switch e.section {
+	case .Tags:
+		e.note = NOTE_TAG_COPY
+		return
 	case .Tilesets:
 		n = cm.world_duplicate_tileset(&e.world, selected(e))
 	case .Terrain_Sets:
@@ -409,7 +435,7 @@ finish_add :: proc(e: ^Editor, n: int) {
 	select(e, n)
 	touched(e)
 	begin_rename(e) // name it first, then open it
-	e.open_after = true
+	e.open_after = e.section != .Tags // (a tag has nothing to open)
 }
 
 // The first call arms the deletion (the banner asks for confirmation); the next one deletes.
@@ -419,12 +445,20 @@ delete_item :: proc(e: ^Editor) {
 		e.confirm_delete = false
 		return
 	}
+	if e.section == .Tags && cm.tag_is_reserved(selected(e)) {
+		e.confirm_delete = false
+		e.note = NOTE_TAG_RESERVED
+		return
+	}
 	if !e.confirm_delete {
 		e.confirm_delete = true
 		return
 	}
 	e.confirm_delete = false
 	switch e.section {
+	case .Tags:
+		uses, _ := cm.world_delete_tag(&e.world, selected(e))
+		e.note = fmt.tprintf("REMOVED FROM %d THING%s", uses, uses == 1 ? "" : "S")
 	case .Tilesets:
 		name := cm.name_str(&e.world.tileset_names[selected(e)])
 		sprites := cm.world_tileset_sprite_uses(&e.world, name)
@@ -535,6 +569,8 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 		i := selected(e)
 		problem: cm.Name_Problem
 		switch e.section {
+		case .Tags:
+			problem = cm.world_check_tag_name(&e.world, i, name)
 		case .Tilesets:
 			problem = cm.world_check_tileset_name(&e.world, i, name)
 		case .Terrain_Sets:
@@ -548,6 +584,8 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 		case .None:
 			if name != section_item_name(e, e.section, i) {
 				switch e.section {
+				case .Tags:
+					cm.world_rename_tag(&e.world, i, name)
 				case .Tilesets:
 					cm.world_rename_tileset(&e.world, i, name)
 				case .Terrain_Sets:
@@ -593,6 +631,8 @@ run_hub :: proc(e: ^Editor, row: Hub_Row) {
 	#partial switch row {
 	case .Palette:
 		open_palette(e)
+	case .Tags:
+		open_list(e, .Tags)
 	case .Tilesets:
 		open_list(e, .Tilesets)
 	case .Terrain_Sets:

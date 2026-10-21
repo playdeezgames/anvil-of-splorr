@@ -469,7 +469,7 @@ test_all_on_screen_text_is_in_the_font_and_fits :: proc(t: ^testing.T) {
 				cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
 			}
 		}
-		for mode in ([]Mode{.List, .Setup}) {
+		for mode in ([]Mode{.List, .Setup, .Tags}) {
 			for confirm in 0 ..< 2 {
 				e.mode = mode
 				e.confirm_delete = confirm == 1
@@ -538,7 +538,10 @@ test_every_screen_draws_on_screen :: proc(t: ^testing.T) {
 			cm.world_add_character(world, world.character_count % 2)
 		}
 		world.player = world.characters[500].uuid
-		for mode in ([]Mode{.List, .Setup, .Text}) {
+		for world.tag_count < cm.WORLD_MAX_TAGS {
+			cm.world_add_tag(world, "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW")
+		}
+		for mode in ([]Mode{.List, .Setup, .Text, .Tags}) {
 			for sel in ([]int{0, 500, 1023}) {
 				e.sel = sel
 				fix_selection(e)
@@ -557,10 +560,66 @@ test_every_screen_draws_on_screen :: proc(t: ^testing.T) {
 	}
 	e, world := empty_editor()
 	defer free_both(e, world)
-	for mode in ([]Mode{.List, .Setup}) {
+	for mode in ([]Mode{.List, .Setup, .Tags}) {
 		e.mode = mode
 		log = {}
 		editor_draw(e, &r)
 		testing.expect_value(t, log.out_of_bounds, 0)
 	}
+}
+
+@(test)
+test_a_characters_tags_inherit_then_set_then_clear :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	cm.world_add_tag(world, "water")
+	cm.world_add_tag(world, "hostile")
+	cm.world_toggle_char_type_tag(world, 0, 1) // slimes are "water"
+	run(e, .Tags) // Goo, a slime
+	testing.expect_value(t, e.mode, Mode.Tags)
+	testing.expect_value(t, cm.tag_names_text(world, tag_view(e)), "WATER") // from its type
+	testing.expect_value(t, cm.tag_source_text(tag_view(e), 1), "TYPE ON")
+	press(e, .Down, .Green) // water: inherit -> set
+	testing.expect_value(t, cm.tag_source_text(tag_view(e), 1), "OWN ON")
+	press(e, .Green) // set -> cleared
+	testing.expect_value(t, cm.tag_source_text(tag_view(e), 1), "OWN OFF")
+	testing.expect_value(t, cm.tag_names_text(world, tag_view(e)), "NONE")
+	testing.expect(t, e.dirty && !cm.world_character_has_tag(world, 0, 1))
+	press(e, .Green) // cleared -> inherit again
+	testing.expect(t, world.characters[0].tags_set == 0 && world.characters[0].tags_cleared == 0 && cm.world_character_has_tag(world, 0, 1))
+	// A tag its type lacks can be set on this character only.
+	press(e, .Down, .Green)
+	testing.expect(t, cm.world_character_has_tag(world, 0, 2) && !cm.world_character_has_tag(world, 2, 2)) // Pip, another slime
+	press(e, .Up, .Up, .Up)
+	testing.expect_value(t, e.tags.sel, 0)
+	// Solid by its own setting, against a type that lacks it; red goes back.
+	press(e, .Green)
+	testing.expect(t, cm.world_character_has_tag(world, 0, cm.TAG_SOLID))
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	// The mouse: a click cycles a row, BACK leaves; the TAGS button opens the list.
+	click_rect(e, TAGS_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Tags)
+	rc := cm.tag_list_rect(2)
+	click_at(e, rc.x + 5, rc.y + 3)
+	testing.expect_value(t, cm.tag_source_text(tag_view(e), 2), "OWN OFF")
+	click_rect(e, BACK_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	// With no characters there is nothing to tag.
+	e2, w2 := empty_editor()
+	defer free_both(e2, w2)
+	run(e2, .Tags)
+	testing.expect(t, e2.mode == .Setup && e2.note == NOTE_NO_CHARACTERS)
+	// Many tags scroll in the list.
+	for world.tag_count < 40 {
+		cm.world_add_tag(world)
+	}
+	e.mode = .Tags
+	for _ in 0 ..< 50 {
+		press(e, .Down)
+	}
+	testing.expect(t, e.tags.sel == 39 && e.tags.scroll == 40 - cm.TAG_LIST_ROWS)
+	editor_handle_event(e, cm.Mouse_Wheel{dy = 100})
+	testing.expect_value(t, e.tags.scroll, 0)
 }

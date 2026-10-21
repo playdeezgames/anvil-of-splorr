@@ -26,7 +26,7 @@ sample_world :: proc() -> ^World {
 	name_assign(&w.sets[si].terrains[0].name, "grass")
 	rock := world_add_terrain(w, si)
 	name_assign(&w.sets[si].terrains[rock].name, "rock")
-	w.sets[si].terrains[rock].solid = true
+	w.sets[si].terrains[rock].tags = tag_bit(TAG_SOLID)
 	name_assign(&w.sets[si].terrains[rock].image, "y")
 	mi := world_add_map(w, si, "m")
 	world_map_set_size(w, mi, 3, 2)
@@ -91,7 +91,7 @@ test_terrains_start_on_the_first_image_and_follow_renames :: proc(t: ^testing.T)
 	w := sample_world()
 	defer free(w)
 	s := &w.sets[0]
-	testing.expect(t, s.count == 2 && s.default == 0 && !s.terrains[0].solid && s.terrains[1].solid)
+	testing.expect(t, s.count == 2 && s.default == 0 && s.terrains[0].tags == 0 && s.terrains[1].tags == 1)
 	testing.expect_value(t, name_str(&s.terrains[0].tileset), "a")
 	testing.expect_value(t, name_str(&s.terrains[0].image), "x")
 	testing.expect(t, world_terrain_image(w, &s.terrains[1]) == &w.tilesets[0].images[1])
@@ -262,7 +262,7 @@ test_the_world_file_text_for_a_tiny_world :: proc(t: ^testing.T) {
 	text := world_to_json(w)
 	testing.expect(t, strings.contains(text, `"tile_width": 2`))
 	testing.expect(t, strings.contains(text, `{"name": "t", "tileset": {`))
-	testing.expect(t, strings.contains(text, `{"name": "terrain", "solid": false, "tileset": "t", "image": "i"}`))
+	testing.expect(t, strings.contains(text, `{"name": "terrain", "tags": [], "tileset": "t", "image": "i"}`))
 	testing.expect(t, strings.contains(text, `"terrain_set": "set", "columns": 2, "rows": 1`))
 	testing.expect(t, strings.contains(text, `"terrains": ["terrain"]`))
 	testing.expect(t, strings.contains(text, "0, 0"))
@@ -284,7 +284,7 @@ test_a_world_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, world_to_json(back), text)
 	testing.expect(t, back.tile_w == 4 && back.palette[3] == Color{10, 20, 30})
 	testing.expect(t, back.tileset_count == 2 && back.sets[0].count == 2 && back.maps[0].width == 3)
-	testing.expect(t, back.sets[0].terrains[1].solid && name_str(&back.sets[0].terrains[1].image) == "y")
+	testing.expect(t, back.sets[0].terrains[1].tags == 1 && name_str(&back.sets[0].terrains[1].image) == "y")
 	testing.expect(t, back.tilesets[0].images[1].pixels[1][2] == 9)
 	testing.expect(t, back.maps[0].cells[0][1] == 1 && back.maps[0].cells[1][2] == 1 && back.maps[0].cells[0][0] == 0)
 	// A map's cells are written as positions in its own list of names, so renumbering a set
@@ -320,7 +320,7 @@ test_bad_world_files_are_rejected_with_a_reason :: proc(t: ^testing.T) {
 		{`"tileset": "a", "image": "x"`, `"tileset": "nope", "image": "x"`},
 		{`"tileset": "a", "image": "x"`, `"tileset": "a", "image": "nope"`},
 		{`"tileset": "a", "image": "x"`, `"tileset": "a", "image": ""`},
-		{`"solid": true`, `"solid": 1`},
+		{`"tags": ["solid"], "tileset"`, `"tags": ["nope"], "tileset"`},
 		{`"terrain_set": "s"`, `"terrain_set": "zzz"`},
 		{`"columns": 3`, `"columns": 0`},
 		{`"columns": 3`, `"columns": 4`}, // the cell count no longer matches

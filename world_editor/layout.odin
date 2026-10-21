@@ -15,18 +15,18 @@ INFO_Y :: 19
 // Hub: one row per part of the world.
 HUB_X :: 24
 HUB_VALUE_X :: 130
-HUB_Y :: 32
-HUB_PITCH :: 11
+HUB_Y :: 28
+HUB_PITCH :: 10
 HUB_MARKER_X :: 12
-WIDTH_MINUS :: Rect{230, 43, 12, 10} // the tile width row (hub row 1)
-WIDTH_PLUS :: Rect{244, 43, 12, 10}
-HEIGHT_MINUS :: Rect{230, 54, 12, 10} // the tile height row (hub row 2)
-HEIGHT_PLUS :: Rect{244, 54, 12, 10}
+WIDTH_MINUS :: Rect{230, 38, 12, 10} // the tile width row (hub row 1)
+WIDTH_PLUS :: Rect{244, 38, 12, 10}
+HEIGHT_MINUS :: Rect{230, 48, 12, 10} // the tile height row (hub row 2)
+HEIGHT_PLUS :: Rect{244, 48, 12, 10}
 
 // The three file buttons under the hub rows.
-SAVE_BUTTON :: Rect{24, 134, 40, 10}
-LOAD_BUTTON :: Rect{68, 134, 40, 10}
-MENU_BUTTON :: Rect{112, 134, 40, 10}
+SAVE_BUTTON :: Rect{24, 132, 40, 10}
+LOAD_BUTTON :: Rect{68, 132, 40, 10}
+MENU_BUTTON :: Rect{112, 132, 40, 10}
 
 // Lists: the named things of one kind, one per line, with the action buttons on the right.
 LIST_X :: 8

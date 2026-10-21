@@ -100,7 +100,7 @@ test_the_layer_switch_and_the_rows_each_layer_offers :: proc(t: ^testing.T) {
 		seen += {e.row}
 		press(e, .Down)
 	}
-	testing.expect(t, seen == {.Character, .Char_Type, .Char_Player, .Char_Rename, .Char_New, .Char_Unplace, .Char_Delete, .Zoom, .Layer})
+	testing.expect(t, seen == {.Character, .Char_Type, .Char_Player, .Char_Rename, .Char_New, .Char_Unplace, .Char_Delete, .Zoom, .Layer, .Tags})
 	e.row = .Layer
 	press(e, .Green)
 	testing.expect(t, e.layer == .Terrain && e.row == .Terrain)
@@ -109,7 +109,7 @@ test_the_layer_switch_and_the_rows_each_layer_offers :: proc(t: ^testing.T) {
 		seen += {e.row}
 		press(e, .Down)
 	}
-	testing.expect(t, .Character not_in seen && .Flip_Horizontal in seen && .Layer in seen && .Clear in seen)
+	testing.expect(t, .Character not_in seen && .Flip_Horizontal in seen && .Layer in seen && .Clear in seen && .Tags in seen)
 	click_rect(e, LAYER_BUTTON)
 	testing.expect_value(t, e.layer, Layer.Characters)
 	click_rect(e, LAYER_BUTTON)
@@ -536,7 +536,7 @@ test_the_characters_layer_text_is_in_the_font_and_fits :: proc(t: ^testing.T) {
 				cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
 			}
 		}
-		for mode in ([]Mode{.Draw, .Setup}) {
+		for mode in ([]Mode{.Draw, .Setup, .Tags}) {
 			for confirm in 0 ..< 2 {
 				e.mode = mode
 				e.confirm_delete = confirm == 1
@@ -622,4 +622,111 @@ test_the_busiest_map_draws_on_screen_at_every_zoom_in_both_layers :: proc(t: ^te
 	log = {}
 	editor_draw(e, &r)
 	testing.expect(t, log.out_of_bounds == 0 && log.presents == 1)
+}
+
+@(test)
+test_a_cells_tags_inherit_its_terrain_then_set_then_clear :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	cm.world_add_tag(world, "water")
+	cm.world_toggle_terrain_tag(world, 0, 0, TAG_WATER) // the default terrain 0 is "water"
+	e.cx, e.cy = 2, 1
+	run(e, .Tags)
+	testing.expect_value(t, e.mode, Mode.Tags)
+	testing.expect_value(t, cm.tag_names_text(world, tag_view(e)), "WATER") // inherited from its terrain
+	testing.expect_value(t, cm.tag_source_text(tag_view(e), TAG_WATER), "TYPE ON")
+	press(e, .Down, .Green) // water: inherit -> set
+	press(e, .Green) // -> cleared: this one cell is dry
+	testing.expect(t, e.dirty && !cm.world_cell_has_tag(world, 0, 2, 1, TAG_WATER) && cm.world_cell_has_tag(world, 0, 3, 1, TAG_WATER))
+	testing.expect_value(t, world.maps[0].cell_tags[1][2], cm.Cell_Tags{cleared = cm.tag_bit(TAG_WATER)})
+	press(e, .Up, .Green) // solid on for this cell only
+	testing.expect(t, cm.world_cell_has_tag(world, 0, 2, 1, cm.TAG_SOLID) && !cm.world_cell_has_tag(world, 0, 3, 1, cm.TAG_SOLID))
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	// Painting the terrain does not touch a cell's own tags; the cursor's cell decides which is shown.
+	e.mode = .Draw
+	e.terrain = 1
+	press(e, .Green)
+	testing.expect(t, cm.world_cell_has_tag(world, 0, 2, 1, cm.TAG_SOLID))
+	press(e, .Left)
+	click_rect(e, TAGS_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Tags)
+	testing.expect_value(t, cm.tag_names_text(world, tag_view(e)), "WATER") // the cell to its left
+	rc := cm.tag_list_rect(1)
+	click_at(e, rc.x + 5, rc.y + 3)
+	testing.expect_value(t, world.maps[0].cell_tags[1][1].set, cm.tag_bit(TAG_WATER))
+	click_rect(e, BACK_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Setup)
+}
+
+TAG_WATER :: 1
+
+@(test)
+test_a_characters_tags_are_edited_from_the_map_too :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := char_editor()
+	defer free_both(e, world)
+	cm.world_add_tag(world, "water")
+	cm.world_toggle_char_type_tag(world, 0, TAG_WATER) // slimes are "water"
+	e.cur_char = 0
+	run(e, .Tags)
+	testing.expect_value(t, e.mode, Mode.Tags)
+	testing.expect_value(t, cm.tag_source_text(tag_view(e), TAG_WATER), "TYPE ON")
+	press(e, .Down, .Green, .Green) // inherit -> set -> cleared
+	testing.expect(t, !cm.world_character_has_tag(world, 0, TAG_WATER) && e.dirty)
+	testing.expect_value(t, world.characters[0].tags_cleared, cm.tag_bit(TAG_WATER))
+	// Cells are not touched by character tags.
+	testing.expect_value(t, world.maps[0].cell_tags[0][1], cm.Cell_Tags{})
+	press(e, .Red)
+	click_rect(e, TAGS_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Tags)
+	click_rect(e, BACK_BUTTON)
+	// With no characters the Characters layer has nothing to tag; the Terrain layer still does.
+	world.character_count = 0
+	e.mode = .Setup
+	e.row = .Tags
+	press(e, .Green)
+	testing.expect(t, e.mode == .Setup && e.note == NOTE_NO_CHARACTERS)
+	toggle_layer(e)
+	e.mode = .Setup
+	e.row = .Tags
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Tags)
+	// A busy world's many tags scroll.
+	for world.tag_count < 40 {
+		cm.world_add_tag(world)
+	}
+	for _ in 0 ..< 50 {
+		press(e, .Down)
+	}
+	testing.expect(t, e.tags.sel == 39 && e.tags.scroll == 40 - cm.TAG_LIST_ROWS)
+}
+
+@(test)
+test_the_tags_screen_draws_on_screen_for_both_layers :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	log: Draw_Log
+	r := logging_renderer(&log)
+	e, world := char_editor()
+	defer free_both(e, world)
+	for world.tag_count < cm.WORLD_MAX_TAGS {
+		cm.world_add_tag(world, "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW")
+	}
+	for layer in Layer {
+		e.layer = layer
+		e.mode = .Setup
+		e.row = .Tags
+		press(e, .Green)
+		testing.expect_value(t, e.mode, Mode.Tags)
+		for sel in ([]int{0, 30, 63}) {
+			e.tags.sel = sel
+			cm.tag_list_fix(&e.tags, world.tag_count)
+			log = {}
+			editor_draw(e, &r)
+			testing.expectf(t, log.out_of_bounds == 0, "%v: %d rects off screen", layer, log.out_of_bounds)
+			testing.expect_value(t, log.presents, 1)
+		}
+		press(e, .Red)
+	}
 }

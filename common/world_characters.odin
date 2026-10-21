@@ -117,12 +117,14 @@ Character_Type :: struct {
 	name:       Name,
 	sprite_set: Name, // empty = not set
 	sprite:     Name, // the sprite's name within that set; empty = not set
+	tags:       Tag_Mask, // the tags every character of this type has (unless its own settings say otherwise)
 }
 
 Character :: struct {
 	uuid: Uuid,
 	name: Name, // a label: not unique
 	type: Name, // the character type, by name
+	tags_set, tags_cleared: Tag_Mask, // its own tag settings; a tag in neither is inherited from the type
 }
 
 world_find_char_type :: proc(w: ^World, name: string, except := -1) -> int {
@@ -495,18 +497,24 @@ write_characters :: proc(b: ^strings.Builder, w: ^World) {
 		strings.write_string(b, i == 0 ? "\n" : ",\n")
 		fmt.sbprintf(
 			b,
-			"    {{\"name\": \"%s\", \"sprite_set\": \"%s\", \"sprite\": \"%s\"}}",
+			"    {{\"name\": \"%s\", \"sprite_set\": \"%s\", \"sprite\": \"%s\", \"tags\": ",
 			escape_name(name_str(&ct.name)),
 			escape_name(name_str(&ct.sprite_set)),
 			escape_name(name_str(&ct.sprite)),
 		)
+		write_tag_list(b, w, ct.tags)
+		strings.write_string(b, "}")
 	}
 	strings.write_string(b, w.char_type_count == 0 ? "],\n" : "\n  ],\n")
 	strings.write_string(b, "  \"characters\": [")
 	for i in 0 ..< w.character_count {
 		c := &w.characters[i]
 		strings.write_string(b, i == 0 ? "\n" : ",\n")
-		fmt.sbprintf(b, "    {{\"uuid\": \"%s\", \"name\": \"%s\", \"type\": \"%s\"}}", uuid_to_string(c.uuid), escape_name(name_str(&c.name)), escape_name(name_str(&c.type)))
+		fmt.sbprintf(b, "    {{\"uuid\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"tags\": ", uuid_to_string(c.uuid), escape_name(name_str(&c.name)), escape_name(name_str(&c.type)))
+		write_tag_list(b, w, c.tags_set)
+		strings.write_string(b, ", \"tags_cleared\": ")
+		write_tag_list(b, w, c.tags_cleared)
+		strings.write_string(b, "}")
 	}
 	strings.write_string(b, w.character_count == 0 ? "],\n" : "\n  ],\n")
 	if uuid_is_none(w.player) {
@@ -559,6 +567,11 @@ read_characters :: proc(root: json.Object, tmp: ^World) -> (err: string) {
 				name_assign(&ct.sprite_set, set)
 				name_assign(&ct.sprite, sprite)
 			}
+			mask, mask_err := read_tag_mask(obj, "tags", tmp, fmt.tprintf(`character type "%s"`, name))
+			if mask_err != "" {
+				return mask_err
+			}
+			ct.tags = mask
 			tmp.char_type_count += 1
 		}
 	}
@@ -592,7 +605,20 @@ read_characters :: proc(root: json.Object, tmp: ^World) -> (err: string) {
 			if !type_ok || world_find_char_type(tmp, type_name) < 0 {
 				return fmt.tprintf(`character %d ("%s"): "type" must name a character type`, i, name)
 			}
+			what := fmt.tprintf(`character %d ("%s")`, i, name)
+			set_mask, set_err := read_tag_mask(obj, "tags", tmp, what)
+			if set_err != "" {
+				return set_err
+			}
+			cleared_mask, cleared_err := read_tag_mask(obj, "tags_cleared", tmp, what)
+			if cleared_err != "" {
+				return cleared_err
+			}
+			if set_mask & cleared_mask != 0 {
+				return fmt.tprintf("%s: a tag is both set and cleared", what)
+			}
 			tmp.characters[i].uuid = u
+			tmp.characters[i].tags_set, tmp.characters[i].tags_cleared = set_mask, cleared_mask
 			name_assign(&tmp.characters[i].name, name)
 			name_assign(&tmp.characters[i].type, type_name)
 			tmp.character_count += 1

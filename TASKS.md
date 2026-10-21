@@ -37,4 +37,5 @@ Status: [x] done and committed, [~] done but not committed yet, [ ] to do.
 - [~] Map editor, patterned on the image editor: paint, flip, rotate (square maps), frame / fill, flood, replace, clear; terrain picker; change terrain set by name
 - [~] Sprite sets and sprites: tile reference by name, transparent colour (0..15 or none), background terrain tool, in the world file and the world editor
 - [~] Character types and characters (uuid table, cells and player refer by uuid): model and file format, character type editor, character editor, map editor Characters layer
+- [~] Tags: a world list ("solid" fixed), set/clear on terrains and character types, inherit/set/clear on characters and map cells, Tags screens in four editors, TAGS list in the world editor, "solid" moved into tags (old files migrate)
 - [ ] More asset types in a world (to be specified)

@@ -30,6 +30,7 @@ SET_MINUS :: Rect{194, 61, 12, 10}
 SET_PLUS :: Rect{208, 61, 12, 10}
 ZOOM_MINUS :: Rect{194, 72, 12, 10} // zoom out (towards FIT)
 ZOOM_PLUS :: Rect{208, 72, 12, 10}
+TAGS_BUTTON :: Rect{268, 72, 38, 10} // the tags of the cell under the cursor, or of the current character
 
 // Cell sizes in screen pixels for the zoom levels; level 0 is FIT (the whole map in the canvas).
 ZOOM_SIZES :: [?]int{0, 4, 6, 8, 12, 16, 24, 32}
