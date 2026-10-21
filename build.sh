@@ -59,7 +59,7 @@ case "$target" in
 		# ~/.local/bin); worlds go in ANVIL_WORLDS (default ~/anvil-worlds).
 		bin="${ANVIL_PREFIX:-$HOME/.local/bin}"
 		worlds="${ANVIL_WORLDS:-$HOME/anvil-worlds}"
-		version="$(git describe --always --dirty 2>/dev/null || echo unknown)"
+		version="r$(git describe --always --dirty 2>/dev/null || echo unknown)" # (the r keeps an all-digit hash from being read as a number)
 		mkdir -p build "$bin" "$worlds"
 		odin build anvil_mcp -out:build/anvil_mcp-prod -define:ANVIL_VERSION="$version"
 		cp build/anvil_mcp-prod "$bin/.anvil_mcp.new" && mv -f "$bin/.anvil_mcp.new" "$bin/anvil_mcp"
