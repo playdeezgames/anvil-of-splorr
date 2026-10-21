@@ -385,3 +385,144 @@ test_a_big_world_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, world_from_json(transmute([]u8)text, back), "")
 	testing.expect_value(t, world_to_json(back), text)
 }
+
+// --- Sprites ---
+
+// The sample world plus sprite set "creatures" holding slime (a/x, transparent 0) and bat (a/y, none).
+sprite_world :: proc() -> ^World {
+	w := sample_world()
+	si := world_add_sprite_set(w, "creatures")
+	slime := world_add_sprite(w, si)
+	name_assign(&w.sprite_sets[si].sprites[slime].name, "slime")
+	bat := world_add_sprite(w, si)
+	name_assign(&w.sprite_sets[si].sprites[bat].name, "bat")
+	name_assign(&w.sprite_sets[si].sprites[bat].image, "y")
+	w.sprite_sets[si].sprites[bat].transparent = SPRITE_NO_TRANSPARENT
+	return w
+}
+
+@(test)
+test_sprite_sets_and_sprites_are_named_and_limited :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := sprite_world()
+	defer free(w)
+	s := &w.sprite_sets[0]
+	testing.expect(t, s.count == 2 && s.sprites[0].transparent == 0 && s.sprites[1].transparent == SPRITE_NO_TRANSPARENT)
+	testing.expect_value(t, name_str(&s.sprites[0].tileset), "a")
+	testing.expect_value(t, name_str(&s.sprites[0].image), "x")
+	testing.expect(t, world_sprite_image(w, &s.sprites[1]) == &w.tilesets[0].images[1])
+	n := world_add_sprite(w, 0)
+	testing.expect_value(t, name_str(&s.sprites[n].name), "sprite")
+	testing.expect_value(t, world_add_sprite(w, 3), -1)
+	testing.expect_value(t, sprite_check_name(s, n, "bat"), Name_Problem.In_Use)
+	testing.expect_value(t, sprite_check_name(s, n, "sprite"), Name_Problem.None)
+	testing.expect_value(t, sprite_check_name(s, n, ""), Name_Problem.Empty)
+	d := world_duplicate_sprite(w, 0, 0)
+	testing.expect(t, d == 3 && name_str(&s.sprites[3].name) == "slime_copy" && s.sprites[3].transparent == 0)
+	testing.expect(t, world_delete_sprite(w, 0, 0) && s.count == 3 && name_str(&s.sprites[0].name) == "bat")
+	testing.expect(t, !world_delete_sprite(w, 0, 9))
+	for s.count < SPRITE_MAX {
+		world_add_sprite(w, 0)
+	}
+	testing.expect_value(t, world_add_sprite(w, 0), -1)
+	testing.expect_value(t, world_duplicate_sprite(w, 0, 0), -1)
+	// An empty world's new sprite is not set.
+	e := new_world()
+	defer free(e)
+	es := world_add_sprite_set(e)
+	ns := world_add_sprite(e, es)
+	testing.expect(t, e.sprite_sets[es].sprites[ns].tileset.len == 0 && world_sprite_image(e, &e.sprite_sets[es].sprites[ns]) == nil)
+	// Sets.
+	for e.sprite_set_count < WORLD_MAX_SPRITE_SETS {
+		testing.expect(t, world_add_sprite_set(e) >= 0)
+	}
+	testing.expect_value(t, world_add_sprite_set(e), -1)
+	testing.expect_value(t, world_duplicate_sprite_set(e, 0), -1)
+	testing.expect_value(t, world_check_sprite_set_name(e, 0, name_str(&e.sprite_sets[1].name)), Name_Problem.In_Use)
+	testing.expect_value(t, world_rename_sprite_set(e, 0, "zoo"), Name_Problem.None)
+	testing.expect(t, world_delete_sprite_set(e, 0) && e.sprite_set_count == 15 && !world_delete_sprite_set(e, 15))
+}
+
+@(test)
+test_sprites_keep_tilesets_and_images_in_use_and_follow_renames :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := sprite_world()
+	defer free(w)
+	// Terrains use a/x and a/y; the sprites use a/x and a/y as well.
+	testing.expect_value(t, world_tileset_uses(w, "a"), 4)
+	testing.expect_value(t, world_tileset_sprite_uses(w, "a"), 2)
+	testing.expect_value(t, world_image_uses(w, "a", "y"), 2)
+	testing.expect_value(t, world_image_sprite_uses(w, "a", "y"), 1)
+	testing.expect_value(t, world_delete_tileset(w, 0), 4)
+	// Point the terrains elsewhere: the sprites alone still hold the tileset.
+	for ti in 0 ..< w.sets[0].count {
+		w.sets[0].terrains[ti].tileset, w.sets[0].terrains[ti].image = {}, {}
+	}
+	testing.expect_value(t, world_delete_tileset(w, 0), 2)
+	testing.expect_value(t, world_rename_tileset(w, 0, "ground"), Name_Problem.None)
+	testing.expect_value(t, name_str(&w.sprite_sets[0].sprites[1].tileset), "ground")
+	world_rename_image(w, "ground", "y", "yy")
+	testing.expect_value(t, name_str(&w.sprite_sets[0].sprites[1].image), "yy")
+	testing.expect_value(t, name_str(&w.sprite_sets[0].sprites[0].image), "x")
+	w.sprite_sets[0].count = 0
+	testing.expect_value(t, world_delete_tileset(w, 0), 0)
+	testing.expect_value(t, uses_text(1, 0), "1 TERRAIN")
+	testing.expect_value(t, uses_text(2, 0), "2 TERRAINS")
+	testing.expect_value(t, uses_text(1, 1), "1 TERRAIN AND 1 SPRITE")
+	testing.expect_value(t, uses_text(0, 3), "0 TERRAINS AND 3 SPRITES")
+}
+
+@(test)
+test_sprite_sets_round_trip_and_old_files_still_load :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := sprite_world()
+	defer free(w)
+	text := world_to_json(w)
+	testing.expect(t, strings.contains(text, `"sprite_sets": [`))
+	testing.expect(t, strings.contains(text, `{"name": "slime", "tileset": "a", "image": "x", "transparent": 0}`))
+	testing.expect(t, strings.contains(text, `"transparent": null`))
+	back := new_world()
+	defer free(back)
+	testing.expect_value(t, world_from_json(transmute([]u8)text, back), "")
+	testing.expect_value(t, world_to_json(back), text)
+	testing.expect(t, back.sprite_set_count == 1 && back.sprite_sets[0].count == 2 && back.sprite_sets[0].sprites[1].transparent == SPRITE_NO_TRANSPARENT)
+	// A file from before sprites (no "sprite_sets") loads with none; an empty set round-trips.
+	old, _ := strings.replace(text, `  "sprite_sets": [`, `  "sprite_sets_old_name": [`, 1, context.temp_allocator)
+	testing.expect_value(t, world_from_json(transmute([]u8)old, back), "")
+	testing.expect_value(t, back.sprite_set_count, 0)
+	empty := new_world()
+	defer free(empty)
+	world_add_sprite_set(empty, "none")
+	back2 := new_world()
+	defer free(back2)
+	testing.expect_value(t, world_from_json(transmute([]u8)world_to_json(empty), back2), "")
+	testing.expect(t, back2.sprite_set_count == 1 && back2.sprite_sets[0].count == 0)
+	// The tiny world's file is unchanged apart from the new list.
+	testing.expect(t, strings.has_suffix(world_to_json(new_world()), "\"sprite_sets\": []\n}\n"))
+}
+
+@(test)
+test_bad_sprite_files_are_rejected :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := sprite_world()
+	defer free(w)
+	good := world_to_json(w)
+	testing.expect_value(t, load_error(good), "")
+	variations := [][2]string {
+		{`"name": "creatures"`, `"name": ""`},
+		{`"name": "slime"`, `"name": "bat"`}, // duplicate sprite name
+		{`"transparent": 0}`, `"transparent": 16}`},
+		{`"transparent": 0}`, `"transparent": -2}`},
+		{`"transparent": 0}`, `"transparent": "x"}`},
+		{`"transparent": 0}`, `"colour": 0}`},
+		{`"name": "slime", "tileset": "a"`, `"name": "slime", "tileset": "nope"`},
+		{`"name": "slime", "tileset": "a", "image": "x"`, `"name": "slime", "tileset": "a", "image": "nope"`},
+		{`"name": "slime", "tileset": "a", "image": "x"`, `"name": "slime", "tileset": "a", "image": ""`},
+		{`"sprite_sets": [`, `"sprite_sets": {"x": [`},
+	}
+	for v, i in variations {
+		testing.expectf(t, strings.contains(good, v[0]), "variation %d: %q is not in the sample file", i, v[0])
+		bad, _ := strings.replace(good, v[0], v[1], 1, context.temp_allocator)
+		testing.expectf(t, load_error(bad) != "", "variation %d was accepted", i)
+	}
+}

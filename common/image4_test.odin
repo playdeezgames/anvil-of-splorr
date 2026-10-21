@@ -407,3 +407,72 @@ test_thumbnail_edge_cases :: proc(t: ^testing.T) {
 	out = canvas_draw_thumbnail(&r, Rect{0, 0, 16, 16}, &wide, &pal)
 	testing.expect(t, out.w == 16 && out.h == 1)
 }
+
+@(test)
+test_thumbnails_skip_the_transparent_colour :: proc(t: ^testing.T) {
+	log: Thumb_Log
+	defer delete(log.rects)
+	defer delete(log.colors)
+	r := thumb_renderer(&log)
+	pal := default_palette()
+	img := image4_make(4, 2)
+	image4_set(&img, 1, 0, 5)
+	image4_set(&img, 2, 1, 5)
+	// Index 0 transparent: only the two dots are drawn (scaled 4x).
+	canvas_draw_thumbnail(&r, Rect{0, 0, 16, 16}, &img, &pal, 0)
+	testing.expect_value(t, len(log.rects), 2)
+	for c in log.colors {
+		testing.expect_value(t, c, pal[5])
+	}
+	// With a colour that is not used nothing is skipped; with none (-1) everything is drawn.
+	clear(&log.rects)
+	clear(&log.colors)
+	canvas_draw_thumbnail(&r, Rect{0, 0, 16, 16}, &img, &pal, 9)
+	n_all := len(log.rects)
+	clear(&log.rects)
+	clear(&log.colors)
+	canvas_draw_thumbnail(&r, Rect{0, 0, 16, 16}, &img, &pal)
+	testing.expect_value(t, len(log.rects), n_all)
+	testing.expect(t, n_all > 2)
+	// The same when the picture is sampled down: no rect of the transparent colour.
+	big := image4_make(64, 64)
+	for y in 0 ..< 64 {
+		for x in 0 ..< 64 {
+			image4_set(&big, x, y, (x + y) % 3 == 0 ? 7 : 2)
+		}
+	}
+	clear(&log.rects)
+	clear(&log.colors)
+	canvas_draw_thumbnail(&r, Rect{0, 0, 16, 16}, &big, &pal, 2)
+	testing.expect(t, len(log.rects) > 0)
+	for c in log.colors {
+		testing.expect_value(t, c, pal[7])
+	}
+}
+
+@(test)
+test_checkerboard_alternates_and_stays_inside :: proc(t: ^testing.T) {
+	log: Thumb_Log
+	defer delete(log.rects)
+	defer delete(log.colors)
+	r := thumb_renderer(&log)
+	a, b := Color{10, 10, 10}, Color{20, 20, 20}
+	area := Rect{5, 6, 10, 9}
+	canvas_draw_checker(&r, area, a, b, 4)
+	testing.expect(t, log.rects[0] == area && log.colors[0] == a)
+	for rc, i in log.rects {
+		testing.expect(t, rc.x >= area.x && rc.y >= area.y && rc.x + rc.w <= area.x + area.w && rc.y + rc.h <= area.y + area.h)
+		if i > 0 {
+			testing.expect_value(t, log.colors[i], b)
+			// A square of b sits where (column + row) is odd.
+			col, row := (rc.x - area.x) / 4, (rc.y - area.y) / 4
+			testing.expect_value(t, (col + row) % 2, 1)
+		}
+	}
+	// 3 x 3 squares (the last partial): b at (1,0), (0,1), (2,1), (1,2).
+	testing.expect_value(t, len(log.rects), 1 + 4)
+	clear(&log.rects)
+	clear(&log.colors)
+	canvas_draw_checker(&r, Rect{0, 0, 0, 5}, a, b) // nothing to draw
+	testing.expect_value(t, len(log.rects), 0)
+}

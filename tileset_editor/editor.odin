@@ -226,9 +226,11 @@ delete_image :: proc(e: ^Editor) {
 		return
 	}
 	if e.embedded && e.world != nil {
-		if uses := cm.world_image_uses(e.world, cm.name_str(&e.world_name), selected_name(e)); uses > 0 {
+		tileset, image := cm.name_str(&e.world_name), selected_name(e)
+		if uses := cm.world_image_uses(e.world, tileset, image); uses > 0 {
 			e.confirm_delete = false
-			e.note = fmt.tprintf("IMAGE USED BY %d TERRAIN%s", uses, uses == 1 ? "" : "S")
+			sprites := cm.world_image_sprite_uses(e.world, tileset, image)
+			e.note = fmt.tprintf("IMAGE USED BY %s", cm.uses_text(uses - sprites, sprites))
 			return
 		}
 	}

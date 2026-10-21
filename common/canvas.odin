@@ -131,8 +131,9 @@ canvas_draw_image :: proc(r: ^Renderer, area: Rect, img: ^Image4, palette: ^Pale
 // Draws img as a small picture centred in area and returns the rect it covered. An image that fits
 // is drawn at the largest whole-number scale (so a 4 x 4 tile in a 16 x 16 area is 4x); a bigger
 // one is sampled down (nearest pixel) to fit, keeping its proportions. Runs of one colour are
-// merged, so a flat image costs a few rects.
-canvas_draw_thumbnail :: proc(r: ^Renderer, area: Rect, img: ^Image4, palette: ^Palette) -> Rect {
+// merged, so a flat image costs a few rects. Pixels of the `transparent` palette index (0..15; -1
+// for none) are not drawn, so whatever is already in the area shows through.
+canvas_draw_thumbnail :: proc(r: ^Renderer, area: Rect, img: ^Image4, palette: ^Palette, transparent := -1) -> Rect {
 	w, h := img.width, img.height
 	if w <= 0 || h <= 0 || area.w <= 0 || area.h <= 0 {
 		return {}
@@ -148,7 +149,9 @@ canvas_draw_thumbnail :: proc(r: ^Renderer, area: Rect, img: ^Image4, palette: ^
 				for x < w && img.pixels[y][x] == color {
 					x += 1
 				}
-				renderer_fill_rect(r, out.x + start * s, out.y + y * s, (x - start) * s, s, palette[color & 0x0F])
+				if int(color) != transparent {
+					renderer_fill_rect(r, out.x + start * s, out.y + y * s, (x - start) * s, s, palette[color & 0x0F])
+				}
 			}
 		}
 		return out
@@ -169,8 +172,24 @@ canvas_draw_thumbnail :: proc(r: ^Renderer, area: Rect, img: ^Image4, palette: ^
 			for dx < tw && img.pixels[sy][dx * w / tw] == color {
 				dx += 1
 			}
-			renderer_fill_rect(r, out.x + start, out.y + dy, dx - start, 1, palette[color & 0x0F])
+			if int(color) != transparent {
+				renderer_fill_rect(r, out.x + start, out.y + dy, dx - start, 1, palette[color & 0x0F])
+			}
 		}
 	}
 	return out
+}
+
+// Fills `area` with a two-tone checkerboard of `size` pixel squares: the usual backdrop for
+// pictures with transparent parts. Runs are one rect per square (a few dozen for a thumbnail).
+canvas_draw_checker :: proc(r: ^Renderer, area: Rect, a, b: Color, size := 4) {
+	if area.w <= 0 || area.h <= 0 || size <= 0 {
+		return
+	}
+	renderer_fill_rect(r, area.x, area.y, area.w, area.h, a)
+	for y := 0; y * size < area.h; y += 1 {
+		for x := (y + 1) % 2; x * size < area.w; x += 2 {
+			renderer_fill_rect(r, area.x + x * size, area.y + y * size, min(size, area.w - x * size), min(size, area.h - y * size), b)
+		}
+	}
 }

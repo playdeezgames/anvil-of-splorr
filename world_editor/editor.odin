@@ -3,6 +3,7 @@ package world_editor
 import cm "../common"
 import me "../map_editor"
 import pe "../palette_editor"
+import spe "../sprite_editor"
 import te "../tileset_editor"
 import tre "../terrain_editor"
 import "core:fmt"
@@ -42,12 +43,14 @@ Mode :: enum {
 	Palette,
 	Tileset,
 	Terrain,
+	Sprite,
 	Map,
 }
 
 Section :: enum {
 	Tilesets,
 	Terrain_Sets,
+	Sprite_Sets,
 	Maps,
 }
 
@@ -57,6 +60,7 @@ Hub_Row :: enum {
 	Tile_Height,
 	Tilesets,
 	Terrain_Sets,
+	Sprite_Sets,
 	Maps,
 }
 
@@ -90,6 +94,7 @@ Editor :: struct {
 	palette_ed:     pe.Editor,
 	tileset_ed:     te.Editor, // about 1 MB
 	terrain_ed:     tre.Editor,
+	sprite_ed:      spe.Editor,
 	map_ed:         me.Editor,
 	opened:         int, // the tileset being edited in Tileset mode
 	entry:          cm.Text_Entry,
@@ -136,6 +141,7 @@ set_sub_labels :: proc(e: ^Editor) {
 	e.palette_ed.labels = e.labels
 	te.editor_set_labels(&e.tileset_ed, e.labels)
 	tre.editor_set_labels(&e.terrain_ed, e.labels)
+	spe.editor_set_labels(&e.sprite_ed, e.labels)
 	me.editor_set_labels(&e.map_ed, e.labels)
 }
 
@@ -147,6 +153,8 @@ section_count :: proc(e: ^Editor, s: Section) -> int {
 		return e.world.tileset_count
 	case .Terrain_Sets:
 		return e.world.set_count
+	case .Sprite_Sets:
+		return e.world.sprite_set_count
 	case .Maps:
 		return e.world.map_count
 	}
@@ -159,6 +167,8 @@ section_limit :: proc(s: Section) -> int {
 		return cm.WORLD_MAX_TILESETS
 	case .Terrain_Sets:
 		return cm.WORLD_MAX_TERRAIN_SETS
+	case .Sprite_Sets:
+		return cm.WORLD_MAX_SPRITE_SETS
 	case .Maps:
 		return cm.WORLD_MAX_MAPS
 	}
@@ -171,6 +181,8 @@ section_item_name :: proc(e: ^Editor, s: Section, i: int) -> string {
 		return cm.name_str(&e.world.tileset_names[i])
 	case .Terrain_Sets:
 		return cm.name_str(&e.world.sets[i].name)
+	case .Sprite_Sets:
+		return cm.name_str(&e.world.sprite_sets[i].name)
 	case .Maps:
 		return cm.name_str(&e.world.maps[i].name)
 	}
@@ -244,6 +256,9 @@ open_item :: proc(e: ^Editor) {
 	case .Terrain_Sets:
 		tre.editor_begin(&e.terrain_ed, &e.world, i)
 		e.mode = .Terrain
+	case .Sprite_Sets:
+		spe.editor_begin(&e.sprite_ed, &e.world, i)
+		e.mode = .Sprite
 	case .Maps:
 		me.editor_begin(&e.map_ed, &e.world, i)
 		e.mode = .Map
@@ -283,6 +298,15 @@ sync_embedded :: proc(e: ^Editor) {
 			e.terrain_ed.exit_requested = false
 			e.mode = .List
 		}
+	case .Sprite:
+		if e.sprite_ed.dirty {
+			e.sprite_ed.dirty = false
+			touched(e)
+		}
+		if e.sprite_ed.exit_requested {
+			e.sprite_ed.exit_requested = false
+			e.mode = .List
+		}
 	case .Map:
 		if e.map_ed.dirty {
 			e.map_ed.dirty = false
@@ -315,6 +339,8 @@ new_item :: proc(e: ^Editor) {
 		n = cm.world_add_tileset(&e.world)
 	case .Terrain_Sets:
 		n = cm.world_add_terrain_set(&e.world)
+	case .Sprite_Sets:
+		n = cm.world_add_sprite_set(&e.world)
 	case .Maps:
 		if e.world.set_count == 0 {
 			e.note = NOTE_NEED_SET
@@ -336,6 +362,8 @@ duplicate_item :: proc(e: ^Editor) {
 		n = cm.world_duplicate_tileset(&e.world, selected(e))
 	case .Terrain_Sets:
 		n = cm.world_duplicate_terrain_set(&e.world, selected(e))
+	case .Sprite_Sets:
+		n = cm.world_duplicate_sprite_set(&e.world, selected(e))
 	case .Maps:
 		n = cm.world_duplicate_map(&e.world, selected(e))
 	}
@@ -368,8 +396,10 @@ delete_item :: proc(e: ^Editor) {
 	e.confirm_delete = false
 	switch e.section {
 	case .Tilesets:
+		name := cm.name_str(&e.world.tileset_names[selected(e)])
+		sprites := cm.world_tileset_sprite_uses(&e.world, name)
 		if uses := cm.world_delete_tileset(&e.world, selected(e)); uses > 0 {
-			e.note = fmt.tprintf("USED BY %d TERRAIN%s", uses, uses == 1 ? "" : "S")
+			e.note = fmt.tprintf("USED BY %s", cm.uses_text(uses - sprites, sprites))
 			return
 		}
 	case .Terrain_Sets:
@@ -377,6 +407,8 @@ delete_item :: proc(e: ^Editor) {
 			e.note = fmt.tprintf("USED BY %d MAP%s", uses, uses == 1 ? "" : "S")
 			return
 		}
+	case .Sprite_Sets:
+		cm.world_delete_sprite_set(&e.world, selected(e))
 	case .Maps:
 		cm.world_delete_map(&e.world, selected(e))
 	}
@@ -472,6 +504,8 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 			problem = cm.world_check_tileset_name(&e.world, i, name)
 		case .Terrain_Sets:
 			problem = cm.world_check_set_name(&e.world, i, name)
+		case .Sprite_Sets:
+			problem = cm.world_check_sprite_set_name(&e.world, i, name)
 		case .Maps:
 			problem = cm.world_check_map_name(&e.world, i, name)
 		}
@@ -483,6 +517,8 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 					cm.world_rename_tileset(&e.world, i, name)
 				case .Terrain_Sets:
 					cm.world_rename_terrain_set(&e.world, i, name)
+				case .Sprite_Sets:
+					cm.world_rename_sprite_set(&e.world, i, name)
 				case .Maps:
 					cm.world_rename_map(&e.world, i, name)
 				}
@@ -526,6 +562,8 @@ run_hub :: proc(e: ^Editor, row: Hub_Row) {
 		open_list(e, .Tilesets)
 	case .Terrain_Sets:
 		open_list(e, .Terrain_Sets)
+	case .Sprite_Sets:
+		open_list(e, .Sprite_Sets)
 	case .Maps:
 		open_list(e, .Maps)
 	}
@@ -549,6 +587,10 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		return
 	case .Terrain:
 		tre.editor_handle_event(&e.terrain_ed, ev)
+		sync_embedded(e)
+		return
+	case .Sprite:
+		spe.editor_handle_event(&e.sprite_ed, ev)
 		sync_embedded(e)
 		return
 	case .Map:
@@ -653,7 +695,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Red, .Blue:
 			e.mode = .Hub
 		}
-	case .Text, .Palette, .Tileset, .Terrain, .Map:
+	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Map:
 		// Handled before this point: those modes own the input.
 	}
 }

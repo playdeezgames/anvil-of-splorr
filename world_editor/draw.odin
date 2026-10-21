@@ -3,6 +3,7 @@ package world_editor
 import cm "../common"
 import me "../map_editor"
 import pe "../palette_editor"
+import spe "../sprite_editor"
 import te "../tileset_editor"
 import tre "../terrain_editor"
 import "core:fmt"
@@ -30,6 +31,8 @@ hub_label :: proc(row: Hub_Row) -> string {
 		return "TILESETS"
 	case .Terrain_Sets:
 		return "TERRAIN SETS"
+	case .Sprite_Sets:
+		return "SPRITE SETS"
 	case .Maps:
 		return "MAPS"
 	}
@@ -42,6 +45,8 @@ section_title :: proc(s: Section) -> string {
 		return "TILESETS"
 	case .Terrain_Sets:
 		return "TERRAIN SETS"
+	case .Sprite_Sets:
+		return "SPRITE SETS"
 	case .Maps:
 		return "MAPS"
 	}
@@ -65,7 +70,7 @@ banner_text :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("ACTIONS   %s: DONE", label(e, .Red))
 	case .File:
 		return fmt.tprintf("FILE: %s SAVE  %s LOAD", label(e, .Green), label(e, .Yellow))
-	case .Text, .Palette, .Tileset, .Terrain, .Map:
+	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Map:
 		// These modes draw their own screens.
 	}
 	return ""
@@ -101,7 +106,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	case .File:
 		lines = {fmt.tprintf("%s: SAVE  %s: LOAD", l(e, .Green), l(e, .Yellow)), fmt.tprintf("%s: CANCEL", l(e, .Red)), "", ""}
 		return lines, 2
-	case .Text, .Palette, .Tileset, .Terrain, .Map:
+	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Map:
 	}
 	return lines, 0
 }
@@ -119,6 +124,9 @@ item_detail :: proc(e: ^Editor, s: Section, i: int) -> string {
 	case .Terrain_Sets:
 		n := e.world.sets[i].count
 		return fmt.tprintf("%d TERRAIN%s", n, n == 1 ? "" : "S")
+	case .Sprite_Sets:
+		n := e.world.sprite_sets[i].count
+		return fmt.tprintf("%d SPRITE%s", n, n == 1 ? "" : "S")
 	case .Maps:
 		return fmt.tprintf("%dX%d", e.world.maps[i].width, e.world.maps[i].height)
 	}
@@ -173,6 +181,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	case .Terrain:
 		tre.editor_draw(&e.terrain_ed, r)
 		return
+	case .Sprite:
+		spe.editor_draw(&e.sprite_ed, r)
+		return
 	case .Map:
 		me.editor_draw(&e.map_ed, r)
 		return
@@ -224,6 +235,8 @@ draw_hub :: proc(e: ^Editor, r: ^cm.Renderer) {
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.tileset_count, cm.WORLD_MAX_TILESETS), color)
 		case .Terrain_Sets:
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.set_count, cm.WORLD_MAX_TERRAIN_SETS), color)
+		case .Sprite_Sets:
+			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.sprite_set_count, cm.WORLD_MAX_SPRITE_SETS), color)
 		case .Maps:
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.map_count, cm.WORLD_MAX_MAPS), color)
 		}

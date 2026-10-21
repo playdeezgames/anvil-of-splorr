@@ -35,4 +35,5 @@ Status: [x] done and committed, [~] done but not committed yet, [ ] to do.
 - [~] Palette editor and tileset editor embedded in the world editor (no files, the world sets the tile size)
 - [~] Terrain set editor: terrains with name, solid flag, tileset and image (by name), a default terrain, picture picker
 - [~] Map editor, patterned on the image editor: paint, flip, rotate (square maps), frame / fill, flood, replace, clear; terrain picker; change terrain set by name
+- [~] Sprite sets and sprites: tile reference by name, transparent colour (0..15 or none), background terrain tool, in the world file and the world editor
 - [ ] More asset types in a world (to be specified)

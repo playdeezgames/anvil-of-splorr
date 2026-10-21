@@ -15,6 +15,9 @@ import "core:strings"
 WORLD_MAX_TILESETS :: 16
 WORLD_MAX_TERRAIN_SETS :: 16
 WORLD_MAX_MAPS :: 64
+WORLD_MAX_SPRITE_SETS :: 16
+SPRITE_MAX :: 256
+SPRITE_NO_TRANSPARENT :: -1 // a sprite whose every colour is drawn
 TERRAIN_MAX :: 256
 MAP_MAX :: 64
 MAP_DEFAULT_SIZE :: 32
@@ -96,6 +99,20 @@ Terrain_Set :: struct {
 	terrains: [TERRAIN_MAX]Terrain,
 }
 
+// A sprite is a tile of a tileset drawn without one colour (its transparent index, or none).
+Sprite :: struct {
+	name:        Name,
+	tileset:     Name, // empty = not set
+	image:       Name, // empty = not set
+	transparent: int, // a palette index 0..15 that is not drawn, or SPRITE_NO_TRANSPARENT
+}
+
+Sprite_Set :: struct {
+	name:    Name,
+	count:   int, // 0..SPRITE_MAX: unlike a terrain set, a sprite set may be empty
+	sprites: [SPRITE_MAX]Sprite,
+}
+
 World_Map :: struct {
 	name:          Name,
 	set:           Name, // the terrain set whose terrains the cells index
@@ -113,6 +130,8 @@ World :: struct {
 	sets:           [WORLD_MAX_TERRAIN_SETS]Terrain_Set,
 	map_count:      int,
 	maps:           [WORLD_MAX_MAPS]World_Map,
+	sprite_set_count: int,
+	sprite_sets:    [WORLD_MAX_SPRITE_SETS]Sprite_Set,
 }
 
 world_reset :: proc(w: ^World) {
@@ -304,8 +323,9 @@ world_duplicate_tileset :: proc(w: ^World, i: int) -> int {
 	return at
 }
 
-// How many terrains (in any set) use this tileset.
+// How many terrains and sprites (in any set) use this tileset.
 world_tileset_uses :: proc(w: ^World, tileset: string) -> (n: int) {
+	n = world_tileset_sprite_uses(w, tileset)
 	for si in 0 ..< w.set_count {
 		s := &w.sets[si]
 		for ti in 0 ..< s.count {
@@ -317,8 +337,9 @@ world_tileset_uses :: proc(w: ^World, tileset: string) -> (n: int) {
 	return
 }
 
-// How many terrains use this image of this tileset.
+// How many terrains and sprites use this image of this tileset.
 world_image_uses :: proc(w: ^World, tileset, image: string) -> (n: int) {
+	n = world_image_sprite_uses(w, tileset, image)
 	for si in 0 ..< w.set_count {
 		s := &w.sets[si]
 		for ti in 0 ..< s.count {
@@ -367,12 +388,14 @@ world_rename_tileset :: proc(w: ^World, i: int, name: string) -> Name_Problem {
 			}
 		}
 	}
+	sprites_follow_tileset(w, old, name)
 	name_assign(&w.tileset_names[i], name)
 	return .None
 }
 
-// An image of a tileset was renamed: every terrain that used it follows.
+// An image of a tileset was renamed: every terrain and sprite that used it follows.
 world_rename_image :: proc(w: ^World, tileset, old, new: string) {
+	sprites_follow_image(w, tileset, old, new)
 	for si in 0 ..< w.set_count {
 		for ti in 0 ..< w.sets[si].count {
 			t := &w.sets[si].terrains[ti]
@@ -809,7 +832,9 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 		}
 		strings.write_string(&b, "\n      ]}")
 	}
-	strings.write_string(&b, w.map_count == 0 ? "]\n}\n" : "\n  ]\n}\n")
+	strings.write_string(&b, w.map_count == 0 ? "],\n" : "\n  ],\n")
+	write_sprite_sets(&b, w)
+	strings.write_string(&b, "}\n")
 	return strings.to_string(b)
 }
 
@@ -1021,6 +1046,9 @@ world_from_json :: proc(data: []u8, dst: ^World) -> (err: string) {
 			m.cells[k / int(cols)][k % int(cols)] = u8(table[n])
 		}
 		tmp.map_count += 1
+	}
+	if msg := read_sprite_sets(root, tmp); msg != "" {
+		return msg
 	}
 	dst^ = tmp^
 	return ""

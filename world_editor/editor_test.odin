@@ -2,6 +2,7 @@
 package world_editor
 
 import cm "../common"
+import spe "../sprite_editor"
 import "core:strings"
 import "core:testing"
 
@@ -141,6 +142,9 @@ with_content :: proc() -> ^Editor {
 	cm.name_assign(&w.sets[s].terrains[rock].image, "g2")
 	m := cm.world_add_map(w, s, "start")
 	cm.world_map_set_size(w, m, 3, 3)
+	ss := cm.world_add_sprite_set(w, "creatures")
+	sp := cm.world_add_sprite(w, ss)
+	cm.name_assign(&w.sprite_sets[ss].sprites[sp].name, "slime")
 	return e
 }
 
@@ -267,7 +271,7 @@ test_a_tileset_in_use_cannot_be_deleted_until_it_is_free :: proc(t: ^testing.T) 
 	run(e, .Delete)
 	testing.expect(t, e.confirm_delete && e.world.tileset_count == 2)
 	press(e, .Green)
-	testing.expect(t, e.world.tileset_count == 2 && e.note == "USED BY 2 TERRAINS")
+	testing.expect(t, e.world.tileset_count == 2 && e.note == "USED BY 2 TERRAINS AND 1 SPRITE")
 	// The unused one goes after a second press.
 	e.mode = .List
 	press(e, .Down)
@@ -573,7 +577,7 @@ Input_Method :: enum {
 @(test)
 test_every_part_can_be_opened_by_each_input :: proc(t: ^testing.T) {
 	for m in Input_Method {
-		for row in ([]Hub_Row{.Palette, .Tilesets, .Terrain_Sets, .Maps}) {
+		for row in ([]Hub_Row{.Palette, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Maps}) {
 			e := with_content()
 			switch m {
 			case .Commands:
@@ -894,6 +898,10 @@ test_every_screen_draws_on_screen_in_every_mode :: proc(t: ^testing.T) {
 				e.section = .Terrain_Sets
 				e.mode = .List
 				press(e, .Green)
+			case .Sprite:
+				e.section = .Sprite_Sets
+				e.mode = .List
+				press(e, .Green)
 			case .Map:
 				e.section = .Maps
 				e.mode = .List
@@ -922,4 +930,154 @@ pe_open :: proc(e: ^Editor) {
 	e.mode = .Hub
 	e.hub = .Palette
 	press(e, .Green)
+}
+
+@(test)
+test_sprite_sets_are_listed_named_and_opened_in_the_sprite_editor :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	e.mode = .Hub
+	goto_hub(e, .Sprite_Sets)
+	press(e, .Green)
+	testing.expect(t, e.mode == .List && e.section == .Sprite_Sets && section_count(e, .Sprite_Sets) == 1)
+	testing.expect_value(t, item_detail(e, .Sprite_Sets, 0), "1 SPRITE")
+	testing.expect_value(t, item_info(e), "1 OF 1")
+	run(e, .New)
+	testing.expect(t, e.mode == .Text && e.world.sprite_set_count == 2 && e.sel[.Sprite_Sets] == 1)
+	name_typed(e, "items")
+	testing.expect(t, e.mode == .Sprite && cm.name_str(&e.world.sprite_sets[1].name) == "items" && e.sprite_ed.set_index == 1)
+	testing.expect(t, e.dirty)
+	// The sprite editor works in place: a new sprite in the empty set.
+	press(e, .Yellow, .Down, .Green) // Setup -> New
+	press_keypad_action_in(e, &e.sprite_ed.entry, .Done)
+	testing.expect_value(t, e.world.sprite_sets[1].count, 1)
+	press(e, .Red, .Red)
+	testing.expect_value(t, e.mode, Mode.List)
+	testing.expect_value(t, item_detail(e, .Sprite_Sets, 1), "1 SPRITE")
+	// Rename and duplicate follow the usual rules; names are unique among sprite sets.
+	run(e, .Rename)
+	name_typed(e, "creatures")
+	testing.expect(t, e.mode == .Text && strings.contains(e.entry.note, "USE"))
+	name_typed(e, "things")
+	testing.expect_value(t, cm.name_str(&e.world.sprite_sets[1].name), "things")
+	run(e, .Duplicate)
+	press_keypad_action(e, .Done)
+	testing.expect(t, e.mode == .Sprite && e.world.sprite_set_count == 3 && e.world.sprite_sets[2].count == 1)
+	press(e, .Red)
+	// Nothing uses a sprite set, so deleting is free (after the second press).
+	run(e, .Delete)
+	press(e, .Green)
+	testing.expect_value(t, e.world.sprite_set_count, 2)
+	// The limit.
+	for e.world.sprite_set_count < cm.WORLD_MAX_SPRITE_SETS {
+		cm.world_add_sprite_set(&e.world)
+	}
+	e.note = ""
+	run(e, .New)
+	testing.expect_value(t, e.note, NOTE_FULL)
+}
+
+press_keypad_action_in :: proc(e: ^Editor, entry: ^cm.Text_Entry, a: cm.Text_Entry_Action) {
+	for entry.row != cm.TEXT_ENTRY_ROWS - 1 {
+		press(e, .Down)
+	}
+	for cm.text_entry_action_at(entry.col) != a {
+		press(e, .Right)
+	}
+	press(e, .Green)
+}
+
+@(test)
+test_the_sprite_editor_sees_the_worlds_terrains_and_palette :: proc(t: ^testing.T) {
+	e := with_content()
+	defer free(e)
+	e.world.palette[5] = {7, 7, 7}
+	e.mode = .Hub
+	goto_hub(e, .Sprite_Sets)
+	press(e, .Green, .Green)
+	testing.expect_value(t, e.mode, Mode.Sprite)
+	press(e, .Yellow)
+	for e.sprite_ed.row != .Bg_Set {
+		press(e, .Down)
+	}
+	press(e, .Right)
+	testing.expect(t, spe_backdrop_name(e) == "grass")
+	testing.expect(t, !e.dirty) // looking only
+	press(e, .Red, .Red)
+	testing.expect_value(t, e.mode, Mode.List)
+}
+
+spe_backdrop_name :: proc(e: ^Editor) -> string {
+	if bg := spe.backdrop(&e.sprite_ed); bg != nil {
+		return cm.name_str(&bg.name)
+	}
+	return ""
+}
+
+@(test)
+test_a_tileset_or_image_used_by_a_sprite_cannot_be_deleted_in_a_world :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	// Only sprites use "ground" and its image g1 here.
+	for ti in 0 ..< e.world.sets[0].count {
+		e.world.sets[0].terrains[ti].tileset, e.world.sets[0].terrains[ti].image = {}, {}
+	}
+	open(e, .Tilesets)
+	run(e, .Delete)
+	press(e, .Green)
+	testing.expect_value(t, e.note, "USED BY 0 TERRAINS AND 1 SPRITE")
+	testing.expect_value(t, e.world.tileset_count, 2)
+	// In its editor the image is protected too, and a rename follows into the sprite.
+	e.mode = .List
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Tileset)
+	press(e, .Yellow)
+	for e.tileset_ed.row != .Delete {
+		press(e, .Down)
+	}
+	press(e, .Green, .Green)
+	testing.expect(t, e.tileset_ed.note == "IMAGE USED BY 0 TERRAINS AND 1 SPRITE" && e.tileset_ed.tileset.count == 2)
+	e.tileset_ed.mode = .Setup
+	for e.tileset_ed.row != .Rename {
+		press(e, .Up)
+	}
+	press(e, .Green)
+	name_typed(e, "stone", &e.tileset_ed.entry)
+	testing.expect_value(t, cm.name_str(&e.world.sprite_sets[0].sprites[0].image), "stone")
+}
+
+@(test)
+test_sprite_sets_survive_save_and_load_in_the_tool :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	e.world.sprite_sets[0].sprites[0].transparent = cm.SPRITE_NO_TRANSPARENT
+	tl := tool(e)
+	press(e, .Blue, .Green)
+	text, ok := tl.take_save(tl.data)
+	testing.expect(t, ok && strings.contains(text, `"transparent": null`))
+	e2 := new_editor()
+	defer free(e2)
+	tl2 := tool(e2)
+	testing.expect(t, tl2.load(tl2.data, transmute([]u8)text))
+	testing.expect(t, e2.world.sprite_set_count == 1 && e2.world.sprite_sets[0].sprites[0].transparent == cm.SPRITE_NO_TRANSPARENT)
+}
+
+@(test)
+test_every_sprite_set_part_is_reachable_by_each_input :: proc(t: ^testing.T) {
+	for m in Input_Method {
+		e := with_content()
+		switch m {
+		case .Commands:
+			goto_hub(e, .Sprite_Sets)
+			press(e, .Green)
+		case .Mouse:
+			click_hub(e, .Sprite_Sets)
+		}
+		ok := e.mode == .List && e.section == .Sprite_Sets
+		free(e)
+		testing.expectf(t, ok, "%v could not open the sprite sets", m)
+	}
 }
