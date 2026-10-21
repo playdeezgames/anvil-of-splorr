@@ -60,7 +60,7 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 
 ## Sound (plan in SOUND.md)
 - [x] 1. Model and file: `common/world_sounds.odin`, `sounds` in world.json
-- [ ] 2. PLAY parser and square synth with WAV writer (pure, tested)
+- [x] 2. PLAY parser and square synth with WAV writer (pure, tested)
 - [ ] 3. MCP sound tools (list/new/set/check/render) and installing prod
 - [ ] 4. Playback hook on `Tool`, SDL2 and web audio
 - [ ] 5. World editor: SOUND section, list, sound screen, long-text keypad, parity tests

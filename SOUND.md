@@ -9,7 +9,7 @@ Goal (USER_STORIES 5): make and name short sounds and tunes, play them in the ed
 
 ## The PLAY dialect
 
-Case-insensitive, spaces ignored. Taken from GW-BASIC / QBasic:
+Case-insensitive, spaces ignored anywhere between parts. Taken from GW-BASIC / QBasic (built in `common/play_text.odin`; octave 3 starts at middle C, so the default octave 4 is an octave above it; each dot adds half of what the previous part added, so one dot is 3/2 as long and two dots 7/4; going past the octave limits with `<`, `>` or a sharp/flat is an error; a tune may not run longer than 60 seconds):
 
 | Command | Meaning |
 |---|---|
