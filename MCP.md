@@ -18,6 +18,8 @@ claude mcp add --scope user anvil-prod -- ~/.local/bin/anvil_mcp --dir ~/anvil-w
 
 Run `install-mcp` again when a change should reach those sessions; they pick it up the next time they start (an MCP client launches the binary per session). Prod's worlds live in `~/anvil-worlds`, apart from anything in the repo. `ANVIL_PREFIX` and `ANVIL_WORLDS` change the two folders. Register the dev build under another name (`anvil-dev`) to try changes.
 
+**Getting a world out.** Saved worlds are plain `world.json` files, and the tools help a session find them: `world_save` and `world_open` report the file's absolute `path`; `world_list` shows what is in the server's folder (and where the folder is); `world_export` writes the open world (unsaved changes included) to any absolute path, such as a game's repo, without touching the server's folder; `world_open` also accepts an absolute path to bring a world in from elsewhere; and `world_read` returns a saved file's text in chunks for a session that cannot read the file itself. Only `world_open` (read) and `world_export` (write) leave the folder; `world_save` stays inside it.
+
 The reference for every tool (name, what it does, input schema) is `MCP_TOOLS.md`, generated from the code; a test fails if it is stale. A typical session: `world_new` (or `world_open`), edit with the tag / palette / tileset / terrain / sprite / map / character tools, look with `render_map` and `play_walk`, then `world_save`. `mcp_server/smoke_test.odin` builds a complete "Go Get the Thing" world with tool calls alone and reads it back through `anvil_runtime`, which is the best worked example.
 
 Below is the original plan, kept for the reasoning.

@@ -185,3 +185,60 @@ test_the_shipped_demo_world_opens :: proc(t: ^testing.T) {
 	text, bad = call(t, s, "world_summary")
 	testing.expect(t, !bad && strings.contains(text, `"maps":[`) && strings.contains(text, `"unsaved_changes":false`))
 }
+
+@(test)
+test_a_session_can_find_and_get_the_worlds_it_saved :: proc(t: ^testing.T) {
+	dir := temp_dir("find")
+	game := temp_dir("find_game")
+	s := new_server(dir)
+	defer free_server(s)
+	text, bad := call(t, s, "world_list")
+	testing.expect(t, !bad && strings.contains(text, `"files":[]`) && strings.contains(text, dir), text)
+	call(t, s, "world_new")
+	call(t, s, "tile_size_set", `{"width":5,"height":6}`)
+	// Saving says where the file really is.
+	text, bad = call(t, s, "world_save", `{"path":"mine.json"}`)
+	testing.expect(t, !bad && strings.contains(text, fmt.tprintf(`"path":"%s/mine.json"`, dir)), text)
+	text, _ = call(t, s, "world_list")
+	testing.expect(t, strings.contains(text, `"name":"mine.json"`) && strings.contains(text, `"current":"mine.json"`), text)
+	// Another folder: export with an absolute path (refusing a second time without overwrite).
+	target := fmt.tprintf(`{{"path":"%s/world.json"}}`, game)
+	text, bad = call(t, s, "world_export", target)
+	testing.expect(t, !bad && strings.contains(text, fmt.tprintf(`%s/world.json`, game)), text)
+	_, bad = call(t, s, "world_export", target)
+	testing.expect(t, bad)
+	_, bad = call(t, s, "world_export", fmt.tprintf(`{{"path":"%s/world.json","overwrite":true}}`, game))
+	testing.expect(t, !bad)
+	_, bad = call(t, s, "world_export", `{"path":"/nonexistent_folder_x/world.json"}`)
+	testing.expect(t, bad)
+	_, bad = call(t, s, "world_export", `{"path":"/tmp/../etc/w.json"}`)
+	testing.expect(t, bad)
+	_, bad = call(t, s, "world_save", fmt.tprintf(`{{"path":"%s/other.json"}}`, game)) // save stays inside the folder
+	testing.expect(t, bad)
+	// The exported file is a world a game can load, and another session can open it by path.
+	s2 := new_server(dir)
+	defer free_server(s2)
+	text, bad = call(t, s2, "world_open", fmt.tprintf(`{{"path":"%s/world.json"}}`, game))
+	testing.expect(t, !bad && s2.world.tile_w == 5 && s2.world.tile_h == 6, text)
+	// world_read hands the text over in chunks.
+	text, bad = call(t, s2, "world_read", `{"offset":0,"length":40}`)
+	testing.expect(t, !bad && strings.contains(text, `"offset":0,"next":40,"done":false`) && strings.contains(text, `tile_width`), text)
+	whole := strings.builder_make(context.temp_allocator)
+	offset := 0
+	for {
+		chunk, bad2 := call(t, s2, "world_read", fmt.tprintf(`{{"path":"%s/world.json","offset":%d,"length":50}}`, game, offset))
+		testing.expect(t, !bad2)
+		v, _ := json.parse(transmute([]u8)chunk, .JSON, false, context.temp_allocator)
+		obj, _ := v.(json.Object)
+		part, _ := obj["text"].(json.String)
+		strings.write_string(&whole, string(part))
+		next, _ := arg_int(obj, "next")
+		if bool(obj["done"].(json.Boolean)) {
+			break
+		}
+		offset = next
+	}
+	testing.expect(t, strings.contains(strings.to_string(whole), `"tile_width": 5`))
+	_, bad = call(t, s2, "world_read", `{"path":"missing.json"}`)
+	testing.expect(t, bad)
+}

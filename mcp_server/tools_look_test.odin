@@ -27,7 +27,8 @@ test_every_tool_needs_an_open_world_and_names_are_unique :: proc(t: ^testing.T) 
 	for tool in tools() {
 		testing.expectf(t, tool.name not_in seen, "duplicate tool %s", tool.name)
 		seen[tool.name] = true
-		if strings.has_prefix(tool.name, "world_new") || strings.has_prefix(tool.name, "world_open") {
+		// (these work with no world open: they look at files)
+		if tool.name == "world_new" || tool.name == "world_open" || tool.name == "world_list" || tool.name == "world_read" {
 			continue
 		}
 		text, bad := call(t, s, tool.name, `{"name":"x","set":"x","tileset":"x"}`)

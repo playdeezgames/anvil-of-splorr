@@ -20,6 +20,24 @@ Write the open world to a file in the server's folder. Without a path it saves t
 
 Input schema: `{"type":"object","properties":{"path":{"type":"string"},"overwrite":{"type":"boolean"}}}`
 
+## `world_list`
+
+List the world files (.json) in the server's folder with their size and modification time (seconds since 1970), and say where the folder is. Use it to find a world you saved earlier.
+
+Input schema: `{"type":"object","properties":{}}`
+
+## `world_export`
+
+Write the open world (with unsaved changes too) to a file anywhere: path is absolute (for example in a game's repo) or relative to the server's folder, ends in .json, and its folder must exist. Replacing a file needs overwrite true. Does not change which file the world is open from. Returns the absolute path and size.
+
+Input schema: `{"type":"object","properties":{"path":{"type":"string"},"overwrite":{"type":"boolean"}},"required":["path"]}`
+
+## `world_read`
+
+Read the text of a saved world file in chunks, for a session that cannot read the file itself. path defaults to the file the open world came from. Returns up to length (default and most 60000) bytes from offset, and whether that was the end; call again with offset set to the returned next.
+
+Input schema: `{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"}}}`
+
 ## `world_summary`
 
 Describe the open world: file, unsaved changes, tile size, and the names of its tilesets, terrain sets, sprite sets, character types, maps, tags and parameters.
