@@ -29,6 +29,11 @@ Tool :: struct {
 	wants_load:   proc(data: rawptr) -> bool, // true once per load request
 	load:         proc(data: rawptr, bytes: []u8) -> bool, // false if the bytes are not valid
 
+	// Sound: the requests (start a sound on a channel, stop one, stop all) the tool has queued since the
+	// last call, one per call, ok false when there are none. The frontend applies them to its Mixer each
+	// frame (`tool_service_audio`); samples may be on the temp allocator.
+	take_audio:   proc(data: rawptr) -> (req: Audio_Request, ok: bool),
+
 	// A second, read-only file the tool wants (the glyph editor reads the saved palette). The
 	// frontend reads it, silently skipping a missing one, whenever wants_aux_load says so.
 	aux_file_name: proc(data: rawptr) -> string,

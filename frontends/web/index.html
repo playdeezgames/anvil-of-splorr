@@ -139,6 +139,31 @@ async function loadFetched() {
   }
 }
 
+// Sound. The wasm module mixes (audio_fill); this node asks it for samples whenever the browser wants
+// more. Browsers start audio only after a user gesture, so the context is made on the first key press,
+// click or touch.
+let audioCtx = null;
+function startAudio() {
+  if (audioCtx) { if (audioCtx.state !== "running") audioCtx.resume(); return; }
+  try {
+    try { audioCtx = new AudioContext({ sampleRate: 22050 }); } catch (e) { audioCtx = new AudioContext(); }
+    const node = audioCtx.createScriptProcessor(2048, 0, 1);
+    node.onaudioprocess = (ev) => {
+      const out = ev.outputBuffer.getChannelData(0);
+      const exp = memory.exports;
+      if (!exp || !exp.audio_fill) { out.fill(0); return; }
+      exp.audio_fill(out.length, audioCtx.sampleRate);
+      const src = new Int16Array(memory.memory.buffer, exp.audio_buffer(), out.length);
+      for (let i = 0; i < out.length; i++) out[i] = src[i] / 32768;
+    };
+    node.connect(audioCtx.destination);
+    audioCtx.resume();
+  } catch (e) { audioCtx = null; }
+}
+for (const type of ["keydown", "pointerdown", "touchstart"]) {
+  window.addEventListener(type, startAudio, { passive: true });
+}
+
 // Closing or reloading the tab with unsaved edits asks the browser to confirm.
 window.addEventListener("beforeunload", (ev) => {
   const exp = memory.exports;

@@ -167,6 +167,12 @@ tool :: proc(l: ^Launcher) -> cm.Tool {
 		},
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {launcher_handle_event((^Launcher)(data), ev)},
 		update_pads = proc(data: rawptr, pads: ^cm.Pads) {launcher_update_pads((^Launcher)(data), pads)},
+		take_audio = proc(data: rawptr) -> (cm.Audio_Request, bool) {
+			if t := running((^Launcher)(data)); t != nil && t.take_audio != nil {
+				return t.take_audio(t.data)
+			}
+			return {}, false
+		},
 		update = proc(data: rawptr, dt_ms: f64) {
 			// the running tool gets the clock; the menu itself has no use for it
 			if t := running((^Launcher)(data)); t != nil && t.update != nil {

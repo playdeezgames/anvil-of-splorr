@@ -3,6 +3,8 @@ package main
 import cm "../../common"
 import app "app:app"
 import "core:fmt"
+import "base:runtime"
+import "core:c"
 import "core:os"
 import sdl "vendor:sdl2"
 
@@ -14,6 +16,39 @@ Gamepad :: struct {
 }
 
 gamepads: [dynamic]Gamepad
+
+// Sound: the tool's requests go into `mixer`; the audio device's callback (another thread) pulls
+// samples out of it, so every touch of the mixer from the main loop holds the device lock.
+mixer: cm.Mixer
+audio_device: sdl.AudioDeviceID // 0 = no sound (no device, or it would not open)
+audio_rate: int
+
+audio_callback :: proc "c" (userdata: rawptr, stream: [^]u8, len: c.int) {
+	context = runtime.default_context()
+	cm.mixer_render(&mixer, ([^]i16)(stream)[:int(len) / 2], audio_rate)
+}
+
+open_audio :: proc() {
+	if sdl.InitSubSystem({.AUDIO}) != 0 { 	// a machine without sound still runs everything else
+		fmt.eprintln("no sound:", sdl.GetError())
+		return
+	}
+	want := sdl.AudioSpec {
+		freq     = cm.SOUND_RATE,
+		format   = sdl.AUDIO_S16SYS,
+		channels = 1,
+		samples  = 1024,
+		callback = audio_callback,
+	}
+	have: sdl.AudioSpec
+	audio_device = sdl.OpenAudioDevice(nil, false, &want, &have, {})
+	if audio_device == 0 {
+		fmt.eprintln("no sound:", sdl.GetError())
+		return
+	}
+	audio_rate = int(have.freq)
+	sdl.PauseAudioDevice(audio_device, false)
+}
 imap: cm.Input_Map
 window_closed: bool // the window's close button is the only way to quit
 
@@ -23,6 +58,13 @@ main :: proc() {
 		os.exit(1)
 	}
 	defer sdl.Quit()
+	open_audio()
+	defer {
+		if audio_device != 0 {
+			sdl.CloseAudioDevice(audio_device)
+		}
+		cm.mixer_free(&mixer)
+	}
 
 	window := sdl.CreateWindow(
 		"Asset Tool",
@@ -101,6 +143,14 @@ main :: proc() {
 		}
 		if aux := cm.tool_aux_file_name(&tool); aux != "" && tool.wants_aux_load(tool.data) {
 			load_aux_file(&tool, aux)
+		}
+
+		if audio_device != 0 {
+			sdl.LockAudioDevice(audio_device)
+		}
+		cm.tool_service_audio(&tool, &mixer)
+		if audio_device != 0 {
+			sdl.UnlockAudioDevice(audio_device)
 		}
 
 		now_ticks := sdl.GetTicks()

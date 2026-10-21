@@ -12,6 +12,7 @@ Probe :: struct {
 	entered:      int,
 	draws:        int,
 	elapsed_ms:   f64, // the sum of what update was told
+	audio_queued: int, // requests it will hand out
 	exit_next:    bool,
 	file:         string, // "" = no files
 	saved_calls:  int,
@@ -27,6 +28,8 @@ Probe :: struct {
 	aux_named_while_pending: bool, // the name is "" unless a request is pending (like the world editor)
 }
 
+one_sample := [1]i16{1}
+
 probe_tool :: proc(p: ^Probe) -> cm.Tool {
 	t := cm.Tool {
 		data          = p,
@@ -40,6 +43,14 @@ probe_tool :: proc(p: ^Probe) -> cm.Tool {
 		},
 		update_pads   = proc(d: rawptr, pads: ^cm.Pads) {(^Probe)(d).pad_updates += 1},
 		update        = proc(d: rawptr, dt_ms: f64) {(^Probe)(d).elapsed_ms += dt_ms},
+		take_audio    = proc(d: rawptr) -> (cm.Audio_Request, bool) {
+			p := (^Probe)(d)
+			if p.audio_queued == 0 {
+				return {}, false
+			}
+			p.audio_queued -= 1
+			return cm.Audio_Request{action = .Play, channel = p.audio_queued, samples = one_sample[:]}, true
+		},
 		draw          = proc(d: rawptr, r: ^cm.Renderer) {(^Probe)(d).draws += 1},
 		enter         = proc(d: rawptr) {(^Probe)(d).entered += 1},
 		is_dirty      = proc(d: rawptr) -> bool {return (^Probe)(d).dirty},
@@ -328,4 +339,20 @@ test_the_clock_reaches_only_the_running_tool :: proc(t: ^testing.T) {
 	cm.tool_update(&lt, 500) // clamped to MAX_FRAME_MS on the way
 	testing.expect_value(t, f.a.elapsed_ms, 16.0 + cm.MAX_FRAME_MS)
 	testing.expect_value(t, f.b.elapsed_ms, 0.0)
+}
+
+@(test)
+test_audio_requests_come_from_the_running_tool :: proc(t: ^testing.T) {
+	f: Fixture
+	lt := setup(&f)
+	f.a.audio_queued, f.b.audio_queued = 2, 3
+	m: cm.Mixer
+	defer cm.mixer_free(&m)
+	cm.tool_service_audio(&lt, &m) // at the menu: nobody is running
+	testing.expect_value(t, cm.mixer_active(&m), 0)
+	lt.handle_event(lt.data, cmd(.Green)) // open ALPHA
+	cm.tool_service_audio(&lt, &m)
+	testing.expect_value(t, cm.mixer_active(&m), 2)
+	testing.expect_value(t, f.a.audio_queued, 0)
+	testing.expect_value(t, f.b.audio_queued, 3) // BETA was never asked
 }

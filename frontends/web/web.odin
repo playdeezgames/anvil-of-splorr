@@ -27,6 +27,34 @@ foreign host {
 
 MAX_PADS :: 4
 
+// Sound. The tool's requests go into `mixer` each frame; the page's audio node calls `audio_fill`
+// whenever the browser wants more samples (on the same thread as `step`, so no locking), and reads
+// them from `audio_buffer()`. Browsers only start audio after a click or key press: the page creates
+// the audio context on the first one, so a sound asked for before that is silent.
+mixer: cm.Mixer
+AUDIO_BUFFER_SAMPLES :: 4096
+audio_samples: [AUDIO_BUFFER_SAMPLES]i16
+
+@(export)
+audio_buffer :: proc "c" () -> rawptr {
+	return &audio_samples[0]
+}
+
+// Renders `count` samples (at most AUDIO_BUFFER_SAMPLES) at `rate` Hz into the audio buffer.
+@(export)
+audio_fill :: proc "c" (count, rate: i32) {
+	context = ctx
+	n := clamp(int(count), 0, AUDIO_BUFFER_SAMPLES)
+	cm.mixer_render(&mixer, audio_samples[:n], int(rate))
+}
+
+// How many channels are sounding (for the page and for tests).
+@(export)
+audio_active :: proc "c" () -> i32 {
+	context = ctx
+	return i32(cm.mixer_active(&mixer))
+}
+
 ctx: runtime.Context
 tool: cm.Tool
 imap: cm.Input_Map
@@ -84,6 +112,7 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	if aux := cm.tool_aux_file_name(&tool); aux != "" && tool.wants_aux_load(tool.data) {
 		restore_aux(aux)
 	}
+	cm.tool_service_audio(&tool, &mixer)
 	cm.tool_update(&tool, dt * 1000) // (dt is in seconds)
 	tool.draw(tool.data, &renderer)
 	free_all(context.temp_allocator)
