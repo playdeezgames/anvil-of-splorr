@@ -25,7 +25,7 @@ Bulk forms exist wherever an agent would otherwise make thousands of calls (map 
 
 ## Pieces to build
 
-Status: pieces 1, 2 and 3 done (piece 3: map_*, char_type_*, character_*, player_set, play_walk) (piece 2: tag_*, param_*, palette_*, tile_size_set, tileset_*, image_*, terrain_*, sprite_*)
+Status: pieces 1 to 4 done (piece 4: render_map/tile/sprite/palette, PNG writer) (piece 3: map_*, char_type_*, character_*, player_set, play_walk) (piece 2: tag_*, param_*, palette_*, tile_size_set, tileset_*, image_*, terrain_*, sprite_*)
 
 Piece 1: (`mcp_server/`, `anvil_mcp/`, `./build.sh mcp`; the package is `mcp_server/` and the binary's `main` is `anvil_mcp/`, not under `apps/`, since `apps/` entries are editor frontends).
 

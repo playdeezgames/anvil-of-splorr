@@ -16,6 +16,7 @@ tools :: proc() -> []Tool {
 		append(&all, ..rules_tools())
 		append(&all, ..look_tools())
 		append(&all, ..actor_tools())
+		append(&all, ..render_tools())
 	})
 	return all[:]
 }

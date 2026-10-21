@@ -55,5 +55,5 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [x] 1. Skeleton: JSON-RPC over stdio, world_new/open/save/summary/check_game_tags (`mcp_server/`, `anvil_mcp/`, `./build.sh mcp`)
 - [x] 2. Rules and Look tools (tags, params, palette, tilesets, images, terrains, sprites)
 - [x] 3. Actors and maps, bulk map operations, play_walk
-- [ ] 4. Pictures: PNG writer and render_* tools
+- [x] 4. Pictures: PNG writer and render_* tools
 - [ ] 5. Tool reference and an end-to-end smoke test

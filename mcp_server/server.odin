@@ -8,6 +8,7 @@
 package mcp_server
 
 import cm "../common"
+import "core:encoding/base64"
 import "core:encoding/json"
 import "core:fmt"
 import "core:strings"
@@ -52,6 +53,7 @@ server_destroy :: proc(s: ^Server) {
 Tool_Result :: struct {
 	text:     string,
 	is_error: bool,
+	png:      []u8, // a picture to show after the text (the bytes of a PNG file), or nil
 }
 
 Tool :: struct {
@@ -155,6 +157,15 @@ handle_tool_call :: proc(s: ^Server, id: string, params: json.Object) -> (reply:
 }
 
 tool_result_json :: proc(r: Tool_Result) -> string {
+	if r.png != nil {
+		data, _ := base64.encode(r.png, allocator = context.temp_allocator)
+		return fmt.tprintf(
+			`{{"content":[{{"type":"text","text":%s}},{{"type":"image","data":"%s","mimeType":"image/png"}}],"isError":%v}}`,
+			quote(r.text),
+			data,
+			r.is_error,
+		)
+	}
 	return fmt.tprintf(`{{"content":[{{"type":"text","text":%s}}],"isError":%v}}`, quote(r.text), r.is_error)
 }
 
