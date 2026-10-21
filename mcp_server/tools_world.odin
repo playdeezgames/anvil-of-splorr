@@ -69,7 +69,7 @@ world_tools :: proc() -> []Tool {
 // A file name for the tools: relative to the server's folder, no '..' or backslashes, ending in
 // .json. With allow_absolute the name may instead be an absolute path anywhere (for reading a world
 // from, or exporting one to, another folder such as a game's repo).
-resolve_path :: proc(s: ^Server, name: string, allow_absolute := false) -> (path: string, err: string) {
+resolve_path :: proc(s: ^Server, name: string, allow_absolute := false, extension := ".json") -> (path: string, err: string) {
 	absolute := strings.has_prefix(name, "/")
 	switch {
 	case name == "":
@@ -80,8 +80,8 @@ resolve_path :: proc(s: ^Server, name: string, allow_absolute := false) -> (path
 		return "", "the path may not contain ':' or backslashes"
 	case strings.contains(name, ".."):
 		return "", "the path may not contain '..'"
-	case !strings.has_suffix(name, ".json"):
-		return "", "the path must end in .json"
+	case !strings.has_suffix(name, extension):
+		return "", fmt.tprintf("the path must end in %s", extension)
 	}
 	if absolute {
 		return name, ""
@@ -198,6 +198,7 @@ tool_world_summary :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 	write_name_list(&b, "maps", w.map_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.maps[i].name)}, w)
 	write_name_list(&b, "tags", w.tag_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.tags[i])}, w)
 	write_name_list(&b, "params", w.param_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.params[i].name)}, w)
+	write_name_list(&b, "sounds", w.sound_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.sounds[i].name)}, w)
 	fmt.sbprintf(&b, `,"characters":%d,"has_player":%v}}`, w.character_count, w.player != cm.Uuid{})
 	return ok_result(strings.to_string(b))
 }

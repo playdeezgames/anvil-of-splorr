@@ -55,6 +55,7 @@ Tool_Result :: struct {
 	text:     string,
 	is_error: bool,
 	png:      []u8, // a picture to show after the text (the bytes of a PNG file), or nil
+	wav:      []u8, // a sound to attach after the text (the bytes of a WAV file), or nil
 }
 
 Tool :: struct {
@@ -162,6 +163,15 @@ tool_result_json :: proc(r: Tool_Result) -> string {
 		data, _ := base64.encode(r.png, allocator = context.temp_allocator)
 		return fmt.tprintf(
 			`{{"content":[{{"type":"text","text":%s}},{{"type":"image","data":"%s","mimeType":"image/png"}}],"isError":%v}}`,
+			quote(r.text),
+			data,
+			r.is_error,
+		)
+	}
+	if r.wav != nil {
+		data, _ := base64.encode(r.wav, allocator = context.temp_allocator)
+		return fmt.tprintf(
+			`{{"content":[{{"type":"text","text":%s}},{{"type":"audio","data":"%s","mimeType":"audio/wav"}}],"isError":%v}}`,
 			quote(r.text),
 			data,
 			r.is_error,

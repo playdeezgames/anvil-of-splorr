@@ -434,3 +434,51 @@ Draw the 16 palette colours as a PNG: two rows of eight swatches, index 0 at the
 
 Input schema: `{"type":"object","properties":{}}`
 
+## `sound_list`
+
+List the sounds: name, loop, length in seconds and notes (or the error in the text).
+
+Input schema: `{"type":"object","properties":{}}`
+
+## `sound_check`
+
+Check PLAY text without storing it: says whether it is valid (and its length and note count) or where the first error is. PLAY text is BASIC-style: T120 tempo, O4 octave (O3 starts at middle C), L8 default length, notes A-G with # + - and a length and dots, P4 pause, N37 note number, < > octave, MN ML MS style. See SOUND.md.
+
+Input schema: `{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`
+
+## `sound_new`
+
+Add a sound (up to 64) with PLAY text (up to 1024 characters, must be valid) and a loop setting.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"text":{"type":"string"},"loop":{"type":"boolean"}},"required":["name","text"]}`
+
+## `sound_set`
+
+Change a sound; only the fields given change. New text must be valid PLAY text.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"new_name":{"type":"string"},"text":{"type":"string"},"loop":{"type":"boolean"}},"required":["name"]}`
+
+## `sound_delete`
+
+Delete a sound.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`
+
+## `sound_get`
+
+A sound's text, loop setting, length and note count.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`
+
+## `sound_render`
+
+Render a sound (by name) or PLAY text (text) to audio: a mono 16-bit 22050 Hz WAV of a square-wave voice, attached as audio content (up to 30 seconds; longer ones: use sound_export).
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"text":{"type":"string"}}}`
+
+## `sound_export`
+
+Write a sound (by name) or PLAY text (text) as a .wav file so a person can play it: path is absolute or relative to the server's folder and ends in .wav; replacing a file needs overwrite true.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"text":{"type":"string"},"path":{"type":"string"},"overwrite":{"type":"boolean"}},"required":["path"]}`
+

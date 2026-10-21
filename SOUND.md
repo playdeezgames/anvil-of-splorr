@@ -31,7 +31,7 @@ Not taken: `MF`/`MB` (foreground/background), `X` (substring), `=var;`. Anything
 - Playback: an **audio hook** on `cm.Tool` (the tool asks for a PCM buffer to be played or stopped; the frontend does it): SDL2 audio queue on native, Web Audio on the page. Like the renderer, the tool code never touches the platform.
 - World editor: a **SOUND** section on the hub with a list (new, duplicate, rename, delete, loop) and a sound screen: the text, the parse result, **green = play/stop**, **yellow = type** (the keypad, which needs a longer-text mode than its current 32 characters), red = back.
 - Runtime (`anvil_runtime`): `sound_pcm(world, name) -> []i16` and `sound_loops(world, name)`; a game hands the PCM to the audio sink of its frontend. A game without sound builds without any audio code.
-- MCP: `sound_list`, `sound_new`, `sound_set` (text, with parse errors reported), `sound_rename`, `sound_delete`, `sound_loop`, `sound_check` (duration, note count, errors) and `sound_render` (the WAV as MCP audio content, so an agent can hand it to a person or save it). `world_summary` lists the sounds.
+- MCP: `sound_list`, `sound_new`, `sound_set` (text, with parse errors reported), `sound_rename`, `sound_delete`, `sound_loop`, `sound_check` (duration, note count, errors) and `sound_render` (the WAV as MCP audio content, up to 30 s) and `sound_export` (a .wav file a person can play; absolute or relative path). `world_summary` lists the sounds.
 
 ## Pieces (in this order; the first three are headless and testable, the agent can use them early)
 
