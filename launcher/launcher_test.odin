@@ -11,6 +11,7 @@ Probe :: struct {
 	pad_updates:  int,
 	entered:      int,
 	draws:        int,
+	elapsed_ms:   f64, // the sum of what update was told
 	exit_next:    bool,
 	file:         string, // "" = no files
 	saved_calls:  int,
@@ -38,6 +39,7 @@ probe_tool :: proc(p: ^Probe) -> cm.Tool {
 			}
 		},
 		update_pads   = proc(d: rawptr, pads: ^cm.Pads) {(^Probe)(d).pad_updates += 1},
+		update        = proc(d: rawptr, dt_ms: f64) {(^Probe)(d).elapsed_ms += dt_ms},
 		draw          = proc(d: rawptr, r: ^cm.Renderer) {(^Probe)(d).draws += 1},
 		enter         = proc(d: rawptr) {(^Probe)(d).entered += 1},
 		is_dirty      = proc(d: rawptr) -> bool {return (^Probe)(d).dirty},
@@ -313,4 +315,17 @@ test_aux_bytes_arrive_even_after_the_tool_stops_naming_its_file :: proc(t: ^test
 	testing.expect_value(t, cm.tool_aux_file_name(&lt), "") // ... so the name is gone when the bytes come
 	testing.expect(t, lt.load_aux(lt.data, []u8{1, 2, 3}))
 	testing.expect_value(t, f.a.aux_loaded, 3)
+}
+
+@(test)
+test_the_clock_reaches_only_the_running_tool :: proc(t: ^testing.T) {
+	f: Fixture
+	lt := setup(&f)
+	cm.tool_update(&lt, 16) // the menu itself: nothing to tell anyone
+	testing.expect(t, f.a.elapsed_ms == 0 && f.b.elapsed_ms == 0)
+	lt.handle_event(lt.data, cmd(.Green)) // open ALPHA
+	cm.tool_update(&lt, 16)
+	cm.tool_update(&lt, 500) // clamped to MAX_FRAME_MS on the way
+	testing.expect_value(t, f.a.elapsed_ms, 16.0 + cm.MAX_FRAME_MS)
+	testing.expect_value(t, f.b.elapsed_ms, 0.0)
 }

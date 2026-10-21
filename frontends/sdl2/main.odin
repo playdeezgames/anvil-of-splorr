@@ -88,6 +88,7 @@ main :: proc() {
 
 	shown_dirty := !cm.tool_is_dirty(&tool) // forces the first title update
 	pads, prev_pads: cm.Pads
+	last_ticks := sdl.GetTicks()
 	for !window_closed {
 		ev: sdl.Event
 		for sdl.PollEvent(&ev) {
@@ -101,6 +102,10 @@ main :: proc() {
 		if aux := cm.tool_aux_file_name(&tool); aux != "" && tool.wants_aux_load(tool.data) {
 			load_aux_file(&tool, aux)
 		}
+
+		now_ticks := sdl.GetTicks()
+		cm.tool_update(&tool, f64(now_ticks - last_ticks))
+		last_ticks = now_ticks
 
 		tool.draw(tool.data, &r)
 

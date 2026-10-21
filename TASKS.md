@@ -65,3 +65,7 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [ ] 4. Playback hook on `Tool`, SDL2 and web audio
 - [ ] 5. World editor: SOUND section, list, sound screen, long-text keypad, parity tests
 - [ ] 6. Runtime `sound_pcm`/`sound_loops`, docs, BACKLOG entry removed
+
+## Game stories 8 and 9 (from the game author, in USER_STORIES.md)
+- [x] 8. `Tool.update(data, dt_ms)` called by both frontends, clamped (`common/tool.odin`, `tool_update`, tests)
+- [x] 9. External app folders: `APP_DIR`/`APP_NAME`/`OUT_DIR`, `anvil` collection, the game's own `input_map.json` for the web page, `GAMES.md`, a check that builds `testdata/external_app` for native and wasm

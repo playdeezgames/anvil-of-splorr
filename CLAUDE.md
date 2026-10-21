@@ -29,6 +29,8 @@ The gamepad tester ignores pad commands on purpose (testing must not switch pads
 
 Parity is enforced by tests (`test_every_*_by_each_input`): every swatch, channel, value 0..255, save and load must be reachable with the commands alone (keyboard and gamepad both produce them) and with the mouse alone. Exception: on web, opening a file is a page button (browser file dialog), so command-only users get Save/Load via localStorage instead.
 
+**Game clock and games' own apps.** `Tool.update(data, dt_ms: f64)` is optional (editors leave it nil); both frontends call `cm.tool_update(&tool, elapsed_ms)` once a frame before `draw` (SDL2: `sdl.GetTicks` difference; web: `step`'s `dt` seconds x 1000), which clamps to 0..`MAX_FRAME_MS` (100) and forwards; the launcher forwards it to the running tool only. A game outside this repo builds with `APP_DIR=<folder with app.odin> [APP_NAME=] [OUT_DIR=] ./build.sh native|web|run|serve`: `build.sh` links the folder into `build/ext/<name>/app` as the `app` collection, always passes `-collection:anvil=<this repo>` (games `import "anvil:common"` / `"anvil:anvil_runtime"`), and for the web page uses the game's own `title.txt`/`input_map.json`/`game_tags.json` (in `APP_DIR` or its parent) when present. Recipe in `GAMES.md`; `./build.sh check` builds `testdata/external_app/` both ways and checks that its `input_map.json` is the one linked.
+
 `BACKLOG.md` lists deliberately deferred features; don't build them unasked.
 
 ```bash

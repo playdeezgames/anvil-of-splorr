@@ -11,6 +11,10 @@ Tool :: struct {
 	set_input_map: proc(data: rawptr, m: ^Input_Map), // frontend gives the live map once; its labels may change later
 	handle_event: proc(data: rawptr, ev: Input_Event),
 	update_pads:  proc(data: rawptr, pads: ^Pads), // full per-frame snapshot, for tools that show raw pads
+	// Optional clock (games; the editors leave it nil): called once a frame, before `draw`, with the
+	// milliseconds that really passed since the previous frame (fractional, so 144 Hz does not drift).
+	// Frontends call it through `tool_update`, which clamps the step to MAX_FRAME_MS.
+	update:       proc(data: rawptr, dt_ms: f64),
 	draw:         proc(data: rawptr, r: ^Renderer),
 	is_dirty:     proc(data: rawptr) -> bool,
 
@@ -30,6 +34,25 @@ Tool :: struct {
 	aux_file_name: proc(data: rawptr) -> string,
 	wants_aux_load: proc(data: rawptr) -> bool, // true once per request
 	load_aux:     proc(data: rawptr, bytes: []u8) -> bool,
+}
+
+// The longest step a tool is told about: a hidden tab or a dragged window can leave a gap of seconds
+// between frames, and a game must not end a round in one jump.
+MAX_FRAME_MS :: 100.0
+
+// What both frontends call each frame with the real elapsed milliseconds: clamps the step to
+// 0..MAX_FRAME_MS (a clock that goes backwards, or a NaN, counts as 0) and passes it to the tool's
+// `update` if it has one. Returns the step that was passed.
+tool_update :: proc(t: ^Tool, elapsed_ms: f64) -> f64 {
+	dt := elapsed_ms
+	if !(dt > 0) { 	// also true for NaN
+		dt = 0
+	}
+	dt = min(dt, MAX_FRAME_MS)
+	if t.update != nil {
+		t.update(t.data, dt)
+	}
+	return dt
 }
 
 // The file the tool currently loads and saves ("" if it has none).

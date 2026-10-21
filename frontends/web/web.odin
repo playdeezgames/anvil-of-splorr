@@ -84,6 +84,7 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	if aux := cm.tool_aux_file_name(&tool); aux != "" && tool.wants_aux_load(tool.data) {
 		restore_aux(aux)
 	}
+	cm.tool_update(&tool, dt * 1000) // (dt is in seconds)
 	tool.draw(tool.data, &renderer)
 	free_all(context.temp_allocator)
 	return true
