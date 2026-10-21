@@ -20,6 +20,10 @@ main :: proc() {
 	dir := ""
 	args := os.args[1:]
 	for i := 0; i < len(args); i += 1 {
+		if args[i] == "--version" {
+			fmt.println(mcp.SERVER_VERSION)
+			return
+		}
 		if args[i] == "--tools" {
 			fmt.print(mcp.tool_reference_markdown())
 			return
@@ -28,7 +32,7 @@ main :: proc() {
 			dir = args[i + 1]
 			i += 1
 		} else {
-			fmt.eprintfln("usage: anvil_mcp [--dir <folder>] | --tools")
+			fmt.eprintfln("usage: anvil_mcp [--dir <folder>] | --tools | --version")
 			os.exit(2)
 		}
 	}

@@ -8,6 +8,16 @@ claude mcp add anvil -- "$PWD/build/anvil_mcp" --dir "$PWD/worlds"   # Claude Co
 build/anvil_mcp --tools > MCP_TOOLS.md                            # regenerate the tool reference
 ```
 
+**Dev and prod.** `build/anvil_mcp` is the development build (rebuilt freely). For other sessions use the installed "prod" copy, which a rebuild never touches:
+
+```bash
+./build.sh install-mcp        # builds with the git revision, replaces ~/.local/bin/anvil_mcp by rename (running servers are unaffected)
+claude mcp add --scope user anvil-prod -- ~/.local/bin/anvil_mcp --dir ~/anvil-worlds
+~/.local/bin/anvil_mcp --version
+```
+
+Run `install-mcp` again when a change should reach those sessions; they pick it up the next time they start (an MCP client launches the binary per session). Prod's worlds live in `~/anvil-worlds`, apart from anything in the repo. `ANVIL_PREFIX` and `ANVIL_WORLDS` change the two folders. Register the dev build under another name (`anvil-dev`) to try changes.
+
 The reference for every tool (name, what it does, input schema) is `MCP_TOOLS.md`, generated from the code; a test fails if it is stale. A typical session: `world_new` (or `world_open`), edit with the tag / palette / tileset / terrain / sprite / map / character tools, look with `render_map` and `play_walk`, then `world_save`. `mcp_server/smoke_test.odin` builds a complete "Go Get the Thing" world with tool calls alone and reads it back through `anvil_runtime`, which is the best worked example.
 
 Below is the original plan, kept for the reasoning.

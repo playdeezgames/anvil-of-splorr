@@ -3,6 +3,7 @@
 #   check | test            all packages, all tools
 #   native [tool]           build/<tool>
 #   mcp                     build/anvil_mcp, the MCP server (see MCP.md)
+#   install-mcp             a stable copy in ~/.local/bin/anvil_mcp for other sessions
 #   run [tool] [file]       build and run natively
 #   web [tool]              build/web/<tool>/
 #   serve [tool] [port]     web + http.server (default port 8000)
@@ -51,6 +52,19 @@ case "$target" in
 		done ;;
 	test)
 		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime mcp_server; do odin test "$pkg"; done ;;
+	install-mcp)
+		# A stable "prod" copy of the MCP server, so development can go on (and rebuild build/anvil_mcp)
+		# while other sessions use this one. The new file replaces the old by rename, so a running
+		# server keeps working until its session ends. ANVIL_PREFIX = the bin folder (default
+		# ~/.local/bin); worlds go in ANVIL_WORLDS (default ~/anvil-worlds).
+		bin="${ANVIL_PREFIX:-$HOME/.local/bin}"
+		worlds="${ANVIL_WORLDS:-$HOME/anvil-worlds}"
+		version="$(git describe --always --dirty 2>/dev/null || echo unknown)"
+		mkdir -p build "$bin" "$worlds"
+		odin build anvil_mcp -out:build/anvil_mcp-prod -define:ANVIL_VERSION="$version"
+		cp build/anvil_mcp-prod "$bin/.anvil_mcp.new" && mv -f "$bin/.anvil_mcp.new" "$bin/anvil_mcp"
+		echo "installed $bin/anvil_mcp ($version); worlds in $worlds"
+		echo "register it:  claude mcp add --scope user anvil-prod -- $bin/anvil_mcp --dir $worlds" ;;
 	mcp)    mkdir -p build && odin build anvil_mcp -out:build/anvil_mcp ;;
 	native) mkdir -p build && odin build frontends/sdl2 "$coll" -out:"build/$tool" ;;
 	run)    "$0" native "$tool" && "./build/$tool" "$@" ;;

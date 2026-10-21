@@ -14,7 +14,8 @@ import "core:fmt"
 import "core:strings"
 
 SERVER_NAME :: "anvil-of-splorr"
-SERVER_VERSION :: "0.1.0"
+// "dev" unless built with -define:ANVIL_VERSION=<text> (the installed build carries the git revision).
+SERVER_VERSION :: #config(ANVIL_VERSION, "dev")
 
 // The protocol versions this server speaks; it answers `initialize` with the client's if listed, else
 // with the newest.
