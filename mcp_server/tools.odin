@@ -4,15 +4,19 @@ import cm "../common"
 import "core:encoding/json"
 import "core:fmt"
 import "core:strings"
+import "core:sync"
 
 // The whole tool table, in the order tools/list shows it.
 tools :: proc() -> []Tool {
 	@(static) all: [dynamic]Tool
-	if len(all) == 0 {
+	@(static) once: sync.Once // (tests run servers on several threads)
+	sync.once_do(&once, proc() {
+		all.allocator = context.allocator
 		append(&all, ..world_tools())
 		append(&all, ..rules_tools())
 		append(&all, ..look_tools())
-	}
+		append(&all, ..actor_tools())
+	})
 	return all[:]
 }
 
