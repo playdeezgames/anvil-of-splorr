@@ -146,6 +146,8 @@ World :: struct {
 	tags:           [WORLD_MAX_TAGS]Name, // tag 0 is always "solid"
 	param_count:    int,
 	params:         [WORLD_MAX_PARAMS]Param, // game parameters: named numbers and short texts
+	sound_count:    int,
+	sounds:         [WORLD_MAX_SOUNDS]Sound, // PLAY-style tunes and effects (world_sounds.odin)
 }
 
 world_reset :: proc(w: ^World) {
@@ -881,6 +883,7 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 	strings.write_string(&b, w.map_count == 0 ? "],\n" : "\n  ],\n")
 	write_sprite_sets(&b, w)
 	write_params(&b, w)
+	write_sounds(&b, w)
 	write_characters(&b, w)
 	strings.write_string(&b, "}\n")
 	return strings.to_string(b)
@@ -1115,6 +1118,9 @@ world_from_json :: proc(data: []u8, dst: ^World) -> (err: string) {
 		return msg
 	}
 	if msg := read_params(root, tmp); msg != "" {
+		return msg
+	}
+	if msg := read_sounds(root, tmp); msg != "" {
 		return msg
 	}
 	if msg := read_characters(root, tmp); msg != "" {

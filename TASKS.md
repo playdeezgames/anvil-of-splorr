@@ -59,7 +59,7 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [x] 5. Tool reference and an end-to-end smoke test
 
 ## Sound (plan in SOUND.md)
-- [ ] 1. Model and file: `common/world_sounds.odin`, `sounds` in world.json
+- [x] 1. Model and file: `common/world_sounds.odin`, `sounds` in world.json
 - [ ] 2. PLAY parser and square synth with WAV writer (pure, tested)
 - [ ] 3. MCP sound tools (list/new/set/check/render) and installing prod
 - [ ] 4. Playback hook on `Tool`, SDL2 and web audio
