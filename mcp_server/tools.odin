@@ -1,6 +1,7 @@
 package mcp_server
 
 import cm "../common"
+import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
 import "core:strings"
@@ -11,7 +12,7 @@ tools :: proc() -> []Tool {
 	@(static) all: [dynamic]Tool
 	@(static) once: sync.Once // (tests run servers on several threads)
 	sync.once_do(&once, proc() {
-		all.allocator = context.allocator
+		all.allocator = runtime.default_allocator() // (not a test's tracking allocator: this outlives the test)
 		append(&all, ..world_tools())
 		append(&all, ..rules_tools())
 		append(&all, ..look_tools())

@@ -1,3 +1,5 @@
+// With --tools it prints the tool reference (Markdown) and exits.
+//
 // Runs the Anvil as an MCP server over stdio: one JSON-RPC message per line on stdin, one reply per
 // line on stdout (diagnostics go to stderr). Usage: anvil_mcp [--dir <folder>]; file names the tools
 // take are relative to that folder (default: the working directory).
@@ -18,11 +20,15 @@ main :: proc() {
 	dir := ""
 	args := os.args[1:]
 	for i := 0; i < len(args); i += 1 {
+		if args[i] == "--tools" {
+			fmt.print(mcp.tool_reference_markdown())
+			return
+		}
 		if args[i] == "--dir" && i + 1 < len(args) {
 			dir = args[i + 1]
 			i += 1
 		} else {
-			fmt.eprintfln("usage: anvil_mcp [--dir <folder>]")
+			fmt.eprintfln("usage: anvil_mcp [--dir <folder>] | --tools")
 			os.exit(2)
 		}
 	}

@@ -56,4 +56,4 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [x] 2. Rules and Look tools (tags, params, palette, tilesets, images, terrains, sprites)
 - [x] 3. Actors and maps, bulk map operations, play_walk
 - [x] 4. Pictures: PNG writer and render_* tools
-- [ ] 5. Tool reference and an end-to-end smoke test
+- [x] 5. Tool reference and an end-to-end smoke test

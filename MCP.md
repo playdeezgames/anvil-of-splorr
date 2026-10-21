@@ -1,4 +1,18 @@
-# Anvil as an MCP server: plan
+# Anvil as an MCP server
+
+Built (all five pieces). **Using it**: build once, then register the binary with any MCP client; `--dir` is the folder world files live in (every path a tool takes is relative to it).
+
+```bash
+./build.sh mcp                                                    # build/anvil_mcp
+claude mcp add anvil -- "$PWD/build/anvil_mcp" --dir "$PWD/worlds"   # Claude Code; other clients: command + args
+build/anvil_mcp --tools > MCP_TOOLS.md                            # regenerate the tool reference
+```
+
+The reference for every tool (name, what it does, input schema) is `MCP_TOOLS.md`, generated from the code; a test fails if it is stale. A typical session: `world_new` (or `world_open`), edit with the tag / palette / tileset / terrain / sprite / map / character tools, look with `render_map` and `play_walk`, then `world_save`. `mcp_server/smoke_test.odin` builds a complete "Go Get the Thing" world with tool calls alone and reads it back through `anvil_runtime`, which is the best worked example.
+
+Below is the original plan, kept for the reasoning.
+
+# Plan
 
 Goal: another Claude session or agent authors a world (`world.json`) through MCP tools, without the editors' UI. Decisions made: scope = **author worlds**, implementation = **Odin stdio binary**, results = **PNG pictures**.
 
@@ -25,7 +39,9 @@ Bulk forms exist wherever an agent would otherwise make thousands of calls (map 
 
 ## Pieces to build
 
-Status: pieces 1 to 4 done (piece 4: render_map/tile/sprite/palette, PNG writer) (piece 3: map_*, char_type_*, character_*, player_set, play_walk) (piece 2: tag_*, param_*, palette_*, tile_size_set, tileset_*, image_*, terrain_*, sprite_*)
+Status: all five pieces done (5: `anvil_mcp --tools` / MCP_TOOLS.md and the smoke test)
+
+Earlier status: pieces 1 to 4 done (piece 4: render_map/tile/sprite/palette, PNG writer) (piece 3: map_*, char_type_*, character_*, player_set, play_walk) (piece 2: tag_*, param_*, palette_*, tile_size_set, tileset_*, image_*, terrain_*, sprite_*)
 
 Piece 1: (`mcp_server/`, `anvil_mcp/`, `./build.sh mcp`; the package is `mcp_server/` and the binary's `main` is `anvil_mcp/`, not under `apps/`, since `apps/` entries are editor frontends).
 
