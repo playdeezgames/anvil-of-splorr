@@ -8,8 +8,8 @@ import "core:strings"
 
 NOT_OPEN :: "no world is open: use world_new or world_open first"
 
-// The whole tool table, in the order tools/list shows it.
-tools :: proc() -> []Tool {
+// The world file tools.
+world_tools :: proc() -> []Tool {
 	@(static) table := [?]Tool {
 		{
 			"world_new",

@@ -25,7 +25,9 @@ Bulk forms exist wherever an agent would otherwise make thousands of calls (map 
 
 ## Pieces to build
 
-Status: piece 1 done (`mcp_server/`, `anvil_mcp/`, `./build.sh mcp`; the package is `mcp_server/` and the binary's `main` is `anvil_mcp/`, not under `apps/`, since `apps/` entries are editor frontends).
+Status: pieces 1 and 2 done (piece 2: tag_*, param_*, palette_*, tile_size_set, tileset_*, image_*, terrain_*, sprite_*)
+
+Piece 1: (`mcp_server/`, `anvil_mcp/`, `./build.sh mcp`; the package is `mcp_server/` and the binary's `main` is `anvil_mcp/`, not under `apps/`, since `apps/` entries are editor frontends).
 
 1. **Skeleton**: JSON-RPC loop, `initialize`/`tools/list`/`tools/call`, error mapping, `world_new/open/save/summary`, tests via `handle_request`. Add `./build.sh native anvil_mcp` and a documented `claude mcp add anvil -- build/anvil_mcp --dir <worlds>` line.
 2. **Rules and Look tools** (tags, params, palette, tilesets and images, terrains, sprites).
