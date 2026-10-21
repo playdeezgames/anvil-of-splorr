@@ -46,7 +46,18 @@ goto_hub :: proc(e: ^Editor, row: Hub_Row) {
 // Opens a list from the hub with the commands.
 open :: proc(e: ^Editor, s: Section) {
 	e.mode = .Hub
-	goto_hub(e, Hub_Row(int(Hub_Row.Tilesets) + int(s)))
+	row: Hub_Row
+	switch s {
+	case .Tilesets:
+		row = .Tilesets
+	case .Terrain_Sets:
+		row = .Terrain_Sets
+	case .Sprite_Sets:
+		row = .Sprite_Sets
+	case .Maps:
+		row = .Maps
+	}
+	goto_hub(e, row)
 	press(e, .Green)
 }
 
@@ -577,7 +588,7 @@ Input_Method :: enum {
 @(test)
 test_every_part_can_be_opened_by_each_input :: proc(t: ^testing.T) {
 	for m in Input_Method {
-		for row in ([]Hub_Row{.Palette, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Maps}) {
+		for row in ([]Hub_Row{.Palette, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Character_Types, .Characters, .Maps}) {
 			e := with_content()
 			switch m {
 			case .Commands:
@@ -590,6 +601,10 @@ test_every_part_can_be_opened_by_each_input :: proc(t: ^testing.T) {
 			#partial switch row {
 			case .Palette:
 				want = .Palette
+			case .Character_Types:
+				want = .Char_Type
+			case .Characters:
+				want = .Character
 			case:
 				want = .List
 			}
@@ -902,6 +917,14 @@ test_every_screen_draws_on_screen_in_every_mode :: proc(t: ^testing.T) {
 				e.section = .Sprite_Sets
 				e.mode = .List
 				press(e, .Green)
+			case .Char_Type:
+				e.mode = .Hub
+				e.hub = .Character_Types
+				press(e, .Green)
+			case .Character:
+				e.mode = .Hub
+				e.hub = .Characters
+				press(e, .Green)
 			case .Map:
 				e.section = .Maps
 				e.mode = .List
@@ -1080,4 +1103,119 @@ test_every_sprite_set_part_is_reachable_by_each_input :: proc(t: ^testing.T) {
 		free(e)
 		testing.expectf(t, ok, "%v could not open the sprite sets", m)
 	}
+}
+
+@(test)
+test_a_sprite_set_a_character_type_uses_cannot_be_deleted :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	sp := cm.world_add_sprite(&e.world, 0)
+	cm.world_add_char_type(&e.world, "t")
+	_ = sp
+	open(e, .Sprite_Sets)
+	run(e, .Delete)
+	press(e, .Green)
+	testing.expect(t, e.world.sprite_set_count == 1 && e.note == "USED BY 1 CHARACTER TYPE")
+	e.world.char_type_count = 0 // free again
+	e.mode = .List
+	run(e, .Delete)
+	press(e, .Green)
+	testing.expect_value(t, e.world.sprite_set_count, 0)
+}
+
+@(test)
+test_character_types_and_characters_have_their_own_hub_rows :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	e.mode = .Hub
+	goto_hub(e, .Character_Types)
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Char_Type)
+	// A new type takes the first sprite and asks for its name.
+	press(e, .Yellow, .Down, .Green) // Setup -> New
+	press_keypad_action_in(e, &e.char_type_ed.entry, .Cancel)
+	testing.expect(t, e.world.char_type_count == 1 && e.dirty)
+	testing.expect_value(t, cm.name_str(&e.world.char_types[0].sprite_set), "creatures")
+	press(e, .Red, .Red)
+	testing.expect_value(t, e.mode, Mode.Hub)
+	// The character editor can now make a character of it.
+	goto_hub(e, .Characters)
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Character)
+	press(e, .Yellow, .Down, .Green) // Setup -> New
+	press_keypad_action_in(e, &e.character_ed.entry, .Done)
+	testing.expect(t, e.world.character_count == 1 && !cm.uuid_is_none(e.world.characters[0].uuid))
+	testing.expect_value(t, cm.name_str(&e.world.characters[0].type), "character_type")
+	press(e, .Red, .Red)
+	testing.expect_value(t, e.mode, Mode.Hub)
+	// The hub shows the counts.
+	testing.expect_value(t, cm.name_str(&e.world.char_types[0].name), "character_type")
+	// The type cannot be deleted while the character has it (the type editor says so).
+	goto_hub(e, .Character_Types)
+	press(e, .Green, .Yellow)
+	for e.char_type_ed.row != .Delete {
+		press(e, .Down)
+	}
+	press(e, .Green)
+	testing.expect_value(t, e.char_type_ed.note, "USED BY 1 CHARACTER")
+}
+
+@(test)
+test_characters_survive_save_and_load_in_the_tool :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	cm.world_seed_uuids(&e.world, 31)
+	ct := cm.world_add_char_type(&e.world, "slime")
+	c := cm.world_add_character(&e.world, ct)
+	cm.world_place_character(&e.world, 0, 2, 1, e.world.characters[c].uuid)
+	cm.world_set_player(&e.world, e.world.characters[c].uuid)
+	tl := tool(e)
+	press(e, .Blue, .Green)
+	text, ok := tl.take_save(tl.data)
+	testing.expect(t, ok && strings.contains(text, cm.uuid_to_string(e.world.player)))
+	e2 := new_editor()
+	defer free(e2)
+	tl2 := tool(e2)
+	testing.expect(t, tl2.load(tl2.data, transmute([]u8)text))
+	testing.expect(t, e2.world.character_count == 1 && e2.world.player == e.world.player && cm.world_character_at(&e2.world, 0, 2, 1) == 0)
+	testing.expect_value(t, cm.world_to_json(&e2.world), text)
+}
+
+@(test)
+test_entering_seeds_the_uuid_generator_from_the_clock :: proc(t: ^testing.T) {
+	e := with_content()
+	defer free(e)
+	tl := tool(e)
+	tl.enter(tl.data)
+	first := e.world.uuid_state
+	testing.expect(t, first != 0x9E3779B97F4A7C15 && first != 0)
+	tl.enter(tl.data)
+	testing.expect(t, e.world.uuid_state != first) // the clock moved on
+}
+
+@(test)
+test_a_map_opened_from_the_world_places_characters_that_stay_in_the_world :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	ct := cm.world_add_char_type(&e.world, "slime")
+	c := cm.world_add_character(&e.world, ct)
+	open(e, .Maps)
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Map)
+	e.dirty = false
+	press(e, .Yellow)
+	for e.map_ed.row != .Layer {
+		press(e, .Down)
+	}
+	press(e, .Green) // the Characters layer
+	press(e, .Red) // Setup -> Draw
+	press(e, .Right, .Down, .Green) // put the character at 1,1
+	testing.expect(t, e.dirty && cm.world_character_at(&e.world, 0, 1, 1) == c)
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.List)
+	testing.expect_value(t, cm.world_character_at(&e.world, 0, 1, 1), c)
 }

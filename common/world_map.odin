@@ -29,6 +29,11 @@ map_flip_horizontal :: proc(m: ^World_Map) -> (changed: bool) {
 				a^, b^ = b^, a^
 				changed = true
 			}
+			ca, cb := &m.characters[y][x], &m.characters[y][m.width - 1 - x]
+			if ca^ != cb^ { 	// characters move with their cells
+				ca^, cb^ = cb^, ca^
+				changed = true
+			}
 		}
 	}
 	return
@@ -40,6 +45,11 @@ map_flip_vertical :: proc(m: ^World_Map) -> (changed: bool) {
 			a, b := &m.cells[y][x], &m.cells[m.height - 1 - y][x]
 			if a^ != b^ {
 				a^, b^ = b^, a^
+				changed = true
+			}
+			ca, cb := &m.characters[y][x], &m.characters[m.height - 1 - y][x]
+			if ca^ != cb^ {
+				ca^, cb^ = cb^, ca^
 				changed = true
 			}
 		}
@@ -60,11 +70,17 @@ rotate :: proc(m: ^World_Map, clockwise: bool) -> (changed: bool) {
 	}
 	n := m.width
 	old := m.cells
+	old_chars := m.characters
 	for y in 0 ..< n {
 		for x in 0 ..< n {
 			v := clockwise ? old[n - 1 - x][y] : old[x][n - 1 - y]
 			if m.cells[y][x] != v {
 				m.cells[y][x] = v
+				changed = true
+			}
+			c := clockwise ? old_chars[n - 1 - x][y] : old_chars[x][n - 1 - y]
+			if m.characters[y][x] != c {
+				m.characters[y][x] = c
 				changed = true
 			}
 		}

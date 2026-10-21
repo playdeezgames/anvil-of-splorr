@@ -556,7 +556,7 @@ test_every_size_is_reachable_by_each_input :: proc(t: ^testing.T) {
 
 @(test)
 test_every_tool_is_reachable_by_each_input :: proc(t: ^testing.T) {
-	buttons_for := [Setup_Row]Rect {
+	buttons_for := #partial [Setup_Row]Rect {
 		.Terrain         = TERRAIN_PLUS,
 		.Columns         = COLUMNS_PLUS,
 		.Rows            = ROWS_PLUS,
@@ -572,8 +572,12 @@ test_every_tool_is_reachable_by_each_input :: proc(t: ^testing.T) {
 		.Flood_Fill      = FLOOD_BUTTON,
 		.Replace         = REPLACE_BUTTON,
 		.Clear           = CLEAR_BUTTON,
+		.Layer           = LAYER_BUTTON,
 	}
 	for row in Setup_Row {
+		if !row_offered(.Terrain, row) {
+			continue // the character rows have their own buttons
+		}
 		found := false
 		for b in buttons() {
 			if b.rc == buttons_for[row] {

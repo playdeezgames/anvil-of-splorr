@@ -1,6 +1,8 @@
 package world_editor
 
+import cce "../character_editor"
 import cm "../common"
+import cte "../character_type_editor"
 import me "../map_editor"
 import pe "../palette_editor"
 import spe "../sprite_editor"
@@ -33,6 +35,10 @@ hub_label :: proc(row: Hub_Row) -> string {
 		return "TERRAIN SETS"
 	case .Sprite_Sets:
 		return "SPRITE SETS"
+	case .Character_Types:
+		return "CHARACTER TYPES"
+	case .Characters:
+		return "CHARACTERS"
 	case .Maps:
 		return "MAPS"
 	}
@@ -70,7 +76,7 @@ banner_text :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("ACTIONS   %s: DONE", label(e, .Red))
 	case .File:
 		return fmt.tprintf("FILE: %s SAVE  %s LOAD", label(e, .Green), label(e, .Yellow))
-	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Map:
+	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 		// These modes draw their own screens.
 	}
 	return ""
@@ -106,7 +112,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	case .File:
 		lines = {fmt.tprintf("%s: SAVE  %s: LOAD", l(e, .Green), l(e, .Yellow)), fmt.tprintf("%s: CANCEL", l(e, .Red)), "", ""}
 		return lines, 2
-	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Map:
+	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 	}
 	return lines, 0
 }
@@ -184,6 +190,12 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	case .Sprite:
 		spe.editor_draw(&e.sprite_ed, r)
 		return
+	case .Char_Type:
+		cte.editor_draw(&e.char_type_ed, r)
+		return
+	case .Character:
+		cce.editor_draw(&e.character_ed, r)
+		return
 	case .Map:
 		me.editor_draw(&e.map_ed, r)
 		return
@@ -237,6 +249,10 @@ draw_hub :: proc(e: ^Editor, r: ^cm.Renderer) {
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.set_count, cm.WORLD_MAX_TERRAIN_SETS), color)
 		case .Sprite_Sets:
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.sprite_set_count, cm.WORLD_MAX_SPRITE_SETS), color)
+		case .Character_Types:
+			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.char_type_count, cm.WORLD_MAX_CHARACTER_TYPES), color)
+		case .Characters:
+			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.character_count, cm.WORLD_MAX_CHARACTERS), color)
 		case .Maps:
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.map_count, cm.WORLD_MAX_MAPS), color)
 		}

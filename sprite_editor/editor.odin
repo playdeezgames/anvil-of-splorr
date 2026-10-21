@@ -326,6 +326,11 @@ delete_sprite :: proc(e: ^Editor) {
 		e.confirm_delete = false
 		return
 	}
+	if uses := cm.world_sprite_uses(e.world, cm.name_str(&current_set(e).name), sprite_name(e, e.sel)); uses > 0 {
+		e.confirm_delete = false
+		e.note = fmt.tprintf("USED BY %d CHARACTER TYPE%s", uses, uses == 1 ? "" : "S")
+		return
+	}
 	if !e.confirm_delete {
 		e.confirm_delete = true
 		return
@@ -347,7 +352,7 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 		switch cm.sprite_check_name(current_set(e), e.sel, name) {
 		case .None:
 			if name != sprite_name(e, e.sel) {
-				cm.name_assign(&current_sprite(e).name, name)
+				cm.world_rename_sprite(e.world, e.set_index, e.sel, name) // character types follow
 				e.dirty = true
 			}
 			e.mode = e.back

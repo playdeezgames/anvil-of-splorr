@@ -498,7 +498,7 @@ test_sprite_sets_round_trip_and_old_files_still_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, world_from_json(transmute([]u8)world_to_json(empty), back2), "")
 	testing.expect(t, back2.sprite_set_count == 1 && back2.sprite_sets[0].count == 0)
 	// The tiny world's file is unchanged apart from the new list.
-	testing.expect(t, strings.has_suffix(world_to_json(new_world()), "\"sprite_sets\": []\n}\n"))
+	testing.expect(t, strings.has_suffix(world_to_json(new_world()), "\"player\": null\n}\n"))
 }
 
 @(test)

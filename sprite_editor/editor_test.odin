@@ -693,3 +693,24 @@ test_every_screen_draws_on_screen :: proc(t: ^testing.T) {
 		testing.expect_value(t, log.out_of_bounds, 0)
 	}
 }
+
+@(test)
+test_a_sprite_a_character_type_draws_cannot_be_deleted_and_renames_follow :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	ct := cm.world_add_char_type(world, "slimey")
+	testing.expect(t, ct >= 0 && cm.name_str(&world.char_types[ct].sprite) == "slime")
+	run(e, .Delete)
+	press(e, .Green)
+	testing.expect(t, e.note == "USED BY 1 CHARACTER TYPE" && world.sprite_sets[0].count == 2 && !e.confirm_delete)
+	// A rename follows into the type.
+	run(e, .Rename)
+	name_typed(e, "goo")
+	testing.expect_value(t, cm.name_str(&world.char_types[ct].sprite), "goo")
+	// The other sprite is free to go.
+	e.sel = 1
+	run(e, .Delete)
+	press(e, .Green)
+	testing.expect_value(t, world.sprite_sets[0].count, 1)
+}

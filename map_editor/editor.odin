@@ -30,6 +30,7 @@ Mode :: enum {
 	Draw,
 	Setup,
 	Rect,
+	Text, // the keypad, for a character's name
 }
 
 Setup_Row :: enum {
@@ -48,6 +49,14 @@ Setup_Row :: enum {
 	Flood_Fill,
 	Replace,
 	Clear,
+	Layer, // switch between painting terrain and placing characters
+	Character,
+	Char_Type,
+	Char_Player,
+	Char_Rename,
+	Char_New,
+	Char_Unplace,
+	Char_Delete,
 }
 
 Point_Tool :: enum {
@@ -75,6 +84,11 @@ Editor :: struct {
 	zoom:           int, // index into ZOOM_SIZES; 0 fits the whole map in the canvas
 	vx, vy:         int, // the top-left visible cell
 	bar_drag:       Maybe(Bar), // a scroll bar thumb being dragged
+	layer:          Layer, // what green does: paint terrain, or place and pick characters
+	cur_char:       int, // the current character: an index in the world's table
+	back:           Mode, // where the keypad returns to
+	confirm_delete: bool, // Delete (a character) was run once: the next one is the confirmation
+	entry:          cm.Text_Entry,
 	labels:         ^cm.Input_Map,
 }
 
@@ -93,6 +107,9 @@ editor_begin :: proc(e: ^Editor, world: ^cm.World, index: int) {
 	e.index = index
 	if set := current_set(e); set != nil {
 		e.terrain = set.default
+	}
+	if i := cm.world_find_character(world, world.player); i >= 0 {
+		e.cur_char = i // the player first
 	}
 }
 
@@ -177,7 +194,6 @@ clamp_cursor :: proc(e: ^Editor) {
 }
 
 // Changes the zoom level (0 = fit, up to the last in ZOOM_SIZES), keeping the cursor in view.
-@(private = "file")
 step_zoom :: proc(e: ^Editor, delta: int) {
 	sizes := ZOOM_SIZES
 	z := clamp(e.zoom + delta, 0, len(sizes) - 1)
@@ -266,6 +282,10 @@ step_terrain :: proc(e: ^Editor, delta: int) {
 
 @(private = "file")
 set_size :: proc(e: ^Editor, columns, rows: int) {
+	if n := cm.world_map_shrink_blocked(e.world, e.index, clamp(columns, 1, cm.MAP_MAX), clamp(rows, 1, cm.MAP_MAX)); n > 0 {
+		e.note = fmt.tprintf("%d CHARACTER%s IN THE WAY", n, n == 1 ? "" : "S")
+		return
+	}
 	if cm.world_map_set_size(e.world, e.index, columns, rows) {
 		e.dirty = true
 		clamp_cursor(e)
@@ -357,7 +377,6 @@ commit_shape :: proc(e: ^Editor) {
 	cancel_shape(e)
 }
 
-@(private = "file")
 cancel_shape :: proc(e: ^Editor) {
 	e.shape = .None
 	e.point_tool = .None
@@ -368,6 +387,10 @@ cancel_shape :: proc(e: ^Editor) {
 }
 
 editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
+	if e.mode == .Text { 	// the keypad sees everything while it is up
+		char_handle_text(e, ev)
+		return
+	}
 	// Any command or button press clears the message; moving the mouse or letting go does not.
 	#partial switch v in ev {
 	case cm.Command:
@@ -416,7 +439,11 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		}
 	case cm.Mouse_Wheel:
 		if in_picker(e.mx, e.my) {
-			step_terrain(e, -v.dy * PICKER_PAGE)
+			if e.layer == .Characters {
+				step_character(e, -v.dy * CHAR_PAGE)
+			} else {
+				step_terrain(e, -v.dy * PICKER_PAGE)
+			}
 		} else if rect_contains(CANVAS, e.mx, e.my) {
 			step_zoom(e, v.dy) // wheel up zooms in
 		}
@@ -430,6 +457,9 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 
 @(private = "file")
 apply_action :: proc(e: ^Editor, a: cm.Action) {
+	if e.layer == .Characters && char_action(e, a) {
+		return
+	}
 	m := current_map(e)
 	switch e.mode {
 	case .Draw:
@@ -455,6 +485,8 @@ apply_action :: proc(e: ^Editor, a: cm.Action) {
 				e.exit_requested = true
 			}
 		}
+	case .Text:
+		// The keypad owns the input (see editor_handle_event).
 	case .Rect:
 		#partial switch a {
 		case .Up:
@@ -473,9 +505,9 @@ apply_action :: proc(e: ^Editor, a: cm.Action) {
 	case .Setup:
 		#partial switch a {
 		case .Up:
-			e.row = Setup_Row((int(e.row) + len(Setup_Row) - 1) % len(Setup_Row))
+			e.row = next_row(e, -1)
 		case .Down:
-			e.row = Setup_Row((int(e.row) + 1) % len(Setup_Row))
+			e.row = next_row(e, 1)
 		case .Left:
 			change_setting(e, -1)
 		case .Right:
@@ -498,6 +530,8 @@ apply_action :: proc(e: ^Editor, a: cm.Action) {
 				begin_shape(e, .Frame)
 			case .Fill:
 				begin_shape(e, .Fill)
+			case .Layer:
+				toggle_layer(e)
 			}
 		case .Blue:
 			step_terrain(e, PICKER_PAGE)
@@ -528,6 +562,10 @@ change_setting :: proc(e: ^Editor, delta: int) {
 // terrain. While a rectangle is being placed the mode is left alone.
 @(private = "file")
 pick :: proc(e: ^Editor, x, y: int) {
+	if e.layer == .Characters {
+		char_pick(e, x, y)
+		return
+	}
 	m := current_map(e)
 	if cx, cy, ok := cell_at(e, x, y); ok {
 		if e.shape == .None {
@@ -582,6 +620,10 @@ toggle_point_tool :: proc(e: ^Editor, tool: Point_Tool) {
 
 @(private = "file")
 click :: proc(e: ^Editor, x, y: int) {
+	if e.layer == .Characters {
+		char_click(e, x, y)
+		return
+	}
 	m := current_map(e)
 	if cx, cy, ok := cell_at(e, x, y); ok {
 		e.cx, e.cy = cx, cy
@@ -604,15 +646,7 @@ click :: proc(e: ^Editor, x, y: int) {
 		}
 		return
 	}
-	// The scroll bars: click to jump, drag the thumb.
-	if bar_shown(e, .Horizontal) && rect_contains(Rect{HBAR.x, HBAR.y - 1, HBAR.w, HBAR.h + 2}, x, y) {
-		e.bar_drag = Bar.Horizontal
-		scroll_to_pointer(e, .Horizontal, x, y)
-		return
-	}
-	if bar_shown(e, .Vertical) && rect_contains(Rect{VBAR.x - 1, VBAR.y, VBAR.w + 2, VBAR.h}, x, y) {
-		e.bar_drag = Bar.Vertical
-		scroll_to_pointer(e, .Vertical, x, y)
+	if click_bars(e, x, y) {
 		return
 	}
 	// Choosing a terrain or a tool keeps a rectangle in progress; every other button abandons it.
@@ -676,7 +710,24 @@ click :: proc(e: ^Editor, x, y: int) {
 		toggle_point_tool(e, .Replace)
 	case rect_contains(CLEAR_BUTTON, x, y):
 		action(e, .Clear)
+	case rect_contains(LAYER_BUTTON, x, y):
+		toggle_layer(e)
 	case rect_contains(BACK_BUTTON, x, y):
 		e.exit_requested = true
 	}
+}
+
+// The scroll bars: click to jump, drag the thumb. Returns true if the click was on one.
+click_bars :: proc(e: ^Editor, x, y: int) -> bool {
+	if bar_shown(e, .Horizontal) && rect_contains(Rect{HBAR.x, HBAR.y - 1, HBAR.w, HBAR.h + 2}, x, y) {
+		e.bar_drag = Bar.Horizontal
+		scroll_to_pointer(e, .Horizontal, x, y)
+		return true
+	}
+	if bar_shown(e, .Vertical) && rect_contains(Rect{VBAR.x - 1, VBAR.y, VBAR.w + 2, VBAR.h}, x, y) {
+		e.bar_drag = Bar.Vertical
+		scroll_to_pointer(e, .Vertical, x, y)
+		return true
+	}
+	return false
 }

@@ -17,6 +17,8 @@ WORLD_MAX_TERRAIN_SETS :: 16
 WORLD_MAX_MAPS :: 64
 WORLD_MAX_SPRITE_SETS :: 16
 SPRITE_MAX :: 256
+WORLD_MAX_CHARACTER_TYPES :: 64
+WORLD_MAX_CHARACTERS :: 1024
 SPRITE_NO_TRANSPARENT :: -1 // a sprite whose every colour is drawn
 TERRAIN_MAX :: 256
 MAP_MAX :: 64
@@ -118,6 +120,7 @@ World_Map :: struct {
 	set:           Name, // the terrain set whose terrains the cells index
 	width, height: int, // columns and rows, 1..MAP_MAX
 	cells:         [MAP_MAX][MAP_MAX]u8, // [row][column]: a terrain index in the set; only the visible region counts
+	characters:    [MAP_MAX][MAP_MAX]Uuid, // [row][column]: the character standing there (a uuid of the world's table) or none
 }
 
 World :: struct {
@@ -132,12 +135,19 @@ World :: struct {
 	maps:           [WORLD_MAX_MAPS]World_Map,
 	sprite_set_count: int,
 	sprite_sets:    [WORLD_MAX_SPRITE_SETS]Sprite_Set,
+	char_type_count: int,
+	char_types:     [WORLD_MAX_CHARACTER_TYPES]Character_Type,
+	character_count: int,
+	characters:     [WORLD_MAX_CHARACTERS]Character, // the table every map cell and the player refer into, by uuid
+	player:         Uuid, // the player's character, or none
+	uuid_state:     u64, // the generator for new uuids (see world_new_uuid)
 }
 
 world_reset :: proc(w: ^World) {
 	w^ = {}
 	w.tile_w, w.tile_h = TILESET_DEFAULT_SIZE, TILESET_DEFAULT_SIZE
 	w.palette = default_palette()
+	w.uuid_state = 0x9E3779B97F4A7C15
 }
 
 // --- Finding -----------------------------------------------------------------------------------
@@ -665,7 +675,8 @@ world_rename_map :: proc(w: ^World, i: int, name: string) -> Name_Problem {
 }
 
 // Resizes map mi (sizes clamped to 1..MAP_MAX). Cells that appear take the set's default terrain;
-// cells cut off are forgotten. Returns true if the size changed.
+// cells cut off are forgotten. Refused (false) while a character stands in the part that would be
+// cut off (see world_map_shrink_blocked). Returns true if the size changed.
 world_map_set_size :: proc(w: ^World, mi, width, height: int) -> bool {
 	if mi < 0 || mi >= w.map_count {
 		return false
@@ -674,6 +685,9 @@ world_map_set_size :: proc(w: ^World, mi, width, height: int) -> bool {
 	nw, nh := clamp(width, 1, MAP_MAX), clamp(height, 1, MAP_MAX)
 	if nw == m.width && nh == m.height {
 		return false
+	}
+	if world_map_shrink_blocked(w, mi, nw, nh) > 0 {
+		return false // a character would be cut off: move it first
 	}
 	default := u8(0)
 	if s := world_map_set(w, mi); s != nil {
@@ -830,10 +844,21 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 				fmt.sbprintf(&b, "%s%d", x == 0 ? "" : ", ", table[m.cells[y][x]])
 			}
 		}
-		strings.write_string(&b, "\n      ]}")
+		strings.write_string(&b, "\n      ],\n      \"characters\": [")
+		first := true
+		for y in 0 ..< m.height {
+			for x in 0 ..< m.width {
+				if !uuid_is_none(m.characters[y][x]) {
+					fmt.sbprintf(&b, "%s{{\"x\": %d, \"y\": %d, \"character\": \"%s\"}}", first ? "" : ", ", x, y, uuid_to_string(m.characters[y][x]))
+					first = false
+				}
+			}
+		}
+		strings.write_string(&b, "]}")
 	}
 	strings.write_string(&b, w.map_count == 0 ? "],\n" : "\n  ],\n")
 	write_sprite_sets(&b, w)
+	write_characters(&b, w)
 	strings.write_string(&b, "}\n")
 	return strings.to_string(b)
 }
@@ -1050,6 +1075,10 @@ world_from_json :: proc(data: []u8, dst: ^World) -> (err: string) {
 	if msg := read_sprite_sets(root, tmp); msg != "" {
 		return msg
 	}
+	if msg := read_characters(root, tmp); msg != "" {
+		return msg
+	}
+	tmp.uuid_state = dst.uuid_state // new uuids keep coming from the running generator
 	dst^ = tmp^
 	return ""
 }

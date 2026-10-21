@@ -68,6 +68,14 @@ FLOOD_BUTTON :: Rect{274, 130, BUTTON_W, BUTTON_H} // arms flood fill: the next 
 REPLACE_BUTTON :: Rect{154, 141, BUTTON_W, BUTTON_H} // arms replace: the next click picks the terrain to replace
 CLEAR_BUTTON :: Rect{194, 141, BUTTON_W, BUTTON_H} // sets the whole map to the current terrain at once
 BACK_BUTTON :: Rect{234, 141, BUTTON_W, BUTTON_H}
+LAYER_BUTTON :: Rect{274, 141, BUTTON_W, BUTTON_H} // terrain painting <-> characters
+
+// The Characters layer's buttons (the same places as the terrain layer's first row and a bit more).
+CHAR_NEW_BUTTON :: Rect{154, 119, BUTTON_W, BUTTON_H}
+CHAR_UNPLACE_BUTTON :: Rect{194, 119, BUTTON_W, BUTTON_H}
+CHAR_DELETE_BUTTON :: Rect{234, 119, BUTTON_W, BUTTON_H}
+CHAR_PLAYER_BUTTON :: Rect{274, 119, BUTTON_W, BUTTON_H}
+CHAR_RENAME_BUTTON :: Rect{154, 130, BUTTON_W, BUTTON_H}
 
 HELP_Y :: 152 // up to four lines at the font's pitch
 MAX_HELP_LINES :: 4

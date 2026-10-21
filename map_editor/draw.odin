@@ -17,7 +17,19 @@ label :: proc(e: ^Editor, a: cm.Action) -> string {
 
 // Strings are on the temp allocator: valid until the frontend's next free_all.
 banner_text :: proc(e: ^Editor) -> string {
+	if e.layer == .Characters {
+		if e.confirm_delete {
+			return fmt.tprintf("DELETE IT?  %s: CONFIRM", label(e, .Green))
+		}
+		if e.mode == .Setup {
+			return fmt.tprintf("SETUP   %s: DONE", label(e, .Red))
+		}
+		return fmt.tprintf("CHARACTERS   %s: PLACE", label(e, .Green))
+	}
 	switch e.mode {
+	case .Text:
+		return ""
+
 	case .Rect:
 		return e.shape == .Fill ? "FILL: PLACE 2ND CORNER" : "FRAME: PLACE 2ND CORNER"
 	case .Setup:
@@ -39,7 +51,27 @@ banner_text :: proc(e: ^Editor) -> string {
 
 help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	l :: label
+	if e.layer == .Characters {
+		if e.mode == .Setup {
+			lines = {
+				fmt.tprintf("%s/%s: CHOOSE A ROW  %s: NEXT 16", l(e, .Up), l(e, .Down), l(e, .Blue)),
+				fmt.tprintf("%s/%s: CHANGE CHARACTER / TYPE / PLAYER", l(e, .Left), l(e, .Right)),
+				fmt.tprintf("%s: RUN RENAME / NEW / UNPLACE / DELETE / LAYER", l(e, .Green)),
+				fmt.tprintf("%s: DONE", l(e, .Red)),
+			}
+			return lines, 4
+		}
+		lines = {
+			fmt.tprintf("%s/%s/%s/%s: MOVE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
+			fmt.tprintf("%s: PLACE OR PICK  %s: SETUP", l(e, .Green), l(e, .Yellow)),
+			fmt.tprintf("%s: NEXT 16 CHARACTERS  %s: BACK", l(e, .Blue), l(e, .Red)),
+			"MOUSE: CLICK PLACES OR PICKS; RIGHT CLICK PICKS",
+		}
+		return lines, 4
+	}
 	switch e.mode {
+	case .Text:
+		return lines, 0
 	case .Rect:
 		lines = {
 			fmt.tprintf("%s/%s/%s/%s: MOVE CORNER", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
@@ -116,7 +148,7 @@ Button :: struct {
 	point: Point_Tool,
 }
 
-buttons :: proc() -> [11]Button {
+buttons :: proc() -> [12]Button {
 	return {
 		{FLIP_H_BUTTON, "FLIP H", .Flip_Horizontal, .None, .None},
 		{FLIP_V_BUTTON, "FLIP V", .Flip_Vertical, .None, .None},
@@ -129,10 +161,28 @@ buttons :: proc() -> [11]Button {
 		{REPLACE_BUTTON, "REPLACE", .Replace, .None, .Replace},
 		{CLEAR_BUTTON, "CLEAR", .Clear, .None, .None},
 		{BACK_BUTTON, "BACK", .Terrain, .None, .None},
+		{LAYER_BUTTON, "LAYER", .Layer, .None, .None},
+	}
+}
+
+// The Characters layer's buttons.
+char_buttons :: proc() -> [7]Button {
+	return {
+		{CHAR_NEW_BUTTON, "NEW", .Char_New, .None, .None},
+		{CHAR_UNPLACE_BUTTON, "UNPLACE", .Char_Unplace, .None, .None},
+		{CHAR_DELETE_BUTTON, "DEL", .Char_Delete, .None, .None},
+		{CHAR_PLAYER_BUTTON, "PLAYER", .Char_Player, .None, .None},
+		{CHAR_RENAME_BUTTON, "RENAME", .Char_Rename, .None, .None},
+		{BACK_BUTTON, "BACK", .Terrain, .None, .None},
+		{LAYER_BUTTON, "LAYER", .Layer, .None, .None},
 	}
 }
 
 editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
+	if e.mode == .Text {
+		cm.text_entry_draw(&e.entry, r, e.labels)
+		return
+	}
 	cm.renderer_clear(r, BG)
 	m := current_map(e)
 	set := current_set(e)
@@ -146,6 +196,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 			draw_terrain(e, r, cell_rect(e, x, y), set, int(m.cells[y][x]))
 		}
 	}
+	draw_characters(e, r)
 	if cell_visible(e, e.cx, e.cy) {
 		outline(r, cell_rect(e, e.cx, e.cy), e.mode == .Setup ? DIM : HILITE)
 	}
@@ -168,10 +219,17 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	}
 
 	// Banner and readout.
-	fill(r, BANNER, e.mode == .Draw ? PANEL : HILITE)
-	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, banner_text(e), e.mode == .Draw ? TEXT : BG)
+	warning := e.confirm_delete
+	fill(r, BANNER, warning ? WARN : (e.mode == .Draw ? PANEL : HILITE))
+	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, banner_text(e), (warning || e.mode != .Draw) ? BG : TEXT)
 	if e.note != "" {
 		cm.draw_text(r, INFO_X, INFO_Y, e.note, WARN)
+	} else if e.layer == .Characters {
+		who := "-"
+		if i := cm.world_character_at(e.world, e.index, e.cx, e.cy); i >= 0 {
+			who = character_name(e, i)
+		}
+		cm.draw_text(r, INFO_X, INFO_Y, fmt.tprintf("CURSOR: %d,%d  %s%s", e.cx, e.cy, who[:min(len(who), 18)], e.dirty ? " *" : ""), TEXT)
 	} else {
 		under := int(cm.map_get(m, e.cx, e.cy))
 		cm.draw_text(r, INFO_X, INFO_Y, fmt.tprintf("CURSOR: %d,%d  %s%s", e.cx, e.cy, shown(terrain_name(e, under))[:min(len(terrain_name(e, under)), 18)], e.dirty ? " *" : ""), TEXT)
@@ -183,61 +241,100 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	}
 	sizes := ZOOM_SIZES
 	zoom_text := e.zoom == 0 ? "FIT" : fmt.tprintf("%d PX", sizes[e.zoom])
-	rows := [5]struct {
+	Panel_Row :: struct {
 		minus, plus: Rect,
 		row:         Setup_Row,
 		name:        string,
 		value:       string,
-	} {
-		{TERRAIN_MINUS, TERRAIN_PLUS, .Terrain, "TERRAIN", fmt.tprintf("%d/%d %s", e.terrain + 1, terrain_count(e), terrain_name(e, e.terrain))},
-		{COLUMNS_MINUS, COLUMNS_PLUS, .Columns, "COLUMNS", fmt.tprintf("%d", m.width)},
-		{ROWS_MINUS, ROWS_PLUS, .Rows, "ROWS", fmt.tprintf("%d", m.height)},
-		{SET_MINUS, SET_PLUS, .Set, "SET", cm.name_str(&m.set)},
-		{ZOOM_MINUS, ZOOM_PLUS, .Zoom, "ZOOM", zoom_text},
+		buttons:     bool, // false: a readout with no - and + buttons
+	}
+	rows: [5]Panel_Row
+	if e.layer == .Characters {
+		cur_name, cur_type, player := "NONE", "-", "NO"
+		if has_characters(e) {
+			c := current_character(e)
+			cur_name = fmt.tprintf("%d/%d %s", clamp(e.cur_char, 0, char_count(e) - 1) + 1, char_count(e), character_name(e, clamp(e.cur_char, 0, char_count(e) - 1)))
+			cur_type = cm.name_str(&c.type)
+			player = e.world.player == c.uuid ? "YES" : "NO"
+		}
+		at := has_characters(e) ? char_place_text(e, clamp(e.cur_char, 0, char_count(e) - 1)) : "-"
+		rows = {
+			{TERRAIN_MINUS, TERRAIN_PLUS, .Character, "CHAR", cur_name, true},
+			{COLUMNS_MINUS, COLUMNS_PLUS, .Char_Type, "TYPE", cur_type, true},
+			{ROWS_MINUS, ROWS_PLUS, .Char_Player, "PLAYER", player, true},
+			{SET_MINUS, SET_PLUS, .Layer, "PLACE", at, false},
+			{ZOOM_MINUS, ZOOM_PLUS, .Zoom, "ZOOM", zoom_text, true},
+		}
+	} else {
+		rows = {
+			{TERRAIN_MINUS, TERRAIN_PLUS, .Terrain, "TERRAIN", fmt.tprintf("%d/%d %s", e.terrain + 1, terrain_count(e), terrain_name(e, e.terrain)), true},
+			{COLUMNS_MINUS, COLUMNS_PLUS, .Columns, "COLUMNS", fmt.tprintf("%d", m.width), true},
+			{ROWS_MINUS, ROWS_PLUS, .Rows, "ROWS", fmt.tprintf("%d", m.height), true},
+			{SET_MINUS, SET_PLUS, .Set, "SET", cm.name_str(&m.set), true},
+			{ZOOM_MINUS, ZOOM_PLUS, .Zoom, "ZOOM", zoom_text, true},
+		}
 	}
 	for row in rows {
 		for b in ([2]struct {
 				rc:  Rect,
 				txt: string,
 			}{{row.minus, "-"}, {row.plus, "+"}}) {
+			if !row.buttons {
+				break
+			}
 			fill(r, b.rc, PANEL)
 			cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.txt)) / 2, b.rc.y + 3, b.txt, TEXT)
 		}
 		y := row.minus.y + 3
-		if e.mode == .Setup && e.row == row.row {
+		if e.mode == .Setup && e.row == row.row && row.buttons {
 			cm.draw_text(r, ROW_MARKER_X, y, ">", HILITE)
 		}
 		cm.draw_text(r, ROW_LABEL_X, y, row.name, row_color(e, row.row))
 		cm.draw_text(r, ROW_VALUE_X, y, shown(row.value), row_color(e, row.row))
 	}
 
-	// The picker: the page of 16 terrains holding the current one; the current one has a yellow frame.
-	page := e.terrain / PICKER_PAGE * PICKER_PAGE
-	for slot in 0 ..< PICKER_PAGE {
-		rc := picker_rect(slot)
-		if page + slot < terrain_count(e) {
-			fill(r, rc, PANEL)
-			draw_terrain(e, r, rc, set, page + slot)
-			if page + slot == e.terrain {
-				outline(r, rc, HILITE)
+	// The picker: the page of 16 terrains (or characters) holding the current one, which is framed.
+	if e.layer == .Characters {
+		draw_character_picker(e, r)
+	} else {
+		page := e.terrain / PICKER_PAGE * PICKER_PAGE
+		for slot in 0 ..< PICKER_PAGE {
+			rc := picker_rect(slot)
+			if page + slot < terrain_count(e) {
+				fill(r, rc, PANEL)
+				draw_terrain(e, r, rc, set, page + slot)
+				if page + slot == e.terrain {
+					outline(r, rc, HILITE)
+				}
+				if set != nil && set.terrains[page + slot].solid {
+					fill(r, Rect{rc.x + rc.w - 3, rc.y, 3, 3}, WARN) // a corner mark for solid terrain
+				}
+			} else {
+				fill(r, rc, cm.Color{22, 22, 28})
 			}
-			if set != nil && set.terrains[page + slot].solid {
-				fill(r, Rect{rc.x + rc.w - 3, rc.y, 3, 3}, WARN) // a corner mark for solid terrain
-			}
-		} else {
-			fill(r, rc, cm.Color{22, 22, 28})
 		}
 	}
 
 	// Buttons: the one whose Setup row is selected is lit, and a tool is lit while armed.
-	for btn in buttons() {
-		lit := (btn.shape != .None && e.shape == btn.shape) || (btn.point != .None && e.point_tool == btn.point)
-		if btn.rc != BACK_BUTTON && e.mode == .Setup && e.row == btn.row {
-			lit = true
+	draw_buttons :: proc(e: ^Editor, r: ^cm.Renderer, list: []Button) {
+		m := current_map(e)
+		for btn in list {
+			lit := (btn.shape != .None && e.shape == btn.shape) || (btn.point != .None && e.point_tool == btn.point)
+			if btn.rc != BACK_BUTTON && e.mode == .Setup && e.row == btn.row {
+				lit = true
+			}
+			turn_blocked := m.width != m.height && (btn.rc == ROT_L_BUTTON || btn.rc == ROT_R_BUTTON)
+			needs_char := e.layer == .Characters && !has_characters(e) && btn.row != .Char_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON
+			fill(r, btn.rc, lit ? HILITE : PANEL)
+			cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.txt, lit ? BG : ((turn_blocked || needs_char) ? DIM : TEXT))
 		}
-		turn_blocked := m.width != m.height && (btn.rc == ROT_L_BUTTON || btn.rc == ROT_R_BUTTON)
-		fill(r, btn.rc, lit ? HILITE : PANEL)
-		cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.txt, lit ? BG : (turn_blocked ? DIM : TEXT))
+	}
+	if e.layer == .Characters {
+		cb := char_buttons()
+		draw_buttons(e, r, cb[:])
+	} else {
+		tb := buttons()
+		draw_buttons(e, r, tb[:])
 	}
 
 	// Help.
@@ -246,4 +343,68 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.draw_text(r, 8, HELP_Y + i * cm.LINE_ADVANCE, line, TEXT)
 	}
 	cm.renderer_present(r)
+}
+
+// Characters drawn over the visible cells of the map (both layers). The player has a yellow mark in
+// the cell's corner (when cells are big enough to hold one).
+draw_characters :: proc(e: ^Editor, r: ^cm.Renderer) {
+	m := current_map(e)
+	if cm.world_map_character_count(e.world, e.index) == 0 {
+		return
+	}
+	vw, vh := view_size(e)
+	for y in e.vy ..< e.vy + vh {
+		for x in e.vx ..< e.vx + vw {
+			u := m.characters[y][x]
+			if cm.uuid_is_none(u) {
+				continue
+			}
+			rc := cell_rect(e, x, y)
+			ci := cm.world_find_character(e.world, u)
+			if ci < 0 {
+				continue
+			}
+			draw_character_sprite(e, r, rc, &e.world.characters[ci], false)
+			if u == e.world.player && rc.w >= 4 {
+				k := max(2, rc.w / 4)
+				fill(r, Rect{rc.x, rc.y, k, k}, HILITE)
+			}
+		}
+	}
+}
+
+// One character's sprite in `area`; with `backdrop` a checkerboard goes behind it first. A character
+// whose type has no picture is a dark red block.
+draw_character_sprite :: proc(e: ^Editor, r: ^cm.Renderer, area: Rect, c: ^cm.Character, backdrop: bool) {
+	if backdrop {
+		cm.canvas_draw_checker(r, area, cm.Color{96, 96, 108}, cm.Color{72, 72, 84}, max(2, area.w / 4))
+	}
+	if sp := character_sprite(e.world, c); sp != nil {
+		if img := cm.world_sprite_image(e.world, sp); img != nil {
+			cm.canvas_draw_thumbnail(r, area, img, &e.world.palette, sp.transparent)
+			return
+		}
+	}
+	fill(r, area, UNSET)
+}
+
+// The picker of the Characters layer: the page holding the current character.
+draw_character_picker :: proc(e: ^Editor, r: ^cm.Renderer) {
+	page := clamp(e.cur_char, 0, max(char_count(e) - 1, 0)) / CHAR_PAGE * CHAR_PAGE
+	for slot in 0 ..< PICKER_PAGE {
+		rc := picker_rect(slot)
+		i := page + slot
+		if i >= char_count(e) {
+			fill(r, rc, cm.Color{22, 22, 28})
+			continue
+		}
+		fill(r, rc, PANEL)
+		draw_character_sprite(e, r, rc, &e.world.characters[i], true)
+		if i == e.cur_char {
+			outline(r, rc, HILITE)
+		}
+		if e.world.player == e.world.characters[i].uuid {
+			fill(r, Rect{rc.x, rc.y, 3, 3}, HILITE)
+		}
+	}
 }

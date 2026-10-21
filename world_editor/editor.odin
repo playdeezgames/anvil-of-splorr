@@ -1,6 +1,8 @@
 package world_editor
 
+import cce "../character_editor"
 import cm "../common"
+import cte "../character_type_editor"
 import me "../map_editor"
 import pe "../palette_editor"
 import spe "../sprite_editor"
@@ -8,6 +10,7 @@ import te "../tileset_editor"
 import tre "../terrain_editor"
 import "core:fmt"
 import "core:mem"
+import "core:time"
 
 Request :: enum {
 	Save,
@@ -44,6 +47,8 @@ Mode :: enum {
 	Tileset,
 	Terrain,
 	Sprite,
+	Char_Type,
+	Character,
 	Map,
 }
 
@@ -61,6 +66,8 @@ Hub_Row :: enum {
 	Tilesets,
 	Terrain_Sets,
 	Sprite_Sets,
+	Character_Types,
+	Characters,
 	Maps,
 }
 
@@ -95,6 +102,8 @@ Editor :: struct {
 	tileset_ed:     te.Editor, // about 1 MB
 	terrain_ed:     tre.Editor,
 	sprite_ed:      spe.Editor,
+	char_type_ed:   cte.Editor,
+	character_ed:   cce.Editor,
 	map_ed:         me.Editor,
 	opened:         int, // the tileset being edited in Tileset mode
 	entry:          cm.Text_Entry,
@@ -124,6 +133,7 @@ editor_init :: proc(e: ^Editor) {
 // leaving), then ask the frontend for the saved world.
 editor_enter :: proc(e: ^Editor) {
 	editor_init(e)
+	cm.world_seed_uuids(&e.world, u64(time.now()._nsec)) // new character uuids differ from run to run
 	e.requests = {.Load}
 }
 
@@ -142,6 +152,8 @@ set_sub_labels :: proc(e: ^Editor) {
 	te.editor_set_labels(&e.tileset_ed, e.labels)
 	tre.editor_set_labels(&e.terrain_ed, e.labels)
 	spe.editor_set_labels(&e.sprite_ed, e.labels)
+	cte.editor_set_labels(&e.char_type_ed, e.labels)
+	cce.editor_set_labels(&e.character_ed, e.labels)
 	me.editor_set_labels(&e.map_ed, e.labels)
 }
 
@@ -298,6 +310,24 @@ sync_embedded :: proc(e: ^Editor) {
 			e.terrain_ed.exit_requested = false
 			e.mode = .List
 		}
+	case .Char_Type:
+		if e.char_type_ed.dirty {
+			e.char_type_ed.dirty = false
+			touched(e)
+		}
+		if e.char_type_ed.exit_requested {
+			e.char_type_ed.exit_requested = false
+			e.mode = .Hub
+		}
+	case .Character:
+		if e.character_ed.dirty {
+			e.character_ed.dirty = false
+			touched(e)
+		}
+		if e.character_ed.exit_requested {
+			e.character_ed.exit_requested = false
+			e.mode = .Hub
+		}
 	case .Sprite:
 		if e.sprite_ed.dirty {
 			e.sprite_ed.dirty = false
@@ -408,6 +438,11 @@ delete_item :: proc(e: ^Editor) {
 			return
 		}
 	case .Sprite_Sets:
+		name := cm.name_str(&e.world.sprite_sets[selected(e)].name)
+		if uses := cm.world_sprite_set_uses(&e.world, name); uses > 0 {
+			e.note = fmt.tprintf("USED BY %d CHARACTER TYPE%s", uses, uses == 1 ? "" : "S")
+			return
+		}
 		cm.world_delete_sprite_set(&e.world, selected(e))
 	case .Maps:
 		cm.world_delete_map(&e.world, selected(e))
@@ -564,6 +599,12 @@ run_hub :: proc(e: ^Editor, row: Hub_Row) {
 		open_list(e, .Terrain_Sets)
 	case .Sprite_Sets:
 		open_list(e, .Sprite_Sets)
+	case .Character_Types:
+		cte.editor_begin(&e.char_type_ed, &e.world)
+		e.mode = .Char_Type
+	case .Characters:
+		cce.editor_begin(&e.character_ed, &e.world)
+		e.mode = .Character
 	case .Maps:
 		open_list(e, .Maps)
 	}
@@ -591,6 +632,14 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		return
 	case .Sprite:
 		spe.editor_handle_event(&e.sprite_ed, ev)
+		sync_embedded(e)
+		return
+	case .Char_Type:
+		cte.editor_handle_event(&e.char_type_ed, ev)
+		sync_embedded(e)
+		return
+	case .Character:
+		cce.editor_handle_event(&e.character_ed, ev)
 		sync_embedded(e)
 		return
 	case .Map:
@@ -695,7 +744,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Red, .Blue:
 			e.mode = .Hub
 		}
-	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Map:
+	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 		// Handled before this point: those modes own the input.
 	}
 }

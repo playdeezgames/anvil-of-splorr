@@ -97,9 +97,20 @@ world_duplicate_sprite_set :: proc(w: ^World, i: int) -> int {
 	return at
 }
 
-// Nothing refers to a sprite set yet, so deleting one is always fine.
+// How many character types draw sprites of this set.
+world_sprite_set_uses :: proc(w: ^World, set: string) -> int {
+	return world_sprite_set_char_type_uses(w, set)
+}
+
+// How many character types draw this sprite.
+world_sprite_uses :: proc(w: ^World, set, sprite: string) -> int {
+	return world_sprite_char_type_uses(w, set, sprite)
+}
+
+// Deletes set i unless a character type draws one of its sprites. Returns false if it is in use
+// (or i is out of range): ask world_sprite_set_uses for the count first.
 world_delete_sprite_set :: proc(w: ^World, i: int) -> bool {
-	if i < 0 || i >= w.sprite_set_count {
+	if i < 0 || i >= w.sprite_set_count || world_sprite_set_uses(w, name_str(&w.sprite_sets[i].name)) > 0 {
 		return false
 	}
 	for k in i ..< w.sprite_set_count - 1 {
@@ -117,6 +128,7 @@ world_rename_sprite_set :: proc(w: ^World, i: int, name: string) -> Name_Problem
 	if p := world_check_sprite_set_name(w, i, name); p != .None {
 		return p
 	}
+	char_types_follow_sprite_set(w, name_str(&w.sprite_sets[i].name), name)
 	name_assign(&w.sprite_sets[i].name, name)
 	return .None
 }
@@ -162,13 +174,13 @@ world_duplicate_sprite :: proc(w: ^World, si, i: int) -> int {
 	return n
 }
 
-// Nothing refers to a sprite yet, so deleting one is always fine.
+// Deletes sprite i of set si unless a character type draws it (then false: ask world_sprite_uses).
 world_delete_sprite :: proc(w: ^World, si, i: int) -> bool {
 	if si < 0 || si >= w.sprite_set_count {
 		return false
 	}
 	s := &w.sprite_sets[si]
-	if i < 0 || i >= s.count {
+	if i < 0 || i >= s.count || world_sprite_uses(w, name_str(&s.name), name_str(&s.sprites[i].name)) > 0 {
 		return false
 	}
 	for k in i ..< s.count - 1 {
@@ -269,7 +281,7 @@ write_sprite_sets :: proc(b: ^strings.Builder, w: ^World) {
 		}
 		strings.write_string(b, s.count == 0 ? "]}" : "\n    ]}")
 	}
-	strings.write_string(b, w.sprite_set_count == 0 ? "]\n" : "\n  ]\n")
+	strings.write_string(b, w.sprite_set_count == 0 ? "],\n" : "\n  ],\n")
 }
 
 read_sprite_sets :: proc(root: json.Object, tmp: ^World) -> (err: string) {
@@ -352,4 +364,18 @@ read_sprite_sets :: proc(root: json.Object, tmp: ^World) -> (err: string) {
 		tmp.sprite_set_count += 1
 	}
 	return ""
+}
+
+// Renames sprite i of set si; the character types drawing it follow.
+world_rename_sprite :: proc(w: ^World, si, i: int, name: string) -> Name_Problem {
+	if si < 0 || si >= w.sprite_set_count || i < 0 || i >= w.sprite_sets[si].count {
+		return .Empty
+	}
+	s := &w.sprite_sets[si]
+	if p := sprite_check_name(s, i, name); p != .None {
+		return p
+	}
+	char_types_follow_sprite(w, name_str(&s.name), name_str(&s.sprites[i].name), name)
+	name_assign(&s.sprites[i].name, name)
+	return .None
 }
