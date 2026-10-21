@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>@TITLE@</title>
+@FETCH@
 <style>
   :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #1c1c24; color: #c8c8d2; font: 14px system-ui, sans-serif; }
@@ -23,7 +24,8 @@
 <script>
 "use strict";
 const STORAGE_PREFIX = "anvil-of-splorr.";
-const FILE_CAP = 4 * 1024 * 1024; // must match FILE_CAP in web.odin
+// (The most a file can be is asked of the wasm module: file_capacity(), set by FILE_CAP_MIB at build.)
+const fileCapacity = () => memory.exports.file_capacity();
 
 const canvasEl = document.getElementById("canvas");
 const g = canvasEl.getContext("2d");
@@ -90,7 +92,7 @@ document.getElementById("open").addEventListener("change", async (ev) => {
     return;
   }
   if (!exp || !exp.file_buffer) { say("Editor is not ready yet."); return; }
-  if (data.length > FILE_CAP) { say(`${file.name}: too large (${data.length} bytes).`); return; }
+  if (data.length > fileCapacity()) { say(`${file.name}: too large (${data.length} bytes, at most ${fileCapacity()}). Rebuild with WEB_FILE_MIB=<more>.`); return; }
   bytesAt(exp.file_buffer(), data.length).set(data);
   say(exp.file_loaded(data.length) ? `Loaded ${file.name}.` : `${file.name}: not a valid file for this tool.`);
 });
@@ -118,6 +120,25 @@ async function loadGameTags() {
   try { localStorage.setItem(STORAGE_PREFIX + "game_tags.json", await res.text()); } catch (e) { /* storage unavailable */ }
 }
 
+// Files the page fetches from beside itself and hands straight to the running tool (as if chosen with
+// "Open file"), listed in <meta name="anvil-fetch" content="world.json"> (build.sh: WEB_FETCH=world.json).
+// This is how a shipped game gets its world without any browser storage. A file that is too big for
+// the buffer, or that the tool refuses, is reported on the page.
+async function loadFetched() {
+  const meta = document.querySelector('meta[name="anvil-fetch"]');
+  const exp = memory.exports;
+  if (!meta || !exp || !exp.tool_has_files()) return;
+  for (const name of meta.content.split(",").map(n => n.trim()).filter(n => n)) {
+    let res;
+    try { res = await fetch(name, { cache: "no-store" }); } catch (e) { say(`${name}: could not be fetched.`); continue; }
+    if (!res.ok) { say(`${name}: not found next to the page.`); continue; }
+    const data = new Uint8Array(await res.arrayBuffer());
+    if (data.length > fileCapacity()) { say(`${name}: too large (${data.length} bytes, at most ${fileCapacity()}). Rebuild with WEB_FILE_MIB=<more>.`); continue; }
+    bytesAt(exp.file_buffer(), data.length).set(data);
+    say(exp.file_loaded(data.length) ? `Loaded ${name}.` : `${name}: not a valid file for this tool.`);
+  }
+}
+
 // Closing or reloading the tab with unsaved edits asks the browser to confirm.
 window.addEventListener("beforeunload", (ev) => {
   const exp = memory.exports;
@@ -131,6 +152,7 @@ odin.runWasm("app.wasm", null, imports, memory)
   .then(() => {
     loadInputMap();
     loadGameTags();
+    loadFetched();
     // The "open file" button follows the running tool: only tools with files can use it.
     setInterval(() => {
       document.getElementById("open-label").hidden = !memory.exports.tool_has_files();

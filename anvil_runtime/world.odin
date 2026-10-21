@@ -3,6 +3,18 @@
 // helpers) and keeps its own mutable state in a `Play_State` (play.odin); the loaded world is never
 // changed by playing.
 //
+// GETTING A WORLD INTO A SHIPPED GAME. The simplest way, on native and on the web alike, is to embed
+// the file in the program with `#load`, which has no size limit but the program's own size:
+//
+//     WORLD_FILE :: #load("world.json")              // beside the game's source; compiled in
+//     world := rt.new_world()                        // (or a global World)
+//     if err := rt.load(world, WORLD_FILE); err != "" { ... stop with the message ... }
+//
+// A web game built on the Anvil's frontends can instead have the page fetch `world.json` from beside
+// itself and hand it to its Tool's `load` (build with `WEB_FETCH=world.json ./build.sh web <app>`);
+// that goes through the frontend's file buffer, which is 4 MiB unless built with `WEB_FILE_MIB=<n>`
+// (see FILE_CAP in frontends/web/web.odin). Embedding avoids that buffer entirely.
+//
 // A `World` is about 21 MB: make it a global or `new()` it, never copy or return one by value. The
 // package builds for native and `js_wasm32` and has no platform code. (The name is not `runtime`
 // because Odin reserves that for its own package.)

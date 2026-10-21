@@ -22,7 +22,7 @@ coll="-collection:app=apps/$tool"
 build_web() {
 	local out="build/web/$tool"
 	mkdir -p "$out"
-	odin build frontends/web -target:js_wasm32 "$coll" -out:"$out/app.wasm" -o:"${WEB_OPT:-minimal}"
+	odin build frontends/web -target:js_wasm32 "$coll" -out:"$out/app.wasm" -o:"${WEB_OPT:-minimal}" -define:FILE_CAP_MIB="${WEB_FILE_MIB:-4}"
 	cp "$(odin root)/core/sys/wasm/js/odin.js" "$out/"
 	# A link, not a copy: the repo-root input_map.json is the one file to edit, and a rebuild must
 	# never overwrite edits made through the served path.
@@ -31,7 +31,11 @@ build_web() {
 	# for the world editor; a game's own copy can also be dropped into the output folder or chosen with
 	# the page's "Open file" button.
 	if [ -e game_tags.json ]; then ln -sfn ../../../game_tags.json "$out/game_tags.json"; fi
-	sed -e "s/@TITLE@/$(cat "apps/$tool/title.txt")/" frontends/web/index.html > "$out/index.html"
+	# WEB_FETCH="world.json" makes the page fetch those files from beside it and give them to the tool at
+	# start (a shipped game's world); WEB_FILE_MIB=<n> raises the file buffer from its default 4 MiB.
+	fetch_meta=""
+	if [ -n "${WEB_FETCH:-}" ]; then fetch_meta="<meta name=\"anvil-fetch\" content=\"${WEB_FETCH}\">"; fi
+	sed -e "s/@TITLE@/$(cat "apps/$tool/title.txt")/" -e "s|@FETCH@|$fetch_meta|" frontends/web/index.html > "$out/index.html"
 }
 
 case "$target" in

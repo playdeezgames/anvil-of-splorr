@@ -47,6 +47,6 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [~] 3. `game_tags.json` (`common/game_tags.odin`; the world editor asks the frontend for it as a second named file): TAGS marks required tags missing / present / unused, creates the missing ones in one action, warns before renaming or deleting a required tag; the runtime has the same check
 - [~] 4. Game parameters (`common/world_params.odin`, hub row PARAMS with a list and a value screen, runtime `param_number`/`param_text`): a hub row of named whole numbers and short texts (new, rename, edit value, delete), saved in `world.json` (optional on load), read by name with a default in the runtime
 - [~] 5. Play mode from the world hub (`world_editor/play.odin`, YELLOW or the PLAY button): one step per press, blocked by `solid`, red returns and restores the authored positions (uses 1 and 2)
-- [ ] 6. A web game can embed (`#load`) or fetch its world; the size limit is documented next to `FILE_CAP`
+- [~] 6. A web game can embed (`#load`, documented and tested in `anvil_runtime`) or have the page fetch it (`WEB_FETCH=world.json`); the file buffer size is configurable (`WEB_FILE_MIB`) and documented next to `FILE_CAP`
 - [ ] Sound (story 5): moved to `BACKLOG.md`
 

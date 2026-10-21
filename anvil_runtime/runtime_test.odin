@@ -479,3 +479,34 @@ test_a_game_reads_parameters_by_name_with_defaults :: proc(t: ^testing.T) {
 	defer free(old)
 	testing.expect(t, param_count(old) == 0 && param_number(old, "round_seconds", 30) == 30)
 }
+
+// The documented way to ship a world in a game: compile the file in with #load.
+EMBEDDED_WORLD :: #load("testdata/demo_world.json")
+
+@(test)
+test_an_embedded_world_file_loads_like_any_other :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := new_world()
+	defer free(w)
+	testing.expect(t, len(EMBEDDED_WORLD) > 1000)
+	err := load(w, EMBEDDED_WORLD)
+	testing.expect_value(t, err, "")
+	cols, rows, ok := map_size(w, 0)
+	testing.expect(t, ok && cols == 20 && rows == 10)
+	pi, has := player(w)
+	testing.expect(t, has && cm.name_str(&w.characters[pi].name) == "Hero")
+	_, x, y, placed := authored_location(w, pi)
+	testing.expect(t, placed && x == 3 && y == 4)
+	testing.expect(t, cell_is_solid(w, 0, 0, 0) && !cell_is_solid(w, 0, 1, 1) && cell_is_solid(w, 0, 9, 4)) // the room's walls
+	testing.expect(t, character_image(w, pi) != nil)
+	// It plays: the hero walks right until the interior wall at column 9.
+	ps := new(Play_State)
+	defer free(ps)
+	play_init(ps, w)
+	steps := 0
+	for play_step(ps, w, pi, 1, 0) == .Moved {
+		steps += 1
+	}
+	testing.expect_value(t, steps, 5) // from column 3 to column 8
+	testing.expect_value(t, play_step(ps, w, pi, 1, 0), Move_Result.Solid)
+}

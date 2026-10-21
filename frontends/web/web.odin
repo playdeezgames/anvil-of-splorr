@@ -89,11 +89,26 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	return true
 }
 
-// One static buffer for every file transfer (page-chosen files and browser-storage reads). It is
-// big enough for the largest font or tileset file and must stay off the stack. JS copies a chosen file's
-// bytes into file_buffer and then calls file_loaded(len).
-FILE_CAP :: 4 * 1024 * 1024 // big enough for the largest tileset file (see test_the_largest_tileset_round_trips...)
+// One static buffer for every file transfer (page-chosen files, files the page fetches, and
+// browser-storage reads). It must stay off the stack. JS copies a file's bytes into file_buffer and
+// then calls file_loaded(len); it asks `file_capacity()` how many bytes fit.
+//
+// SIZE LIMIT: FILE_CAP is 4 MiB by default, enough for the largest tileset or font file. A world
+// (world.json) with several big tilesets can be larger, because every tileset is stored in it (a
+// single 64 x 64 tileset of 256 images is up to ~3.8 MB of JSON; a world holds up to 16). To raise
+// the limit for a build, give the compiler the size in MiB:
+//     WEB_FILE_MIB=32 ./build.sh web <app>        (build.sh passes -define:FILE_CAP_MIB=32)
+// The buffer is static memory in the wasm module, so a bigger cap makes every page load reserve that
+// much. A shipped game does not need the buffer at all for its world if it embeds it with `#load`
+// (see anvil_runtime/world.odin): that has no limit but the wasm module's size.
+FILE_CAP :: #config(FILE_CAP_MIB, 4) * 1024 * 1024
 file_buf: [FILE_CAP]u8
+
+// How many bytes the file buffer holds (the page checks a file against this before copying it in).
+@(export)
+file_capacity :: proc "c" () -> i32 {
+	return i32(FILE_CAP)
+}
 
 @(export)
 file_buffer :: proc "c" () -> rawptr {
