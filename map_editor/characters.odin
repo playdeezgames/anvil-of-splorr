@@ -71,12 +71,6 @@ character_name :: proc(e: ^Editor, index: int) -> string {
 	return cm.name_str(&e.world.characters[index].name)
 }
 
-// The sprite a character draws, through its type (nil when the type has none).
-character_sprite :: proc(w: ^cm.World, c: ^cm.Character) -> ^cm.Sprite {
-	ti := cm.world_find_char_type(w, cm.name_str(&c.type))
-	return ti >= 0 ? cm.world_char_type_sprite(w, &w.char_types[ti]) : nil
-}
-
 // Makes character `index` current; the cursor goes to it if it stands on this map.
 @(private = "file")
 select_character :: proc(e: ^Editor, index: int) {

@@ -342,3 +342,98 @@ test_a_full_world_plays_without_overflow :: proc(t: ^testing.T) {
 	play_init(ps2, back)
 	testing.expect(t, ps2.count == ps.count && play_position(ps2, 1000) == p)
 }
+
+Draw_Log :: struct {
+	rects:  [dynamic]cm.Rect,
+	colors: [dynamic]cm.Color,
+}
+
+draw_renderer :: proc(l: ^Draw_Log) -> cm.Renderer {
+	return cm.Renderer {
+		data = l,
+		clear = proc(d: rawptr, c: cm.Color) {},
+		fill_rect = proc(d: rawptr, x, y, w, h: int, c: cm.Color) {
+			k := (^Draw_Log)(d)
+			append(&k.rects, cm.Rect{x, y, w, h})
+			append(&k.colors, c)
+		},
+		present = proc(d: rawptr) {},
+	}
+}
+
+@(test)
+test_a_game_draws_the_map_and_where_its_characters_are_now :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := loaded_world()
+	defer free(w)
+	hero := index_of_character(w, "Hero")
+	ps := new(Play_State)
+	defer free(ps)
+	play_init(ps, w)
+	log: Draw_Log
+	defer delete(log.rects)
+	defer delete(log.colors)
+	r := draw_renderer(&log)
+	// A 5 x 4 room at zoom 3 with its corner at pixel (20, 10): 12 x 12 pixel cells.
+	d := zoom_window(w, 0, 0, 0, 5, 4, 20, 10, 3)
+	testing.expect(t, d.cell_w == 12 && d.cell_h == 12)
+	draw_terrain(&r, w, d)
+	room := cm.Rect{20, 10, 60, 48}
+	area := 0
+	for rc in log.rects {
+		testing.expect(t, rc.x >= room.x && rc.y >= room.y && rc.x + rc.w <= room.x + room.w && rc.y + rc.h <= room.y + room.h)
+		area += rc.w * rc.h
+	}
+	testing.expect_value(t, area, 60 * 48)
+	// The hero (picture colour 3, a dot on transparent 0) is drawn at its cell now, and moves with it.
+	d.mark_player = true
+	d.player_mark = cm.Color{200, 100, 50}
+	clear(&log.rects)
+	clear(&log.colors)
+	draw_characters(&r, w, ps, d)
+	cell := cm.world_cell_rect(d, 1, 1)
+	for rc in log.rects {
+		testing.expect(t, rc.x >= cell.x && rc.y >= cell.y && rc.x + rc.w <= cell.x + cell.w || rc.x >= cm.world_cell_rect(d, 3, 2).x) // the hero's or the star's cell
+	}
+	marks := 0
+	for c, i in log.colors {
+		if c == (cm.Color{200, 100, 50}) {
+			marks += 1
+			testing.expect(t, log.rects[i].x == cell.x && log.rects[i].y == cell.y)
+		}
+	}
+	testing.expect_value(t, marks, 1)
+	play_step(ps, w, hero, 1, 0)
+	clear(&log.rects)
+	clear(&log.colors)
+	draw_characters(&r, w, ps, d)
+	moved := cm.world_cell_rect(d, 2, 1)
+	for c, i in log.colors {
+		if c == (cm.Color{200, 100, 50}) {
+			testing.expect(t, log.rects[i].x == moved.x && log.rects[i].y == moved.y)
+		}
+	}
+	// A character that is off the map is not drawn; a window that excludes a cell leaves its character out.
+	play_unplace(ps, hero)
+	clear(&log.rects)
+	clear(&log.colors)
+	draw_characters(&r, w, ps, d)
+	testing.expect_value(t, len(log.rects) > 0, true) // the star is still there
+	d2 := zoom_window(w, 0, 0, 0, 3, 4, 20, 10, 3) // columns 0..2: the star is in column 3
+	clear(&log.rects)
+	clear(&log.colors)
+	draw_characters(&r, w, ps, d2)
+	testing.expect_value(t, len(log.rects), 0)
+	// A click on the screen is a cell of the map.
+	x, y, ok := cell_at_pixel(w, d, 20 + 12 * 4 + 5, 10 + 12 * 3 + 5)
+	testing.expect(t, ok && x == 4 && y == 3)
+	_, _, ok = cell_at_pixel(w, d, 10, 10)
+	testing.expect(t, !ok)
+	// Hanging off the surface is clipped.
+	clear(&log.rects)
+	clear(&log.colors)
+	draw_terrain(&r, w, zoom_window(w, 0, 0, 0, 5, 4, -30, -20, 3))
+	for rc in log.rects {
+		testing.expect(t, rc.x >= 0 && rc.y >= 0 && rc.x + rc.w <= cm.SCREEN_W && rc.y + rc.h <= cm.SCREEN_H)
+	}
+}

@@ -74,22 +74,13 @@ shown :: proc(name: string) -> string {
 	return len(name) > VALUE_CHARS ? name[:VALUE_CHARS] : name
 }
 
-// The sprite a character draws (through its type), or nil.
-character_sprite :: proc(w: ^cm.World, c: ^cm.Character) -> ^cm.Sprite {
-	ti := cm.world_find_char_type(w, cm.name_str(&c.type))
-	return ti >= 0 ? cm.world_char_type_sprite(w, &w.char_types[ti]) : nil
-}
-
-// A character over a checkerboard (a dark red block if it has no picture).
+// A character over a checkerboard (a dark red block if it has no picture), drawn by the same code
+// the game and the map editor use.
 draw_character :: proc(w: ^cm.World, r: ^cm.Renderer, area: Rect, c: ^cm.Character) {
 	cm.canvas_draw_checker(r, area, CHECK_A, CHECK_B, max(2, area.w / 4))
-	if sp := character_sprite(w, c); sp != nil {
-		if img := cm.world_sprite_image(w, sp); img != nil {
-			cm.canvas_draw_thumbnail(r, area, img, &w.palette, sp.transparent)
-			return
-		}
-	}
-	fill(r, area, UNSET)
+	// (c points into w.characters: its index is the pointer's distance from the table's start)
+	ci := (int(uintptr(c)) - int(uintptr(&w.characters[0]))) / size_of(cm.Character)
+	cm.world_draw_character(r, w, ci, area, cm.SURFACE, UNSET)
 }
 
 Button :: struct {

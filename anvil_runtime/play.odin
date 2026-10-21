@@ -132,3 +132,51 @@ play_unplace :: proc(ps: ^Play_State, ci: int) -> bool {
 	ps.positions[ci] = {}
 	return true
 }
+
+// --- Drawing ------------------------------------------------------------------------------------
+
+// The shared drawing (common/world_draw.odin), so a game never reimplements how a tile looks.
+// `World_Draw` says which window of a map goes where on the 320 x 180 surface and how big a cell is.
+World_Draw :: cm.World_Draw
+
+// A window at a whole-number zoom of the tiles: cols x rows cells starting at (col, row), with that
+// cell's corner at surface pixel (x, y). Cells outside the map or the surface are clipped, not errors.
+zoom_window :: proc(w: ^World, map_index, col, row, cols, rows, x, y, zoom: int) -> World_Draw {
+	return cm.world_zoom_draw(w, map_index, col, row, cols, rows, x, y, zoom)
+}
+
+// Draws the terrain of the window.
+draw_terrain :: proc(r: ^cm.Renderer, w: ^World, d: World_Draw) {
+	cm.world_draw_terrain(r, w, d)
+}
+
+// Draws the characters standing on the window's map *now* (the Play_State, not the authored map)
+// over the terrain, each in its cell, without its sprite's transparent colour. With
+// `d.mark_player` the player gets a small corner mark.
+draw_characters :: proc(r: ^cm.Renderer, w: ^World, ps: ^Play_State, d: World_Draw) {
+	if d.cell_w <= 0 || d.cell_h <= 0 {
+		return
+	}
+	for ci in 0 ..< ps.count {
+		p := ps.positions[ci]
+		if !p.placed || p.map_index != d.map_index {
+			continue
+		}
+		if p.x < d.col || p.y < d.row || p.x >= d.col + d.cols || p.y >= d.row + d.rows {
+			continue
+		}
+		area := cm.world_cell_rect(d, p.x, p.y)
+		cm.world_draw_character(r, w, ci, area, d.clip, d.missing)
+		if d.mark_player && w.characters[ci].uuid == w.player && area.w >= 4 {
+			k := max(2, area.w / 4)
+			cs: cm.Clip_State
+			cr := cm.clipped_renderer(&cs, r, d.clip)
+			cm.renderer_fill_rect(&cr, area.x, area.y, k, k, d.player_mark)
+		}
+	}
+}
+
+// The map cell under a surface pixel of the window (to turn a mouse click into a cell).
+cell_at_pixel :: proc(w: ^World, d: World_Draw, px, py: int) -> (x, y: int, ok: bool) {
+	return cm.world_cell_at(w, d, px, py)
+}

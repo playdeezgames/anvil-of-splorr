@@ -207,12 +207,23 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	vw, vh := view_size(e)
 	c := view_cell(e)
 	fill(r, Rect{CANVAS.x, CANVAS.y, vw * c, vh * c}, BG)
-	for y in e.vy ..< e.vy + vh {
-		for x in e.vx ..< e.vx + vw {
-			draw_terrain(e, r, cell_rect(e, x, y), set, int(m.cells[y][x]))
-		}
+	window := cm.World_Draw {
+		map_index   = e.index,
+		col         = e.vx,
+		row         = e.vy,
+		cols        = vw,
+		rows        = vh,
+		x           = CANVAS.x,
+		y           = CANVAS.y,
+		cell_w      = c,
+		cell_h      = c,
+		clip        = Rect{CANVAS.x, CANVAS.y, vw * c, vh * c},
+		missing     = UNSET,
+		mark_player = true,
+		player_mark = HILITE,
 	}
-	draw_characters(e, r)
+	cm.world_draw_terrain(r, e.world, window) // the same code the game draws its maps with
+	cm.world_draw_authored_characters(r, e.world, window)
 	if cell_visible(e, e.cx, e.cy) {
 		outline(r, cell_rect(e, e.cx, e.cy), e.mode == .Setup ? DIM : HILITE)
 	}
@@ -364,47 +375,13 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.renderer_present(r)
 }
 
-// Characters drawn over the visible cells of the map (both layers). The player has a yellow mark in
-// the cell's corner (when cells are big enough to hold one).
-draw_characters :: proc(e: ^Editor, r: ^cm.Renderer) {
-	m := current_map(e)
-	if cm.world_map_character_count(e.world, e.index) == 0 {
-		return
-	}
-	vw, vh := view_size(e)
-	for y in e.vy ..< e.vy + vh {
-		for x in e.vx ..< e.vx + vw {
-			u := m.characters[y][x]
-			if cm.uuid_is_none(u) {
-				continue
-			}
-			rc := cell_rect(e, x, y)
-			ci := cm.world_find_character(e.world, u)
-			if ci < 0 {
-				continue
-			}
-			draw_character_sprite(e, r, rc, &e.world.characters[ci], false)
-			if u == e.world.player && rc.w >= 4 {
-				k := max(2, rc.w / 4)
-				fill(r, Rect{rc.x, rc.y, k, k}, HILITE)
-			}
-		}
-	}
-}
-
 // One character's sprite in `area`; with `backdrop` a checkerboard goes behind it first. A character
 // whose type has no picture is a dark red block.
-draw_character_sprite :: proc(e: ^Editor, r: ^cm.Renderer, area: Rect, c: ^cm.Character, backdrop: bool) {
+draw_character_sprite :: proc(e: ^Editor, r: ^cm.Renderer, area: Rect, ci: int, backdrop: bool) {
 	if backdrop {
 		cm.canvas_draw_checker(r, area, cm.Color{96, 96, 108}, cm.Color{72, 72, 84}, max(2, area.w / 4))
 	}
-	if sp := character_sprite(e.world, c); sp != nil {
-		if img := cm.world_sprite_image(e.world, sp); img != nil {
-			cm.canvas_draw_thumbnail(r, area, img, &e.world.palette, sp.transparent)
-			return
-		}
-	}
-	fill(r, area, UNSET)
+	cm.world_draw_character(r, e.world, ci, area, cm.SURFACE, UNSET)
 }
 
 // The picker of the Characters layer: the page holding the current character.
@@ -418,7 +395,7 @@ draw_character_picker :: proc(e: ^Editor, r: ^cm.Renderer) {
 			continue
 		}
 		fill(r, rc, PANEL)
-		draw_character_sprite(e, r, rc, &e.world.characters[i], true)
+		draw_character_sprite(e, r, rc, i, true)
 		if i == e.cur_char {
 			outline(r, rc, HILITE)
 		}
@@ -444,7 +421,7 @@ draw_tags_screen :: proc(e: ^Editor, r: ^cm.Renderer) {
 	if e.layer == .Characters {
 		if has_characters(e) {
 			c := current_character(e)
-			draw_character_sprite(e, r, inner, c, true)
+			draw_character_sprite(e, r, inner, clamp(e.cur_char, 0, char_count(e) - 1), true)
 			title, name = "CHARACTER", cm.name_str(&c.name)
 		}
 	} else {
