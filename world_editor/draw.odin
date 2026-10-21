@@ -90,7 +90,7 @@ banner_text :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("ACTIONS   %s: DONE", label(e, .Red))
 	case .File:
 		return fmt.tprintf("FILE: %s SAVE  %s LOAD", label(e, .Green), label(e, .Yellow))
-	case .Text, .Value, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 		// These modes draw their own screens.
 	}
 	return ""
@@ -102,7 +102,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	case .Hub:
 		lines = {
 			fmt.tprintf("%s/%s: CHOOSE  %s/%s: TILE SIZE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
-			fmt.tprintf("%s: OPEN THE PART", l(e, .Green)),
+			fmt.tprintf("%s: OPEN THE PART  %s: PLAY THE WORLD", l(e, .Green), l(e, .Yellow)),
 			fmt.tprintf("%s: SAVE / LOAD  %s: MAIN MENU", l(e, .Blue), l(e, .Red)),
 			"MOUSE: CLICK A ROW TO OPEN IT",
 		}
@@ -126,7 +126,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	case .File:
 		lines = {fmt.tprintf("%s: SAVE  %s: LOAD", l(e, .Green), l(e, .Yellow)), fmt.tprintf("%s: CANCEL", l(e, .Red)), "", ""}
 		return lines, 2
-	case .Text, .Value, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 	}
 	return lines, 0
 }
@@ -242,6 +242,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	case .Value:
 		draw_value(e, r)
 		return
+	case .Play:
+		draw_play(e, r)
+		return
 	case .Palette:
 		pe.editor_draw(&e.palette_ed, r)
 		return
@@ -336,10 +339,10 @@ draw_hub :: proc(e: ^Editor, r: ^cm.Renderer) {
 		fill(r, b.rc, PANEL)
 		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.txt)) / 2, b.rc.y + 3, b.txt, TEXT)
 	}
-	for b in ([3]struct {
+	for b in ([4]struct {
 			rc:  Rect,
 			txt: string,
-		}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}, {MENU_BUTTON, "MENU"}}) {
+		}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}, {MENU_BUTTON, "MENU"}, {PLAY_BUTTON, "PLAY"}}) {
 		fill(r, b.rc, PANEL)
 		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.txt)) / 2, b.rc.y + (b.rc.h - cm.GLYPH_H) / 2, b.txt, TEXT)
 	}

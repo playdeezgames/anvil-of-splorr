@@ -1,5 +1,6 @@
 package world_editor
 
+import rt "../anvil_runtime"
 import cce "../character_editor"
 import cm "../common"
 import cte "../character_type_editor"
@@ -45,6 +46,7 @@ Mode :: enum {
 	Setup,
 	Text,
 	Value, // the value of a game parameter
+	Play, // walking the player around the world (play.odin)
 	File,
 	Palette,
 	Tileset,
@@ -101,6 +103,9 @@ Editor :: struct {
 	row:            Setup_Row,
 	game_tags:      cm.Game_Tags, // the tags the game needs, from game_tags.json (none if it was not found)
 	aux_current:    Aux_Request, // which file the frontend is delivering
+	play:           rt.Play_State, // Play mode: where every character is now (the world itself is untouched)
+	play_player:    int, // the player's index in the character table
+	play_steps:     int,
 	text_target:    Text_Target, // what the keypad is typing: a name, or a parameter's value
 	confirm_rename: bool, // renaming a needed tag was asked once: the next one goes ahead
 	open_after:     bool, // the keypad was opened by New / Duplicate / Import: open the item when it closes
@@ -427,7 +432,7 @@ sync_embedded :: proc(e: ^Editor) {
 			e.map_ed.exit_requested = false
 			e.mode = .List
 		}
-	case .Hub, .List, .Setup, .Text, .Value, .File:
+	case .Hub, .List, .Setup, .Text, .Value, .Play, .File:
 	}
 }
 
@@ -810,6 +815,9 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 	case .Value:
 		handle_value(e, ev)
 		return
+	case .Play:
+		handle_play(e, ev)
+		return
 	case .Palette:
 		pe.editor_handle_event(&e.palette_ed, ev)
 		sync_embedded(e)
@@ -893,6 +901,8 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 			run_hub(e, e.hub)
 		case .Blue:
 			e.mode = .File
+		case .Yellow:
+			begin_play(e) // walk the player around to try the world
 		case .Red:
 			request_exit(e)
 		}
@@ -939,7 +949,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Red, .Blue:
 			e.mode = .Hub
 		}
-	case .Text, .Value, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 		// Handled before this point: those modes own the input.
 	}
 }
@@ -1010,6 +1020,9 @@ click :: proc(e: ^Editor, x, y: int) {
 			return
 		case rect_contains(MENU_BUTTON, x, y):
 			request_exit(e)
+			return
+		case rect_contains(PLAY_BUTTON, x, y):
+			begin_play(e)
 			return
 		}
 		if row, ok := hub_row_at(x, y); ok {

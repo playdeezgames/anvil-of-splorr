@@ -27,6 +27,7 @@ HEIGHT_PLUS :: Rect{244, 45, 12, 10}
 SAVE_BUTTON :: Rect{24, 130, 40, 10}
 LOAD_BUTTON :: Rect{68, 130, 40, 10}
 MENU_BUTTON :: Rect{112, 130, 40, 10}
+PLAY_BUTTON :: Rect{156, 130, 40, 10} // try the world: walk the player around (YELLOW in the hub)
 
 // Lists: the named things of one kind, one per line, with the action buttons on the right.
 LIST_X :: 8

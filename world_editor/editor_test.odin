@@ -1,6 +1,7 @@
 #+build !js
 package world_editor
 
+import rt "../anvil_runtime"
 import cm "../common"
 import spe "../sprite_editor"
 import "core:strings"
@@ -926,6 +927,10 @@ test_every_screen_draws_on_screen_in_every_mode :: proc(t: ^testing.T) {
 				e.section = .Sprite_Sets
 				e.mode = .List
 				press(e, .Green)
+			case .Play:
+				add_player(e)
+				e.mode = .Hub
+				press(e, .Yellow)
 			case .Value:
 				e.section = .Params
 				e.mode = .List
@@ -1812,4 +1817,196 @@ test_the_value_screen_text_and_layout_fit :: proc(t: ^testing.T) {
 	for label in ([]string{"-10", "-1", "+1", "+10"}) {
 		testing.expect(t, cm.text_width(label) <= VALUE_MINUS1.w - 2 && cm.text_is_drawable(label))
 	}
+}
+
+// --- Play mode ---
+
+// Gives the world a player (a character of a new type) standing at (px, py) of map 0, and makes the
+// rock terrain solid.
+add_player :: proc(e: ^Editor, px := 1, py := 1) -> int {
+	if e.world.char_type_count == 0 {
+		cm.world_add_char_type(&e.world, "hero")
+	}
+	ci := cm.world_add_character(&e.world, 0)
+	cm.name_assign(&e.world.characters[ci].name, "Hero")
+	cm.world_place_character(&e.world, 0, px, py, e.world.characters[ci].uuid)
+	cm.world_set_player(&e.world, e.world.characters[ci].uuid)
+	e.world.sets[0].terrains[1].tags = cm.tag_bit(cm.TAG_SOLID) // rock is solid
+	return ci
+}
+
+@(test)
+test_play_needs_a_player_on_a_map :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	press(e, .Yellow)
+	testing.expect(t, e.mode == .Hub && e.note == NOTE_NO_PLAYER)
+	cm.world_add_char_type(&e.world, "hero")
+	ci := cm.world_add_character(&e.world, 0)
+	cm.world_set_player(&e.world, e.world.characters[ci].uuid) // the player stands nowhere
+	press(e, .Yellow)
+	testing.expect(t, e.mode == .Hub && e.note == NOTE_PLAYER_OFF_MAP)
+	cm.world_place_character(&e.world, 0, 0, 0, e.world.characters[ci].uuid)
+	press(e, .Yellow)
+	testing.expect_value(t, e.mode, Mode.Play)
+	// The button does the same.
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Hub)
+	click_rect(e, PLAY_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Play)
+}
+
+@(test)
+test_the_player_steps_and_is_stopped_by_solid_cells_edges_and_characters :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content() // map "start": 3 x 3, everything grass
+	defer free(e)
+	add_player(e, 1, 1)
+	e.world.maps[0].cells[1][2] = 1 // a rock (solid) at 2,1
+	other := cm.world_add_character(&e.world, 0)
+	cm.name_assign(&e.world.characters[other].name, "Goblin")
+	cm.world_place_character(&e.world, 0, 1, 2, e.world.characters[other].uuid)
+	before := cm.world_to_json(&e.world)
+	press(e, .Yellow)
+	testing.expect_value(t, e.mode, Mode.Play)
+	pos :: proc(e: ^Editor) -> [2]int {
+		p := rt.play_position(&e.play, e.play_player)
+		return {p.x, p.y}
+	}
+	press(e, .Right)
+	testing.expect(t, e.note == "BLOCKED: SOLID" && pos(e) == [2]int{1, 1} && e.play_steps == 0)
+	press(e, .Down)
+	testing.expect(t, e.note == "BLOCKED BY Goblin" && pos(e) == [2]int{1, 1})
+	press(e, .Up)
+	testing.expect(t, e.note == "" && pos(e) == [2]int{1, 0} && e.play_steps == 1)
+	press(e, .Up)
+	testing.expect(t, e.note == "THE EDGE OF THE MAP" && pos(e) == [2]int{1, 0})
+	press(e, .Left, .Left)
+	testing.expect(t, pos(e) == [2]int{0, 0} && e.note == "THE EDGE OF THE MAP")
+	press(e, .Down, .Down)
+	testing.expect(t, pos(e) == [2]int{0, 2} && e.play_steps == 4)
+	// Other commands do nothing; red leaves and the world is exactly as it was.
+	press(e, .Green, .Yellow, .Blue)
+	testing.expect(t, e.mode == .Play && pos(e) == [2]int{0, 2})
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Hub)
+	testing.expect_value(t, cm.world_to_json(&e.world), before)
+	testing.expect_value(t, cm.world_character_at(&e.world, 0, 1, 1), 0) // the player is back where it was authored
+	press(e, .Yellow) // playing again starts there
+	testing.expect(t, e.mode == .Play && pos(e) == [2]int{1, 1} && e.play_steps == 0)
+	// A cell that clears solid is a doorway.
+	press(e, .Red)
+	cm.world_cycle_cell_tag(&e.world, 0, 2, 1, cm.TAG_SOLID) // set
+	cm.world_cycle_cell_tag(&e.world, 0, 2, 1, cm.TAG_SOLID) // cleared
+	press(e, .Yellow, .Right)
+	testing.expect(t, e.note == "" && pos(e) == [2]int{2, 1})
+}
+
+@(test)
+test_the_mouse_steps_to_neighbouring_cells_and_back_leaves :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	add_player(e, 1, 1)
+	e.world.maps[0].cells[2][1] = 1 // rock below the player
+	press(e, .Yellow)
+	d := play_window(e)
+	cell :: proc(d: rt.World_Draw, x, y: int) -> (int, int) {
+		rc := cm.world_cell_rect(d, x, y)
+		return rc.x + rc.w / 2, rc.y + rc.h / 2
+	}
+	pos :: proc(e: ^Editor) -> [2]int {
+		p := rt.play_position(&e.play, e.play_player)
+		return {p.x, p.y}
+	}
+	x, y := cell(d, 2, 1)
+	click_at(e, x, y)
+	testing.expect(t, pos(e) == [2]int{2, 1} && e.play_steps == 1)
+	x, y = cell(d, 0, 0)
+	click_at(e, x, y) // two cells away
+	testing.expect(t, e.note == NOTE_CLICK_NEXT_TO && pos(e) == [2]int{2, 1})
+	x, y = cell(d, 2, 1)
+	click_at(e, x, y) // the player's own cell: nothing
+	testing.expect(t, e.note == "" && pos(e) == [2]int{2, 1})
+	x, y = cell(d, 1, 1)
+	click_at(e, x, y)
+	x, y = cell(d, 1, 2)
+	click_at(e, x, y) // the rock below
+	testing.expect(t, e.note == "BLOCKED: SOLID" && pos(e) == [2]int{1, 1})
+	click_at(e, 2, 2) // the strip, not a cell
+	testing.expect_value(t, e.mode, Mode.Play)
+	click_rect(e, PLAY_BACK)
+	testing.expect_value(t, e.mode, Mode.Hub)
+}
+
+@(test)
+test_the_view_fits_a_small_map_and_follows_the_player_on_a_big_one :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content() // tiles 4 x 4, map 3 x 3
+	defer free(e)
+	add_player(e, 1, 1)
+	// Small map: the biggest zoom that fits (3 cells of 4 pixels: zoom 8 gives 96 x 96 pixels, fits).
+	testing.expect_value(t, play_zoom(&e.world, 0), 8)
+	press(e, .Yellow)
+	d := play_window(e)
+	testing.expect(t, d.cols == 3 && d.rows == 3 && d.cell_w == 32 && d.col == 0 && d.row == 0)
+	testing.expect(t, d.x == (cm.SCREEN_W - 96) / 2 && d.y >= PLAY_MAP_Y && d.y + 96 <= cm.SCREEN_H) // centred below the strip
+	// A big map does not fit: zoom 1 and a window that follows the player.
+	press(e, .Red)
+	cm.world_set_tile_size(&e.world, 16, 16)
+	cm.world_map_set_size(&e.world, 0, 64, 64)
+	testing.expect_value(t, play_zoom(&e.world, 0), 1)
+	cm.world_unplace_character(&e.world, e.world.characters[0].uuid)
+	cm.world_place_character(&e.world, 0, 60, 60, e.world.characters[0].uuid)
+	press(e, .Yellow)
+	d = play_window(e)
+	testing.expect(t, d.cols == 20 && d.rows == PLAY_MAP_H / 16 && d.col == 64 - 20 && d.row == 64 - d.rows) // clamped at the far corner
+	cell := cm.world_cell_rect(d, 60, 60)
+	testing.expect(t, cell.x >= 0 && cell.x + cell.w <= cm.SCREEN_W && cell.y >= PLAY_MAP_Y && cell.y + cell.h <= cm.SCREEN_H) // the player is on screen
+	press(e, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left, .Left)
+	d = play_window(e)
+	p := rt.play_position(&e.play, e.play_player)
+	testing.expect(t, p.x == 0 && d.col == 0)
+	cell = cm.world_cell_rect(d, p.x, p.y)
+	testing.expect(t, cell.x >= 0 && cell.y >= PLAY_MAP_Y && cell.y + cell.h <= cm.SCREEN_H)
+}
+
+@(test)
+test_play_text_and_layout_fit :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	m := cm.default_input_map()
+	editor_set_labels(e, &m)
+	for round in 0 ..< 2 {
+		if round == 1 {
+			for a in cm.Action {
+				cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
+			}
+		}
+		banner := play_banner_text(e)
+		help := play_help_text(e)
+		if round == 0 {
+			testing.expect(t, cm.text_is_drawable(banner) && cm.text_is_drawable(help))
+		}
+		// The banner and the status share the strip: the banner ends before the status.
+		testing.expectf(t, 4 + cm.text_width(banner) <= PLAY_STATUS_X, "banner too wide: %s", banner)
+		testing.expectf(t, 8 + cm.text_width(help) <= cm.SCREEN_W - 8, "help too wide: %s", help)
+		lines, n := help_lines(e)
+		for line in lines[:n] {
+			testing.expectf(t, 8 + cm.text_width(line) <= cm.SCREEN_W - 8, "hub help too wide: %s", line)
+		}
+	}
+	// The longest messages fit between PLAY_STATUS_X and BACK.
+	for note in ([]string{NOTE_NO_PLAYER, NOTE_PLAYER_OFF_MAP, NOTE_CLICK_NEXT_TO, "BLOCKED: SOLID", "THE EDGE OF THE MAP", "BLOCKED BY WWWWWWWWWWWWWWWWWWWW", "AT 63,63  STEPS 99999"}) {
+		testing.expectf(t, cm.text_is_drawable(note), "note: %s", note)
+		if len(note) <= 31 && note != NOTE_NO_PLAYER && note != NOTE_PLAYER_OFF_MAP && note != NOTE_CLICK_NEXT_TO {
+			testing.expectf(t, PLAY_STATUS_X + cm.text_width(note) <= PLAY_BACK.x, "status too wide: %s", note)
+		}
+		testing.expectf(t, INFO_X + cm.text_width(note) <= cm.SCREEN_W - 4, "hub note too wide: %s", note)
+	}
+	testing.expect(t, PLAY_BACK.x + PLAY_BACK.w <= cm.SCREEN_W && PLAY_BACK.y + PLAY_BACK.h <= PLAY_STRIP_H)
+	testing.expect(t, PLAY_BUTTON.x >= MENU_BUTTON.x + MENU_BUTTON.w && PLAY_BUTTON.x + PLAY_BUTTON.w <= cm.SCREEN_W && PLAY_BUTTON.y + PLAY_BUTTON.h <= HELP_Y)
+	testing.expect(t, cm.text_width("PLAY") <= PLAY_BUTTON.w - 2)
 }
