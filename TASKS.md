@@ -48,7 +48,7 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [~] 4. Game parameters (`common/world_params.odin`, hub row PARAMS with a list and a value screen, runtime `param_number`/`param_text`): a hub row of named whole numbers and short texts (new, rename, edit value, delete), saved in `world.json` (optional on load), read by name with a default in the runtime
 - [~] 5. Play mode from the world hub (`world_editor/play.odin`, YELLOW or the PLAY button): one step per press, blocked by `solid`, red returns and restores the authored positions (uses 1 and 2)
 - [~] 6. A web game can embed (`#load`, documented and tested in `anvil_runtime`) or have the page fetch it (`WEB_FETCH=world.json`); the file buffer size is configurable (`WEB_FILE_MIB`) and documented next to `FILE_CAP`
-- [ ] Sound (story 5): moved to `BACKLOG.md`
+- [ ] Sound (story 5): planned in `SOUND.md` (PLAY text, one square voice, 64 sounds, below)
 
 
 ## MCP server (plan in MCP.md)
@@ -57,3 +57,11 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [x] 3. Actors and maps, bulk map operations, play_walk
 - [x] 4. Pictures: PNG writer and render_* tools
 - [x] 5. Tool reference and an end-to-end smoke test
+
+## Sound (plan in SOUND.md)
+- [ ] 1. Model and file: `common/world_sounds.odin`, `sounds` in world.json
+- [ ] 2. PLAY parser and square synth with WAV writer (pure, tested)
+- [ ] 3. MCP sound tools (list/new/set/check/render) and installing prod
+- [ ] 4. Playback hook on `Tool`, SDL2 and web audio
+- [ ] 5. World editor: SOUND section, list, sound screen, long-text keypad, parity tests
+- [ ] 6. Runtime `sound_pcm`/`sound_loops`, docs, BACKLOG entry removed
