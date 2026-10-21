@@ -39,3 +39,14 @@ Status: [x] done and committed, [~] done but not committed yet, [ ] to do.
 - [~] Character types and characters (uuid table, cells and player refer by uuid): model and file format, character type editor, character editor, map editor Characters layer
 - [~] Tags: a world list ("solid" fixed), set/clear on terrains and character types, inherit/set/clear on characters and map cells, Tags screens in four editors, TAGS list in the world editor, "solid" moved into tags (old files migrate)
 - [ ] More asset types in a world (to be specified)
+
+## Game support (from USER_STORIES.md; decisions agreed)
+Decisions: the runtime lives in a new `runtime/` package that imports `common`; a game moves characters through a `Play_State` overlay (per-character map and cell, copied from the authored placements) and never mutates or copies the loaded world; required tags come from a hand-edited `game_tags.json` read through a second import-style file; parameters are whole numbers (32-bit) or 32-character texts, up to 64, names unique; sound is deferred to `BACKLOG.md`; play mode moves one step per command press.
+- [ ] 1. `runtime/` package: load a world (readable error), find a tag, effective tags of a cell and a character, terrain at a cell, the player and its location, a character's cell and sprite, who is at a cell, `Play_State`; native + `js_wasm32` builds, tests, doc note that a `World` is ~21 MB (global or `new()`)
+- [ ] 2. Shared drawing in `common`: a window of map cells at a pixel offset and whole-number zoom, a character sprite honouring its transparent colour, clipped not erroring; the map editor uses it
+- [ ] 3. `game_tags.json`: TAGS marks required tags missing / present / unused, creates the missing ones in one action, warns before renaming or deleting a required tag; the runtime has the same check
+- [ ] 4. Game parameters: a hub row of named whole numbers and short texts (new, rename, edit value, delete), saved in `world.json` (optional on load), read by name with a default in the runtime
+- [ ] 5. Play mode from the world hub: one step per press, blocked by `solid`, red returns and restores the authored positions (uses 1 and 2)
+- [ ] 6. A web game can embed (`#load`) or fetch its world; the size limit is documented next to `FILE_CAP`
+- [ ] Sound (story 5): moved to `BACKLOG.md`
+
