@@ -46,6 +46,7 @@ Mode :: enum {
 	Setup,
 	Text,
 	Value, // the value of a game parameter
+	Sound, // a sound's screen (sound.odin)
 	Play, // walking the player around the world (play.odin)
 	File,
 	Palette,
@@ -60,6 +61,7 @@ Mode :: enum {
 Section :: enum {
 	Tags,
 	Params,
+	Sounds,
 	Tilesets,
 	Terrain_Sets,
 	Sprite_Sets,
@@ -72,6 +74,7 @@ Hub_Row :: enum {
 	Tile_Height,
 	Tags,
 	Params,
+	Sounds,
 	Tilesets,
 	Terrain_Sets,
 	Sprite_Sets,
@@ -86,7 +89,7 @@ HUB_ROWS :: len(Hub_Row)
 // opens a section, red goes back up (red at the top leaves for the main menu).
 Hub_Section :: enum {
 	Look, // what things look like: palette, tile size, tilesets, terrain sets, sprite sets
-	Rules, // tags and game parameters
+	Rules, // tags, game parameters and sounds
 	Actors, // character types, characters and maps
 }
 
@@ -100,7 +103,7 @@ Hub_Level :: enum {
 @(rodata)
 LOOK_ROWS := [?]Hub_Row{.Palette, .Tile_Width, .Tile_Height, .Tilesets, .Terrain_Sets, .Sprite_Sets}
 @(rodata)
-RULES_ROWS := [?]Hub_Row{.Tags, .Params}
+RULES_ROWS := [?]Hub_Row{.Tags, .Params, .Sounds}
 @(rodata)
 ACTORS_ROWS := [?]Hub_Row{.Character_Types, .Characters, .Maps}
 
@@ -122,7 +125,7 @@ hub_row_section :: proc(row: Hub_Row) -> Hub_Section {
 	switch row {
 	case .Palette, .Tile_Width, .Tile_Height, .Tilesets, .Terrain_Sets, .Sprite_Sets:
 		return .Look
-	case .Tags, .Params:
+	case .Tags, .Params, .Sounds:
 		return .Rules
 	case .Character_Types, .Characters, .Maps:
 		return .Actors
@@ -187,6 +190,8 @@ Editor :: struct {
 	character_ed:   cce.Editor,
 	map_ed:         me.Editor,
 	opened:         int, // the tileset being edited in Tileset mode
+	audio_ops:      [8]Audio_Op, // sound requests for the frontend (editor_take_audio)
+	audio_ops_n:    int,
 	entry:          cm.Text_Entry,
 	labels:         ^cm.Input_Map,
 }
@@ -292,6 +297,8 @@ section_count :: proc(e: ^Editor, s: Section) -> int {
 		return e.world.tag_count + tags_missing(e)
 	case .Params:
 		return e.world.param_count
+	case .Sounds:
+		return e.world.sound_count
 	case .Tilesets:
 		return e.world.tileset_count
 	case .Terrain_Sets:
@@ -310,6 +317,8 @@ section_limit :: proc(s: Section) -> int {
 		return cm.WORLD_MAX_TAGS
 	case .Params:
 		return cm.WORLD_MAX_PARAMS
+	case .Sounds:
+		return cm.WORLD_MAX_SOUNDS
 	case .Tilesets:
 		return cm.WORLD_MAX_TILESETS
 	case .Terrain_Sets:
@@ -331,6 +340,8 @@ section_item_name :: proc(e: ^Editor, s: Section, i: int) -> string {
 		return cm.name_str(&e.world.tags[i])
 	case .Params:
 		return cm.name_str(&e.world.params[i].name)
+	case .Sounds:
+		return cm.name_str(&e.world.sounds[i].name)
 	case .Tilesets:
 		return cm.name_str(&e.world.tileset_names[i])
 	case .Terrain_Sets:
@@ -410,6 +421,8 @@ open_item :: proc(e: ^Editor) {
 		e.note = is_missing_row(e, i) ? NOTE_TAG_MISSING : NOTE_TAG_OPEN // a tag has no editor of its own
 	case .Params:
 		begin_value(e)
+	case .Sounds:
+		begin_sound(e)
 	case .Tilesets:
 		te.editor_begin_embedded(&e.tileset_ed, &e.world, i)
 		e.opened = i
@@ -495,7 +508,7 @@ sync_embedded :: proc(e: ^Editor) {
 			e.map_ed.exit_requested = false
 			e.mode = .List
 		}
-	case .Hub, .List, .Setup, .Text, .Value, .Play, .File:
+	case .Hub, .List, .Setup, .Text, .Value, .Sound, .Play, .File:
 	}
 }
 
@@ -532,6 +545,8 @@ new_item :: proc(e: ^Editor) {
 		n = cm.world_add_tag(&e.world)
 	case .Params:
 		n = cm.world_add_param(&e.world)
+	case .Sounds:
+		n = cm.world_add_sound(&e.world)
 	case .Tilesets:
 		n = cm.world_add_tileset(&e.world)
 	case .Terrain_Sets:
@@ -560,6 +575,8 @@ duplicate_item :: proc(e: ^Editor) {
 		return
 	case .Params:
 		n = cm.world_duplicate_param(&e.world, selected(e))
+	case .Sounds:
+		n = cm.world_duplicate_sound(&e.world, selected(e))
 	case .Tilesets:
 		n = cm.world_duplicate_tileset(&e.world, selected(e))
 	case .Terrain_Sets:
@@ -610,6 +627,8 @@ delete_item :: proc(e: ^Editor) {
 	switch e.section {
 	case .Params:
 		cm.world_delete_param(&e.world, selected(e))
+	case .Sounds:
+		cm.world_delete_sound(&e.world, selected(e))
 	case .Tags:
 		uses, _ := cm.world_delete_tag(&e.world, selected(e))
 		e.note = fmt.tprintf("REMOVED FROM %d THING%s", uses, uses == 1 ? "" : "S")
@@ -765,6 +784,10 @@ step_row :: proc(e: ^Editor, delta: int) {
 
 @(private = "file")
 handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
+	if e.text_target == .Sound_Text {
+		handle_sound_text(e, ev)
+		return
+	}
 	if e.text_target != .Name { 	// typing a parameter's value
 		handle_value_text(e, ev)
 		return
@@ -783,6 +806,8 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 			problem = cm.world_check_tag_name(&e.world, i, name)
 		case .Params:
 			problem = cm.world_check_param_name(&e.world, i, name)
+		case .Sounds:
+			problem = cm.world_check_sound_name(&e.world, i, name)
 		case .Tilesets:
 			problem = cm.world_check_tileset_name(&e.world, i, name)
 		case .Terrain_Sets:
@@ -800,6 +825,8 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 					cm.world_rename_tag(&e.world, i, name)
 				case .Params:
 					cm.world_rename_param(&e.world, i, name)
+				case .Sounds:
+					cm.world_rename_sound(&e.world, i, name)
 				case .Tilesets:
 					cm.world_rename_tileset(&e.world, i, name)
 				case .Terrain_Sets:
@@ -870,6 +897,8 @@ run_hub :: proc(e: ^Editor, row: Hub_Row) {
 		e.aux_requests += {.Game_Tags} // (re-read: the file may have changed)
 	case .Params:
 		open_list(e, .Params)
+	case .Sounds:
+		open_list(e, .Sounds)
 	case .Tilesets:
 		open_list(e, .Tilesets)
 	case .Terrain_Sets:
@@ -897,6 +926,9 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		return
 	case .Value:
 		handle_value(e, ev)
+		return
+	case .Sound:
+		handle_sound(e, ev)
 		return
 	case .Play:
 		handle_play(e, ev)
@@ -1046,7 +1078,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Red, .Blue:
 			e.mode = .Hub
 		}
-	case .Text, .Value, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 		// Handled before this point: those modes own the input.
 	}
 }

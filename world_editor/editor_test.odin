@@ -81,6 +81,8 @@ open :: proc(e: ^Editor, s: Section) {
 		row = .Tags
 	case .Params:
 		row = .Params
+	case .Sounds:
+		row = .Sounds
 	case .Tilesets:
 		row = .Tilesets
 	case .Terrain_Sets:
@@ -1023,6 +1025,13 @@ test_every_screen_draws_on_screen_in_every_mode :: proc(t: ^testing.T) {
 				add_player(e)
 				e.mode = .Hub
 				press(e, .Yellow)
+			case .Sound:
+				e.section = .Sounds
+				e.mode = .List
+				if e.world.sound_count == 0 {
+					cm.world_add_sound(&e.world)
+				}
+				press(e, .Green)
 			case .Value:
 				e.section = .Params
 				e.mode = .List

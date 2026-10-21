@@ -22,7 +22,8 @@ import "core:fmt"
 TEXT_ENTRY_COLS :: 16
 TEXT_ENTRY_CHAR_ROWS :: 6
 TEXT_ENTRY_ROWS :: TEXT_ENTRY_CHAR_ROWS + 1 // the character rows, then the action row
-TEXT_ENTRY_MAX :: 32 // the longest text the keypad can hold
+TEXT_ENTRY_MAX :: 32 // the default longest text (names and values)
+TEXT_ENTRY_CAPACITY :: 1024 // the most a tool may ask for with `max_len` (the sounds' PLAY text)
 
 Text_Entry_Result :: enum {
 	Editing,
@@ -40,7 +41,7 @@ Text_Entry_Action :: enum {
 Text_Entry :: struct {
 	prompt:  string, // shown above the field; keep it alive (a string literal is fine)
 	note:    string, // an optional message in red beside the prompt (e.g. "NAME IN USE"); keep it alive too
-	buf:     [TEXT_ENTRY_MAX]u8,
+	buf:     [TEXT_ENTRY_CAPACITY]u8,
 	len:     int,
 	max_len: int,
 	col:     int, // highlighted cell, 0..TEXT_ENTRY_COLS-1
@@ -81,6 +82,17 @@ text_entry_begin :: proc(e: ^Text_Entry, prompt: string, initial: string, max_le
 	e^ = {}
 	e.prompt = prompt
 	e.max_len = clamp(max_len, 1, TEXT_ENTRY_MAX)
+	e.len = min(len(initial), e.max_len)
+	copy(e.buf[:], initial[:e.len])
+	e.result = .Editing
+}
+
+// The same for a long text (up to TEXT_ENTRY_CAPACITY characters): the field then shows the end of
+// the text, led by "...". Names and values keep using text_entry_begin, which stops at 32.
+text_entry_begin_long :: proc(e: ^Text_Entry, prompt: string, initial: string, max_len := TEXT_ENTRY_CAPACITY) {
+	e^ = {}
+	e.prompt = prompt
+	e.max_len = clamp(max_len, 1, TEXT_ENTRY_CAPACITY)
 	e.len = min(len(initial), e.max_len)
 	copy(e.buf[:], initial[:e.len])
 	e.result = .Editing
@@ -237,14 +249,15 @@ text_entry_draw :: proc(e: ^Text_Entry, r: ^Renderer, labels: ^Input_Map) {
 	// The field: the text so far and a block where the next character will go.
 	renderer_fill_rect(r, TE_FIELD.x, TE_FIELD.y, TE_FIELD.w, TE_FIELD.h, TE_PANEL)
 	renderer_fill_rect(r, TE_FIELD.x + 1, TE_FIELD.y + 1, TE_FIELD.w - 2, TE_FIELD.h - 2, TE_BG)
-	text := text_entry_text(e)
+	count := fmt_count(e)
+	// A long text shows its end (where the next character goes), led by "...".
+	text := text_entry_visible(text_entry_text(e), TE_FIELD.w - 8 - text_width(count) - 6 - 3)
 	ty := TE_FIELD.y + (TE_FIELD.h - GLYPH_H) / 2
 	draw_text(r, TE_FIELD.x + 4, ty, text, TE_TEXT)
 	cursor_x := TE_FIELD.x + 4 + text_width(text)
 	if e.len < e.max_len {
 		renderer_fill_rect(r, cursor_x, ty, 3, GLYPH_H - 1, TE_HILITE)
 	}
-	count := fmt_count(e)
 	draw_text(r, TE_FIELD.x + TE_FIELD.w - 4 - text_width(count), ty, count, TE_DIM)
 
 	// The grid.
@@ -279,6 +292,26 @@ text_entry_draw :: proc(e: ^Text_Entry, r: ^Renderer, labels: ^Input_Map) {
 	draw_text(r, TE_X, TE_HELP_Y + LINE_ADVANCE, text_entry_help(1, labels), TE_TEXT)
 	draw_text(r, TE_X, TE_HELP_Y + 2 * LINE_ADVANCE, text_entry_help(2, labels), TE_TEXT)
 	renderer_present(r)
+}
+
+// The part of `text` to show in `width` pixels: all of it if it fits, else "..." and the end of it.
+text_entry_visible :: proc(text: string, width: int) -> string {
+	if text_width(text) <= width {
+		return text
+	}
+	dots := text_width("...")
+	used := dots
+	start := len(text)
+	for start > 0 {
+		one := text[start - 1:start]
+		w := text_width(one)
+		if used + w > width {
+			break
+		}
+		used += w
+		start -= 1
+	}
+	return fmt.tprintf("...%s", text[start:])
 }
 
 // The three help lines, built with the user's labels (on the temp allocator).

@@ -63,7 +63,7 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [x] 2. PLAY parser and square synth with WAV writer (pure, tested)
 - [x] 3. MCP sound tools (list/new/set/check/render/export) and installing prod
 - [x] 4. Playback hook on `Tool`, SDL2 and web audio
-- [ ] 5. World editor: SOUND section, list, sound screen, long-text keypad, parity tests
+- [x] 5. World editor: sounds in RULES, list, sound screen, long-text keypad, parity tests
 - [ ] 6. Runtime `sound_pcm`/`sound_loops`, docs, BACKLOG entry removed
 
 ## Game stories 8 and 9 (from the game author, in USER_STORIES.md)

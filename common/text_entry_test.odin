@@ -379,3 +379,35 @@ test_a_refused_done_resumes_typing_with_a_note :: proc(t: ^testing.T) {
 	text_entry_draw(&e, &r, nil)
 	testing.expect(t, log.out_of_bounds == 0 && log.presents == 1)
 }
+
+@(test)
+test_a_long_entry_holds_up_to_the_capacity_and_shows_its_end :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e: Text_Entry
+	text_entry_begin_long(&e, "LONG", "")
+	testing.expect_value(t, e.max_len, TEXT_ENTRY_CAPACITY)
+	e.col, e.row = 0, 0
+	for _ in 0 ..< TEXT_ENTRY_CAPACITY + 5 {
+		text_entry_handle(&e, Command{action = .Green}) // types "A" again and again
+	}
+	testing.expect_value(t, e.len, TEXT_ENTRY_CAPACITY)
+	big: Text_Entry
+	text_entry_begin_long(&big, "LONG", "", TEXT_ENTRY_CAPACITY + 500) // asking for more is clamped
+	testing.expect_value(t, big.max_len, TEXT_ENTRY_CAPACITY)
+	testing.expect_value(t, new_entry("", TEXT_ENTRY_CAPACITY).max_len, TEXT_ENTRY_MAX) // the ordinary keypad stays at 32
+	// What is shown always fits the field, ends with the real end of the text, and a short text is whole.
+	width := TE_FIELD.w - 8 - text_width("1024/1024") - 9
+	long := text_entry_visible(text_entry_text(&e), width)
+	testing.expect(t, text_width(long) <= width && len(long) > 10 && long[:3] == "..." && text_is_drawable(long))
+	testing.expect_value(t, text_entry_visible("HELLO", width), "HELLO")
+	testing.expect_value(t, text_entry_visible("", width), "")
+	tail := text_entry_visible("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 40)
+	testing.expect(t, tail[:3] == "..." && text_width(tail) <= 40 && tail[len(tail) - 1] == 'Z')
+	// Drawing a full long entry does not overflow anything (no crash, present called once).
+	r := Renderer {
+		clear = proc(data: rawptr, c: Color) {},
+		fill_rect = proc(data: rawptr, x, y, w, h: int, c: Color) {},
+		present = proc(data: rawptr) {},
+	}
+	text_entry_draw(&e, &r, nil)
+}

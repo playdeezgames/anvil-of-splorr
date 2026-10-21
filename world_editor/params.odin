@@ -13,6 +13,7 @@ Text_Target :: enum {
 	Name,
 	Number,
 	Text_Value,
+	Sound_Text, // a sound's PLAY text (sound.odin)
 }
 
 NOTE_NOT_A_NUMBER :: "NOT A WHOLE NUMBER"

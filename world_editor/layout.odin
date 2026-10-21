@@ -59,6 +59,14 @@ VALUE_EDIT :: Rect{190, 92, 44, 12}
 VALUE_KIND :: Rect{238, 92, 44, 12}
 VALUE_BACK :: Rect{260, 130, 44, 10}
 
+// A sound's screen: the text box and the button row under it.
+SOUND_TEXT :: Rect{8, 47, 304, 78}
+SOUND_PLAY :: Rect{24, 130, 40, 10}
+SOUND_STOP :: Rect{68, 130, 40, 10}
+SOUND_EDIT :: Rect{112, 130, 40, 10}
+SOUND_LOOP :: Rect{156, 130, 52, 10}
+SOUND_BACK :: Rect{212, 130, 40, 10}
+
 HELP_Y :: 150
 MAX_HELP_LINES :: 4
 

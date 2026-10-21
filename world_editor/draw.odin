@@ -33,6 +33,8 @@ hub_label :: proc(row: Hub_Row) -> string {
 		return "TAGS"
 	case .Params:
 		return "PARAMS"
+	case .Sounds:
+		return "SOUNDS"
 	case .Tilesets:
 		return "TILESETS"
 	case .Terrain_Sets:
@@ -55,6 +57,8 @@ section_title :: proc(s: Section) -> string {
 		return "TAGS"
 	case .Params:
 		return "PARAMS"
+	case .Sounds:
+		return "SOUNDS"
 	case .Tilesets:
 		return "TILESETS"
 	case .Terrain_Sets:
@@ -93,7 +97,7 @@ banner_text :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("ACTIONS   %s: DONE", label(e, .Red))
 	case .File:
 		return fmt.tprintf("FILE: %s SAVE  %s LOAD", label(e, .Green), label(e, .Yellow))
-	case .Text, .Value, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 		// These modes draw their own screens.
 	}
 	return ""
@@ -113,7 +117,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 			return lines, 4
 		}
 		lines = {
-			fmt.tprintf("%s/%s: CHOOSE  %s/%s: TILE SIZE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
+			e.hub_section == .Look ? fmt.tprintf("%s/%s: CHOOSE  %s/%s: TILE SIZE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)) : fmt.tprintf("%s/%s: CHOOSE", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s: OPEN  %s: PLAY THE WORLD", l(e, .Green), l(e, .Yellow)),
 			fmt.tprintf("%s: SAVE / LOAD  %s: UP A LEVEL", l(e, .Blue), l(e, .Red)),
 			"MOUSE: CLICK A ROW; BACK GOES UP",
@@ -138,7 +142,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	case .File:
 		lines = {fmt.tprintf("%s: SAVE  %s: LOAD", l(e, .Green), l(e, .Yellow)), fmt.tprintf("%s: CANCEL", l(e, .Red)), "", ""}
 		return lines, 2
-	case .Text, .Value, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 	}
 	return lines, 0
 }
@@ -159,6 +163,16 @@ item_detail :: proc(e: ^Editor, s: Section, i: int) -> string {
 		}
 		text := cm.param_value_text(p)
 		return fmt.tprintf("\"%s\"", len(text) > 12 ? text[:12] : text)
+	case .Sounds:
+		sd := &e.world.sounds[i]
+		if sd.text_len == 0 {
+			return "EMPTY"
+		}
+		notes, _, ok := cm.play_parse(cm.sound_text(sd))
+		if !ok {
+			return "ERROR"
+		}
+		return fmt.tprintf("%.1f S%s", cm.play_duration(notes), sd.loop ? " LOOP" : "")
 	case .Tilesets:
 		n := e.world.tilesets[i].count
 		return fmt.tprintf("%d IMAGE%s", n, n == 1 ? "" : "S")
@@ -254,6 +268,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	case .Value:
 		draw_value(e, r)
 		return
+	case .Sound:
+		draw_sound(e, r)
+		return
 	case .Play:
 		draw_play(e, r)
 		return
@@ -331,7 +348,7 @@ hub_section_summary :: proc(e: ^Editor, s: Hub_Section) -> string {
 	case .Look:
 		return fmt.tprintf("%dX%d  %d TILESETS  %d TERRAIN SETS  %d SPRITE SETS", w.tile_w, w.tile_h, w.tileset_count, w.set_count, w.sprite_set_count)
 	case .Rules:
-		return fmt.tprintf("%d TAGS  %d PARAMS", w.tag_count, w.param_count)
+		return fmt.tprintf("%d TAGS  %d PARAMS  %d SOUNDS", w.tag_count, w.param_count, w.sound_count)
 	case .Actors:
 		return fmt.tprintf("%d TYPES  %d CHARACTERS  %d MAPS", w.char_type_count, w.character_count, w.map_count)
 	}
@@ -381,6 +398,8 @@ draw_hub_inside :: proc(e: ^Editor, r: ^cm.Renderer) {
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d", w.tile_h), color)
 		case .Params:
 			count(r, y, w.param_count, cm.WORLD_MAX_PARAMS, color)
+		case .Sounds:
+			count(r, y, w.sound_count, cm.WORLD_MAX_SOUNDS, color)
 		case .Tags:
 			text := fmt.tprintf("%d OF %d", w.tag_count, cm.WORLD_MAX_TAGS)
 			cm.draw_text(r, HUB_VALUE_X, y, text, color)
@@ -433,7 +452,7 @@ draw_list :: proc(e: ^Editor, r: ^cm.Renderer) {
 		color := isel && e.mode == .List ? BG : TEXT
 		cm.draw_text(r, rc.x + 2, rc.y + 2, section_item_name(e, e.section, index), color)
 		detail := item_detail(e, e.section, index)
-		detail_color := isel && e.mode == .List ? BG : (detail == "MISSING" ? WARN : DIM)
+		detail_color := isel && e.mode == .List ? BG : (detail == "MISSING" || detail == "ERROR" ? WARN : DIM)
 		cm.draw_text(r, LIST_X + LIST_W - cm.text_width(detail) - 3, rc.y + 2, detail, detail_color)
 	}
 	for btn in list_buttons() {

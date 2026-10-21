@@ -18,6 +18,7 @@ tool :: proc(e: ^Editor) -> cm.Tool {
 		},
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {editor_handle_event((^Editor)(data), ev)},
 		draw = proc(data: rawptr, r: ^cm.Renderer) {editor_draw((^Editor)(data), r)},
+		take_audio = proc(data: rawptr) -> (cm.Audio_Request, bool) {return editor_take_audio((^Editor)(data))},
 		is_dirty = proc(data: rawptr) -> bool {return editor_dirty((^Editor)(data))},
 		// tileset.json, for importing a tileset into the world.
 		// The files the editor asks the frontend for: tileset.json (to import) and game_tags.json (the
@@ -77,6 +78,7 @@ tool :: proc(e: ^Editor) -> cm.Tool {
 			}
 			// A loaded world replaces everything the editor was showing.
 			e.dirty = false
+			queue_audio(e, .Stop) // (a sound being auditioned goes with the old world)
 			e.mode = .Hub
 			e.confirm_delete = false
 			e.confirm_exit = false
