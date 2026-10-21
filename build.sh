@@ -2,6 +2,7 @@
 # Usage: ./build.sh <target> [tool] [args]
 #   check | test            all packages, all tools
 #   native [tool]           build/<tool>
+#   mcp                     build/anvil_mcp, the MCP server (see MCP.md)
 #   run [tool] [file]       build and run natively
 #   web [tool]              build/web/<tool>/
 #   serve [tool] [port]     web + http.server (default port 8000)
@@ -40,15 +41,17 @@ build_web() {
 
 case "$target" in
 	check)
-		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime; do odin check "$pkg" -no-entry-point; done
+		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime mcp_server; do odin check "$pkg" -no-entry-point; done
 		odin check anvil_runtime -no-entry-point -target:js_wasm32
+		odin check anvil_mcp
 		for t in apps/*/; do
 			t="$(basename "$t")"
 			odin check frontends/sdl2 "-collection:app=apps/$t"
 			odin check frontends/web -target:js_wasm32 "-collection:app=apps/$t"
 		done ;;
 	test)
-		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime; do odin test "$pkg"; done ;;
+		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime mcp_server; do odin test "$pkg"; done ;;
+	mcp)    mkdir -p build && odin build anvil_mcp -out:build/anvil_mcp ;;
 	native) mkdir -p build && odin build frontends/sdl2 "$coll" -out:"build/$tool" ;;
 	run)    "$0" native "$tool" && "./build/$tool" "$@" ;;
 	web)    build_web ;;

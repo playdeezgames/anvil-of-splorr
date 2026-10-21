@@ -50,3 +50,10 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [~] 6. A web game can embed (`#load`, documented and tested in `anvil_runtime`) or have the page fetch it (`WEB_FETCH=world.json`); the file buffer size is configurable (`WEB_FILE_MIB`) and documented next to `FILE_CAP`
 - [ ] Sound (story 5): moved to `BACKLOG.md`
 
+
+## MCP server (plan in MCP.md)
+- [x] 1. Skeleton: JSON-RPC over stdio, world_new/open/save/summary/check_game_tags (`mcp_server/`, `anvil_mcp/`, `./build.sh mcp`)
+- [ ] 2. Rules and Look tools (tags, params, palette, tilesets, images, terrains, sprites)
+- [ ] 3. Actors and maps, bulk map operations, play_walk
+- [ ] 4. Pictures: PNG writer and render_* tools
+- [ ] 5. Tool reference and an end-to-end smoke test
