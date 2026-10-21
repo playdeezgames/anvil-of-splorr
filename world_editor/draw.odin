@@ -83,7 +83,10 @@ banner_text :: proc(e: ^Editor) -> string {
 	}
 	switch e.mode {
 	case .Hub:
-		return fmt.tprintf("WORLD   %s: OPEN", label(e, .Green))
+		if e.hub_level == .Top {
+			return fmt.tprintf("WORLD   %s: OPEN A PART", label(e, .Green))
+		}
+		return fmt.tprintf("%s   %s: OPEN", hub_section_title(e.hub_section), label(e, .Green))
 	case .List:
 		return fmt.tprintf("%s   %s: OPEN", section_title(e.section), label(e, .Green))
 	case .Setup:
@@ -100,11 +103,20 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	l :: label
 	switch e.mode {
 	case .Hub:
+		if e.hub_level == .Top {
+			lines = {
+				fmt.tprintf("%s/%s: CHOOSE A PART", l(e, .Up), l(e, .Down)),
+				fmt.tprintf("%s: OPEN IT  %s: PLAY THE WORLD", l(e, .Green), l(e, .Yellow)),
+				fmt.tprintf("%s: SAVE / LOAD  %s: MAIN MENU", l(e, .Blue), l(e, .Red)),
+				"MOUSE: CLICK A PART TO OPEN IT",
+			}
+			return lines, 4
+		}
 		lines = {
 			fmt.tprintf("%s/%s: CHOOSE  %s/%s: TILE SIZE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
-			fmt.tprintf("%s: OPEN THE PART  %s: PLAY THE WORLD", l(e, .Green), l(e, .Yellow)),
-			fmt.tprintf("%s: SAVE / LOAD  %s: MAIN MENU", l(e, .Blue), l(e, .Red)),
-			"MOUSE: CLICK A ROW TO OPEN IT",
+			fmt.tprintf("%s: OPEN  %s: PLAY THE WORLD", l(e, .Green), l(e, .Yellow)),
+			fmt.tprintf("%s: SAVE / LOAD  %s: UP A LEVEL", l(e, .Blue), l(e, .Red)),
+			"MOUSE: CLICK A ROW; BACK GOES UP",
 		}
 		return lines, 4
 	case .List:
@@ -288,19 +300,76 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 }
 
 draw_hub :: proc(e: ^Editor, r: ^cm.Renderer) {
-	w := &e.world
 	if e.note != "" {
 		cm.draw_text(r, INFO_X, INFO_Y, e.note, WARN)
 	} else {
 		cm.draw_text(r, INFO_X, INFO_Y, e.dirty ? "UNSAVED CHANGES *" : "NO UNSAVED CHANGES", e.dirty ? TEXT : DIM)
 	}
-	for row in Hub_Row {
-		y := HUB_Y + int(row) * HUB_PITCH
-		color := e.mode == .Hub && e.hub == row ? HILITE : TEXT
-		if e.mode == .Hub && e.hub == row {
+	if e.hub_level == .Top {
+		draw_hub_top(e, r)
+	} else {
+		draw_hub_inside(e, r)
+	}
+	buttons := [4]struct {
+		rc:  Rect,
+		txt: string,
+	}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}, {MENU_BUTTON, "MENU"}, {PLAY_BUTTON, "PLAY"}}
+	for b in buttons {
+		fill(r, b.rc, PANEL)
+		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.txt)) / 2, b.rc.y + (b.rc.h - cm.GLYPH_H) / 2, b.txt, TEXT)
+	}
+	if e.hub_level == .Inside {
+		fill(r, SECTION_BACK, PANEL)
+		cm.draw_text(r, SECTION_BACK.x + (SECTION_BACK.w - cm.text_width("BACK")) / 2, SECTION_BACK.y + (SECTION_BACK.h - cm.GLYPH_H) / 2, "BACK", TEXT)
+	}
+}
+
+// The one-line summary under a section's title at the top of the hub.
+hub_section_summary :: proc(e: ^Editor, s: Hub_Section) -> string {
+	w := &e.world
+	switch s {
+	case .Look:
+		return fmt.tprintf("%dX%d  %d TILESETS  %d TERRAIN SETS  %d SPRITE SETS", w.tile_w, w.tile_h, w.tileset_count, w.set_count, w.sprite_set_count)
+	case .Rules:
+		return fmt.tprintf("%d TAGS  %d PARAMS", w.tag_count, w.param_count)
+	case .Actors:
+		return fmt.tprintf("%d TYPES  %d CHARACTERS  %d MAPS", w.char_type_count, w.character_count, w.map_count)
+	}
+	return ""
+}
+
+draw_hub_top :: proc(e: ^Editor, r: ^cm.Renderer) {
+	for s in Hub_Section {
+		rc := top_row_rect(int(s))
+		on := e.mode == .Hub && e.top == s
+		if on {
+			cm.draw_text(r, HUB_MARKER_X, rc.y + 3, ">", HILITE)
+		}
+		cm.draw_text(r, HUB_X, rc.y + 3, hub_section_title(s), on ? HILITE : TEXT)
+		summary := hub_section_summary(e, s)
+		cm.draw_text(r, HUB_X, rc.y + 3 + cm.LINE_ADVANCE + 3, summary, DIM)
+		if s == .Rules {
+			if missing := tags_missing(e); missing > 0 {
+				cm.draw_text(r, HUB_X + cm.text_width(summary) + 8, rc.y + 3 + cm.LINE_ADVANCE + 3, fmt.tprintf("%d MISSING", missing), WARN)
+			}
+		}
+	}
+}
+
+draw_hub_inside :: proc(e: ^Editor, r: ^cm.Renderer) {
+	w := &e.world
+	cm.draw_text(r, HUB_MARKER_X, HUB_Y - 12, hub_section_title(e.hub_section), DIM)
+	for row, i in section_rows(e.hub_section) {
+		y := HUB_Y + i * HUB_PITCH
+		on := e.mode == .Hub && e.hub == row
+		color := on ? HILITE : TEXT
+		if on {
 			cm.draw_text(r, HUB_MARKER_X, y, ">", HILITE)
 		}
 		cm.draw_text(r, HUB_X, y, hub_label(row), color)
+		count :: proc(r: ^cm.Renderer, y: int, n, cap: int, color: cm.Color) {
+			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", n, cap), color)
+		}
 		switch row {
 		case .Palette:
 			for i in 0 ..< cm.PALETTE_SIZE {
@@ -311,7 +380,7 @@ draw_hub :: proc(e: ^Editor, r: ^cm.Renderer) {
 		case .Tile_Height:
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d", w.tile_h), color)
 		case .Params:
-			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.param_count, cm.WORLD_MAX_PARAMS), color)
+			count(r, y, w.param_count, cm.WORLD_MAX_PARAMS, color)
 		case .Tags:
 			text := fmt.tprintf("%d OF %d", w.tag_count, cm.WORLD_MAX_TAGS)
 			cm.draw_text(r, HUB_VALUE_X, y, text, color)
@@ -319,32 +388,28 @@ draw_hub :: proc(e: ^Editor, r: ^cm.Renderer) {
 				cm.draw_text(r, HUB_VALUE_X + cm.text_width(text) + 8, y, fmt.tprintf("%d MISSING", missing), WARN)
 			}
 		case .Tilesets:
-			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.tileset_count, cm.WORLD_MAX_TILESETS), color)
+			count(r, y, w.tileset_count, cm.WORLD_MAX_TILESETS, color)
 		case .Terrain_Sets:
-			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.set_count, cm.WORLD_MAX_TERRAIN_SETS), color)
+			count(r, y, w.set_count, cm.WORLD_MAX_TERRAIN_SETS, color)
 		case .Sprite_Sets:
-			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.sprite_set_count, cm.WORLD_MAX_SPRITE_SETS), color)
+			count(r, y, w.sprite_set_count, cm.WORLD_MAX_SPRITE_SETS, color)
 		case .Character_Types:
-			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.char_type_count, cm.WORLD_MAX_CHARACTER_TYPES), color)
+			count(r, y, w.char_type_count, cm.WORLD_MAX_CHARACTER_TYPES, color)
 		case .Characters:
-			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.character_count, cm.WORLD_MAX_CHARACTERS), color)
+			count(r, y, w.character_count, cm.WORLD_MAX_CHARACTERS, color)
 		case .Maps:
-			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.map_count, cm.WORLD_MAX_MAPS), color)
+			count(r, y, w.map_count, cm.WORLD_MAX_MAPS, color)
 		}
 	}
-	for b in ([4]struct {
+	if e.hub_section == .Look {
+		buttons := [4]struct {
 			rc:  Rect,
 			txt: string,
-		}{{WIDTH_MINUS, "-"}, {WIDTH_PLUS, "+"}, {HEIGHT_MINUS, "-"}, {HEIGHT_PLUS, "+"}}) {
-		fill(r, b.rc, PANEL)
-		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.txt)) / 2, b.rc.y + 3, b.txt, TEXT)
-	}
-	for b in ([4]struct {
-			rc:  Rect,
-			txt: string,
-		}{{SAVE_BUTTON, "SAVE"}, {LOAD_BUTTON, "LOAD"}, {MENU_BUTTON, "MENU"}, {PLAY_BUTTON, "PLAY"}}) {
-		fill(r, b.rc, PANEL)
-		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.txt)) / 2, b.rc.y + (b.rc.h - cm.GLYPH_H) / 2, b.txt, TEXT)
+		}{{WIDTH_MINUS, "-"}, {WIDTH_PLUS, "+"}, {HEIGHT_MINUS, "-"}, {HEIGHT_PLUS, "+"}}
+		for b in buttons {
+			fill(r, b.rc, PANEL)
+			cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.txt)) / 2, b.rc.y + 3, b.txt, TEXT)
+		}
 	}
 }
 

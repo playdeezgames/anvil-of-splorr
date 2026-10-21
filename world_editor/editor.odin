@@ -82,6 +82,66 @@ Hub_Row :: enum {
 
 HUB_ROWS :: len(Hub_Row)
 
+// The hub has two levels: the top shows the three sections, and a section shows its rows. Green
+// opens a section, red goes back up (red at the top leaves for the main menu).
+Hub_Section :: enum {
+	Look, // what things look like: palette, tile size, tilesets, terrain sets, sprite sets
+	Rules, // tags and game parameters
+	Actors, // character types, characters and maps
+}
+
+HUB_SECTIONS :: len(Hub_Section)
+
+Hub_Level :: enum {
+	Top,
+	Inside,
+}
+
+@(rodata)
+LOOK_ROWS := [?]Hub_Row{.Palette, .Tile_Width, .Tile_Height, .Tilesets, .Terrain_Sets, .Sprite_Sets}
+@(rodata)
+RULES_ROWS := [?]Hub_Row{.Tags, .Params}
+@(rodata)
+ACTORS_ROWS := [?]Hub_Row{.Character_Types, .Characters, .Maps}
+
+// The rows of a section, in order.
+section_rows :: proc(s: Hub_Section) -> []Hub_Row {
+	switch s {
+	case .Look:
+		return LOOK_ROWS[:]
+	case .Rules:
+		return RULES_ROWS[:]
+	case .Actors:
+		return ACTORS_ROWS[:]
+	}
+	return nil
+}
+
+// Which section a row belongs to.
+hub_row_section :: proc(row: Hub_Row) -> Hub_Section {
+	switch row {
+	case .Palette, .Tile_Width, .Tile_Height, .Tilesets, .Terrain_Sets, .Sprite_Sets:
+		return .Look
+	case .Tags, .Params:
+		return .Rules
+	case .Character_Types, .Characters, .Maps:
+		return .Actors
+	}
+	return .Look
+}
+
+hub_section_title :: proc(s: Hub_Section) -> string {
+	switch s {
+	case .Look:
+		return "LOOK"
+	case .Rules:
+		return "RULES"
+	case .Actors:
+		return "ACTORS"
+	}
+	return ""
+}
+
 Setup_Row :: enum {
 	Open,
 	Rename,
@@ -95,7 +155,10 @@ Setup_Row :: enum {
 
 Editor :: struct {
 	world:          cm.World,
-	hub:            Hub_Row,
+	hub_level:      Hub_Level, // the top (the sections) or inside one (its rows)
+	top:            Hub_Section, // the selected section at the top
+	hub_section:    Hub_Section, // the section the hub is inside
+	hub:            Hub_Row, // the selected row inside a section
 	section:        Section,
 	sel:            [Section]int, // the selected item in each list
 	scroll:         int,
@@ -777,6 +840,26 @@ change_tile_size :: proc(e: ^Editor, dw, dh: int) {
 	}
 }
 
+// Goes into a section, on its first row.
+@(private = "file")
+open_hub_section :: proc(e: ^Editor, s: Hub_Section) {
+	e.hub_level, e.hub_section, e.top = .Inside, s, s
+	e.hub = section_rows(s)[0]
+}
+
+// Moves the selected row inside the section by `delta`, wrapping within its rows.
+@(private = "file")
+step_hub_row :: proc(e: ^Editor, delta: int) {
+	rows := section_rows(e.hub_section)
+	i := 0
+	for r, k in rows {
+		if r == e.hub {
+			i = k
+		}
+	}
+	e.hub = rows[((i + delta) % len(rows) + len(rows)) % len(rows)]
+}
+
 @(private = "file")
 run_hub :: proc(e: ^Editor, row: Hub_Row) {
 	#partial switch row {
@@ -885,26 +968,40 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 	switch e.mode {
 	case .Hub:
 		#partial switch a {
-		case .Up:
-			e.hub = Hub_Row((int(e.hub) + HUB_ROWS - 1) % HUB_ROWS)
-		case .Down:
-			e.hub = Hub_Row((int(e.hub) + 1) % HUB_ROWS)
+		case .Up, .Down:
+			d := a == .Up ? -1 : 1
+			if e.hub_level == .Top {
+				e.top = Hub_Section(((int(e.top) + d) % HUB_SECTIONS + HUB_SECTIONS) % HUB_SECTIONS)
+			} else {
+				step_hub_row(e, d)
+			}
 		case .Left, .Right:
 			d := a == .Left ? -1 : 1
-			#partial switch e.hub {
-			case .Tile_Width:
-				change_tile_size(e, d, 0)
-			case .Tile_Height:
-				change_tile_size(e, 0, d)
+			if e.hub_level == .Inside {
+				#partial switch e.hub {
+				case .Tile_Width:
+					change_tile_size(e, d, 0)
+				case .Tile_Height:
+					change_tile_size(e, 0, d)
+				}
 			}
 		case .Green:
-			run_hub(e, e.hub)
+			if e.hub_level == .Top {
+				open_hub_section(e, e.top)
+			} else {
+				run_hub(e, e.hub)
+			}
 		case .Blue:
 			e.mode = .File
 		case .Yellow:
 			begin_play(e) // walk the player around to try the world
 		case .Red:
-			request_exit(e)
+			if e.hub_level == .Inside {
+				e.hub_level = .Top // one level up
+				e.top = e.hub_section
+			} else {
+				request_exit(e)
+			}
 		}
 	case .List:
 		n := section_count(e, e.section)
@@ -995,22 +1092,27 @@ click :: proc(e: ^Editor, x, y: int) {
 		e.mode = .Hub
 	}
 	if e.mode == .Hub {
+		inside_look := e.hub_level == .Inside && e.hub_section == .Look // (the tile size is only here)
 		switch {
-		case rect_contains(WIDTH_MINUS, x, y):
+		case inside_look && rect_contains(WIDTH_MINUS, x, y):
 			e.hub = .Tile_Width
 			change_tile_size(e, -1, 0)
 			return
-		case rect_contains(WIDTH_PLUS, x, y):
+		case inside_look && rect_contains(WIDTH_PLUS, x, y):
 			e.hub = .Tile_Width
 			change_tile_size(e, 1, 0)
 			return
-		case rect_contains(HEIGHT_MINUS, x, y):
+		case inside_look && rect_contains(HEIGHT_MINUS, x, y):
 			e.hub = .Tile_Height
 			change_tile_size(e, 0, -1)
 			return
-		case rect_contains(HEIGHT_PLUS, x, y):
+		case inside_look && rect_contains(HEIGHT_PLUS, x, y):
 			e.hub = .Tile_Height
 			change_tile_size(e, 0, 1)
+			return
+		case e.hub_level == .Inside && rect_contains(SECTION_BACK, x, y):
+			e.hub_level = .Top
+			e.top = e.hub_section
 			return
 		case rect_contains(SAVE_BUTTON, x, y):
 			e.requests += {.Save}
@@ -1025,8 +1127,13 @@ click :: proc(e: ^Editor, x, y: int) {
 			begin_play(e)
 			return
 		}
-		if row, ok := hub_row_at(x, y); ok {
-			e.hub = Hub_Row(row)
+		if e.hub_level == .Top {
+			if i, ok := top_row_at(x, y); ok {
+				e.top = Hub_Section(i)
+				open_hub_section(e, e.top)
+			}
+		} else if i, ok := hub_row_at(x, y); ok && i < len(section_rows(e.hub_section)) {
+			e.hub = section_rows(e.hub_section)[i]
 			if e.hub != .Tile_Width && e.hub != .Tile_Height {
 				run_hub(e, e.hub)
 			}

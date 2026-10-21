@@ -33,12 +33,40 @@ click_item :: proc(e: ^Editor, index: int) {
 	click_at(e, rc.x + 4, rc.y + 3)
 }
 
+row_index :: proc(row: Hub_Row) -> int {
+	for r, i in section_rows(hub_row_section(row)) {
+		if r == row {
+			return i
+		}
+	}
+	return 0
+}
+
+// Clicks a hub row, going up and into its section first when needed.
 click_hub :: proc(e: ^Editor, row: Hub_Row) {
-	rc := hub_row_rect(int(row))
+	s := hub_row_section(row)
+	if e.hub_level == .Inside && e.hub_section != s {
+		click_rect(e, SECTION_BACK)
+	}
+	if e.hub_level == .Top {
+		click_rect(e, top_row_rect(int(s)))
+	}
+	rc := hub_row_rect(row_index(row))
 	click_at(e, rc.x + 30, rc.y + 4)
 }
 
+// Moves the highlight to a hub row with the commands, going up and into its section first when needed.
 goto_hub :: proc(e: ^Editor, row: Hub_Row) {
+	s := hub_row_section(row)
+	if e.hub_level == .Inside && e.hub_section != s {
+		press(e, .Red)
+	}
+	if e.hub_level == .Top {
+		for e.top != s {
+			press(e, .Down)
+		}
+		press(e, .Green)
+	}
 	for e.hub != row {
 		press(e, .Down)
 	}
@@ -176,8 +204,9 @@ test_starts_in_the_hub_with_an_empty_default_world :: proc(t: ^testing.T) {
 test_hub_navigation_and_tile_size :: proc(t: ^testing.T) {
 	e := with_content()
 	defer free(e)
+	goto_hub(e, .Palette)
 	press(e, .Up)
-	testing.expect_value(t, e.hub, Hub_Row.Maps) // wraps
+	testing.expect_value(t, e.hub, Hub_Row.Sprite_Sets) // wraps within the section
 	press(e, .Down)
 	testing.expect_value(t, e.hub, Hub_Row.Palette)
 	goto_hub(e, .Tile_Width)
@@ -201,10 +230,71 @@ test_hub_navigation_and_tile_size :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_hub_sections_open_go_up_and_leave :: proc(t: ^testing.T) {
+	e := with_content()
+	defer free(e)
+	testing.expect(t, e.hub_level == .Top && e.top == .Look)
+	press(e, .Up)
+	testing.expect_value(t, e.top, Hub_Section.Actors) // wraps
+	press(e, .Left, .Right) // no tile size at the top
+	testing.expect_value(t, e.world.tile_w, 4)
+	press(e, .Green)
+	testing.expect(t, e.hub_level == .Inside && e.hub_section == .Actors && e.hub == .Character_Types)
+	press(e, .Up)
+	testing.expect_value(t, e.hub, Hub_Row.Maps)
+	press(e, .Red)
+	testing.expect(t, e.hub_level == .Top && e.top == .Actors && !e.exit_requested)
+	press(e, .Red)
+	testing.expect(t, e.exit_requested || e.dirty || e.hub_level == .Top)
+	// Yellow and blue work at both levels.
+	e2 := with_content()
+	defer free(e2)
+	press(e2, .Blue)
+	testing.expect_value(t, e2.mode, Mode.File)
+	press(e2, .Red)
+	press(e2, .Green, .Blue)
+	testing.expect_value(t, e2.mode, Mode.File)
+}
+
+@(test)
+test_hub_summaries_fit_at_their_longest :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	e.world.tile_w, e.world.tile_h = 64, 64
+	e.world.tileset_count, e.world.set_count, e.world.sprite_set_count = 16, 16, 16
+	e.world.tag_count, e.world.param_count = 64, 64
+	e.world.char_type_count, e.world.character_count, e.world.map_count = 64, 1024, 64
+	for s in Hub_Section {
+		text := hub_section_summary(e, s)
+		testing.expectf(t, cm.text_is_drawable(text), "summary: %s", text)
+		extra := s == .Rules ? cm.text_width("64 MISSING") + 8 : 0
+		testing.expectf(t, HUB_X + cm.text_width(text) + extra <= cm.SCREEN_W - 4, "summary too wide: %s", text)
+	}
+}
+
+@(test)
+test_hub_section_rows_cover_every_row_once :: proc(t: ^testing.T) {
+	seen: [HUB_ROWS]int
+	for s in Hub_Section {
+		for row in section_rows(s) {
+			seen[int(row)] += 1
+			testing.expect(t, hub_row_section(row) == s)
+		}
+	}
+	for n in seen {
+		testing.expect_value(t, n, 1)
+	}
+	for s in Hub_Section {
+		testing.expect(t, cm.text_is_drawable(hub_section_title(s)))
+	}
+}
+
+@(test)
 test_the_palette_is_edited_in_place_and_red_returns :: proc(t: ^testing.T) {
 	e := new_editor()
 	defer free(e)
-	press(e, .Green)
+	press(e, .Green, .Green) // the LOOK section, then the palette
 	testing.expect_value(t, e.mode, Mode.Palette)
 	testing.expect(t, e.palette_ed.embedded)
 	press(e, .Green, .Right) // edit the red value of colour 0
@@ -580,6 +670,7 @@ test_leaving_and_closing_are_guarded_when_unsaved :: proc(t: ^testing.T) {
 	e.dirty, e.confirm_exit = false, false
 	testing.expect(t, tl.allow_close(tl.data))
 	// Unhanded-over work in an embedded editor counts as unsaved too.
+	goto_hub(e, .Palette)
 	press(e, .Green)
 	press(e, .Green, .Right)
 	testing.expect(t, tl.is_dirty(tl.data))
@@ -645,6 +736,7 @@ test_every_tile_size_is_reachable_by_each_input :: proc(t: ^testing.T) {
 						press(e, .Right)
 					}
 				case .Mouse:
+					click_rect(e, top_row_rect(int(Hub_Section.Look)))
 					for _ in 0 ..< 70 {
 						click_rect(e, WIDTH_MINUS)
 						click_rect(e, HEIGHT_MINUS)
@@ -797,7 +889,7 @@ test_layout_fits_the_screen_and_does_not_overlap :: proc(t: ^testing.T) {
 	// The hub rows clear their buttons, and the list's detail column clears the name column.
 	testing.expect(t, HUB_X + cm.text_width("TERRAIN SETS") < HUB_VALUE_X && HUB_VALUE_X + 16 * 8 <= cm.SCREEN_W)
 	testing.expect(t, HUB_VALUE_X + cm.text_width("16 OF 16") < WIDTH_MINUS.x)
-	testing.expect(t, HUB_Y + HUB_ROWS * HUB_PITCH <= SAVE_BUTTON.y && SAVE_BUTTON.y + SAVE_BUTTON.h <= HELP_Y)
+	testing.expect(t, HUB_Y + len(LOOK_ROWS) * HUB_PITCH <= SECTION_BACK.y && SECTION_BACK.y + SECTION_BACK.h <= HELP_Y && TOP_Y + HUB_SECTIONS * TOP_PITCH <= SAVE_BUTTON.y && SAVE_BUTTON.y + SAVE_BUTTON.h <= HELP_Y)
 	// A 32 character name and the right-aligned detail both fit the list.
 	testing.expect(t, 2 + cm.text_width("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW") + cm.text_width("16 TERRAINS") + 6 <= LIST_W)
 	testing.expect(t, LIST_Y + LIST_ROWS * LIST_PITCH <= HELP_Y)

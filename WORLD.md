@@ -1,5 +1,7 @@
 # World editor: specification (as agreed so far)
 
+**Hub**: the world editor's start screen has three sections, LOOK (palette, tile size, tilesets, terrain sets, sprite sets), RULES (tags, parameters) and ACTORS (character types, characters, maps). The top level shows each with counts (RULES also how many needed tags are missing); green opens one, red goes up a level (red at the top leaves the editor), yellow plays and blue opens the file screen at both levels. The "hub" rows named below live inside these sections.
+
 A world is a collection of asset types; more types will be added later. Everything below is saved in one file, `world.json` (format documented in `common/world.odin`).
 
 - **Tile size**: one for the whole world, 1..64 by 1..64 (default 16x16). Every tileset must match it. Changing it crops or pads every image in every tileset (hidden pixels return when growing back).

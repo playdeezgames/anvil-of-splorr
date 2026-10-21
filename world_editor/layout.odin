@@ -15,19 +15,20 @@ INFO_Y :: 19
 // Hub: one row per part of the world.
 HUB_X :: 24
 HUB_VALUE_X :: 130
-HUB_Y :: 26
-HUB_PITCH :: 9
+HUB_Y :: 32
+HUB_PITCH :: 14
 HUB_MARKER_X :: 12
-WIDTH_MINUS :: Rect{230, 35, 12, 10} // the tile width row (hub row 1)
-WIDTH_PLUS :: Rect{244, 35, 12, 10}
-HEIGHT_MINUS :: Rect{230, 45, 12, 10} // the tile height row (hub row 2)
-HEIGHT_PLUS :: Rect{244, 45, 12, 10}
+WIDTH_MINUS :: Rect{230, 46, 12, 10} // the tile width row (row 1 of LOOK)
+WIDTH_PLUS :: Rect{244, 46, 12, 10}
+HEIGHT_MINUS :: Rect{230, 60, 12, 10} // the tile height row (row 2 of LOOK)
+HEIGHT_PLUS :: Rect{244, 60, 12, 10}
 
 // The three file buttons under the hub rows.
 SAVE_BUTTON :: Rect{24, 130, 40, 10}
 LOAD_BUTTON :: Rect{68, 130, 40, 10}
 MENU_BUTTON :: Rect{112, 130, 40, 10}
 PLAY_BUTTON :: Rect{156, 130, 40, 10} // try the world: walk the player around (YELLOW in the hub)
+SECTION_BACK :: Rect{200, 130, 40, 10} // up from a section to the top of the hub (inside a section only)
 
 // Lists: the named things of one kind, one per line, with the action buttons on the right.
 LIST_X :: 8
@@ -74,6 +75,23 @@ list_row_at :: proc(x, y: int) -> (row: int, ok: bool) {
 	return row, row < LIST_ROWS
 }
 
+// The top of the hub: the three sections, each a name and a line of counts under it.
+TOP_Y :: 36
+TOP_PITCH :: 30
+
+top_row_rect :: proc(i: int) -> Rect {
+	return Rect{HUB_MARKER_X, TOP_Y + i * TOP_PITCH - 3, 290, TOP_PITCH - 4}
+}
+
+top_row_at :: proc(x, y: int) -> (i: int, ok: bool) {
+	for i in 0 ..< HUB_SECTIONS {
+		if rect_contains(top_row_rect(i), x, y) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
 hub_row_rect :: proc(row: int) -> Rect {
 	return Rect{HUB_MARKER_X, HUB_Y + row * HUB_PITCH - 2, 280, HUB_PITCH}
 }
@@ -83,5 +101,5 @@ hub_row_at :: proc(x, y: int) -> (row: int, ok: bool) {
 		return 0, false
 	}
 	row = (y - (HUB_Y - 2)) / HUB_PITCH
-	return row, row < HUB_ROWS
+	return row, row < HUB_ROWS // (the caller also checks it against the section's own row count)
 }
