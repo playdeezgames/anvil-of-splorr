@@ -50,6 +50,8 @@ open :: proc(e: ^Editor, s: Section) {
 	switch s {
 	case .Tags:
 		row = .Tags
+	case .Params:
+		row = .Params
 	case .Tilesets:
 		row = .Tilesets
 	case .Terrain_Sets:
@@ -924,6 +926,13 @@ test_every_screen_draws_on_screen_in_every_mode :: proc(t: ^testing.T) {
 				e.section = .Sprite_Sets
 				e.mode = .List
 				press(e, .Green)
+			case .Value:
+				e.section = .Params
+				e.mode = .List
+				if e.world.param_count == 0 {
+					cm.world_add_param(&e.world)
+				}
+				press(e, .Green)
 			case .Char_Type:
 				e.mode = .Hub
 				e.hub = .Character_Types
@@ -1525,4 +1534,282 @@ test_the_tags_text_and_buttons_fit :: proc(t: ^testing.T) {
 	line := strings.concatenate({"64 OF 64  ", long, "  *"}, context.temp_allocator)
 	testing.expect(t, INFO_X + cm.text_width(line) <= cm.SCREEN_W)
 	testing.expect(t, LIST_X + 2 + cm.text_width("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW") + cm.text_width("NEEDED, UNUSED") + 6 <= LIST_W)
+}
+
+// --- Game parameters ---
+
+// Opens the Params list from the hub and returns.
+open_params :: proc(e: ^Editor) {
+	e.mode = .Hub
+	goto_hub(e, .Params)
+	press(e, .Green)
+}
+
+@(test)
+test_parse_whole_number_accepts_only_32_bit_integers :: proc(t: ^testing.T) {
+	cases := []struct {
+		text:     string,
+		value:    int,
+		ok, fits: bool,
+	} {
+		{"0", 0, true, true},
+		{"60", 60, true, true},
+		{"007", 7, true, true},
+		{"-12", -12, true, true},
+		{"2147483647", 2147483647, true, true},
+		{"-2147483648", -2147483648, true, true},
+		{"2147483648", 0, true, false},
+		{"-2147483649", 0, true, false},
+		{"99999999999999999999999999", 0, true, false},
+		{"", 0, false, true},
+		{"-", 0, false, true},
+		{"12a", 0, false, true},
+		{"1 2", 0, false, true},
+		{"+5", 0, false, true},
+		{"99999999999999999999x", 0, false, true},
+		{"--5", 0, false, true},
+	}
+	for c in cases {
+		v, ok, fits := parse_whole_number(c.text)
+		testing.expectf(t, ok == c.ok && fits == c.fits && (!c.ok || !c.fits || v == c.value), "%q: got %d %v %v", c.text, v, ok, fits)
+	}
+}
+
+@(test)
+test_new_parameter_is_named_then_edited_as_a_number :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	open_params(e)
+	testing.expect(t, e.mode == .List && e.section == .Params)
+	press(e, .Yellow)
+	for e.row != .New {
+		press(e, .Down)
+	}
+	press(e, .Green)
+	testing.expect(t, e.mode == .Text && e.world.param_count == 1 && e.dirty)
+	name_typed(e, "round")
+	testing.expect_value(t, e.mode, Mode.Value) // named, then its value screen
+	testing.expect(t, cm.name_str(&e.world.params[0].name) == "round" && e.world.params[0].kind == .Number)
+	press(e, .Right, .Right, .Up)
+	testing.expect_value(t, e.world.params[0].number, 12)
+	press(e, .Left, .Down, .Down)
+	testing.expect_value(t, e.world.params[0].number, -9)
+	editor_handle_event(e, cm.Mouse_Wheel{dy = 4})
+	testing.expect_value(t, e.world.params[0].number, -5)
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.List)
+	testing.expect_value(t, item_detail(e, .Params, 0), "-5")
+}
+
+@(test)
+test_a_number_can_be_typed_and_a_bad_one_asks_again :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	cm.world_add_param(&e.world, "round")
+	open_params(e)
+	press(e, .Green) // open the value
+	testing.expect_value(t, e.mode, Mode.Value)
+	press(e, .Green) // the keypad, starting with the current digits
+	testing.expect(t, e.mode == .Text && e.text_target == .Number && cm.text_entry_text(&e.entry) == "0")
+	name_typed(e, "250")
+	testing.expect(t, e.mode == .Value && e.world.params[0].number == 250 && e.text_target == .Name)
+	for bad, i in ([]string{"12a", "-", "99999999999", "x"}) {
+		press(e, .Green)
+		name_typed(e, bad)
+		testing.expectf(t, e.mode == .Text && e.entry.note != "" && e.world.params[0].number == 250, "%q was accepted", bad)
+		testing.expect(t, cm.text_is_drawable(e.entry.note) && cm.text_width(e.entry.note) <= cm.SCREEN_W)
+		press_keypad_action(e, .Cancel) // back to the value screen, unchanged
+		testing.expect_value(t, e.mode, Mode.Value)
+		_ = i
+	}
+	press(e, .Green)
+	name_typed(e, "-5")
+	testing.expect_value(t, e.world.params[0].number, -5)
+	press(e, .Green)
+	name_typed(e, "2147483647")
+	testing.expect_value(t, e.world.params[0].number, 2147483647)
+	press(e, .Right) // stays at the top
+	testing.expect_value(t, e.world.params[0].number, 2147483647)
+}
+
+@(test)
+test_a_text_parameter_is_typed_and_kind_switches :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	cm.world_add_param(&e.world, "title")
+	cm.world_set_param_number(&e.world, 0, 77)
+	open_params(e)
+	press(e, .Green)
+	press(e, .Yellow) // number -> text (empty at first)
+	testing.expect(t, e.world.params[0].kind == .Text && e.dirty)
+	press(e, .Right, .Up) // a text has no steps
+	testing.expect_value(t, e.world.params[0].number, 77)
+	press(e, .Green)
+	testing.expect(t, e.mode == .Text && e.text_target == .Text_Value)
+	name_typed(e, "Go Get It!")
+	testing.expect(t, e.mode == .Value && cm.name_str(&e.world.params[0].text) == "Go Get It!")
+	testing.expect_value(t, item_detail(e, .Params, 0), "\"Go Get It!\"") // the list shows it in quotes
+	// An empty text is fine.
+	press(e, .Green)
+	press_keypad_action(e, .Clear)
+	press_keypad_action(e, .Done)
+	testing.expect(t, e.mode == .Value && cm.name_str(&e.world.params[0].text) == "")
+	// Back to number: the old number returns.
+	press(e, .Yellow)
+	testing.expect(t, e.world.params[0].kind == .Number && e.world.params[0].number == 77)
+	// A long text is cut in the list.
+	cm.world_set_param_text(&e.world, 0, "WWWWWWWWWWWWWWWWWWWWWWWW")
+	testing.expect(t, cm.text_width(item_detail(e, .Params, 0)) + 2 + cm.text_width("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW") + 6 <= LIST_W)
+}
+
+@(test)
+test_the_value_screen_has_a_button_for_everything :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	cm.world_add_param(&e.world, "round")
+	open_params(e)
+	click_item(e, 0) // the selected one again: opens it
+	testing.expect_value(t, e.mode, Mode.Value)
+	for step in ([]struct {
+			rc:   Rect,
+			want: int,
+		}{{VALUE_PLUS10, 10}, {VALUE_PLUS1, 11}, {VALUE_MINUS1, 10}, {VALUE_MINUS10, 0}}) {
+		click_rect(e, step.rc)
+		testing.expectf(t, e.world.params[0].number == step.want, "after a click: %d", e.world.params[0].number)
+	}
+	click_rect(e, VALUE_EDIT)
+	testing.expect_value(t, e.mode, Mode.Text)
+	name_typed(e, "42")
+	testing.expect_value(t, e.world.params[0].number, 42)
+	click_rect(e, VALUE_KIND)
+	testing.expect_value(t, e.world.params[0].kind, cm.Param_Kind.Text)
+	click_rect(e, VALUE_PLUS10) // no effect on a text
+	testing.expect_value(t, e.world.params[0].number, 42)
+	click_rect(e, VALUE_KIND)
+	click_rect(e, VALUE_BACK)
+	testing.expect_value(t, e.mode, Mode.List)
+	// The KIND button of the list does the same without opening the value.
+	click_rect(e, IMPORT_BUTTON)
+	testing.expect_value(t, e.world.params[0].kind, cm.Param_Kind.Text)
+	press(e, .Yellow)
+	for e.row != .Kind {
+		press(e, .Down)
+	}
+	press(e, .Green)
+	testing.expect_value(t, e.world.params[0].kind, cm.Param_Kind.Number)
+}
+
+@(test)
+test_parameters_are_renamed_duplicated_and_deleted_from_the_list :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	a := cm.world_add_param(&e.world, "round")
+	cm.world_set_param_number(&e.world, a, 60)
+	cm.world_add_param(&e.world, "points")
+	open_params(e)
+	run(e, .Rename)
+	name_typed(e, "points") // taken
+	testing.expect(t, e.mode == .Text && strings.contains(e.entry.note, "USE"))
+	name_typed(e, "seconds")
+	testing.expect(t, e.mode == .List && cm.name_str(&e.world.params[0].name) == "seconds")
+	run(e, .Duplicate)
+	testing.expect(t, e.mode == .Text && e.world.param_count == 3 && cm.name_str(&e.world.params[1].name) == "seconds_copy" && e.world.params[1].number == 60)
+	press_keypad_action(e, .Done)
+	testing.expect_value(t, e.mode, Mode.Value) // a copy opens its value
+	press(e, .Red)
+	run(e, .Delete)
+	testing.expect(t, e.confirm_delete && e.world.param_count == 3)
+	press(e, .Green)
+	testing.expect(t, e.world.param_count == 2 && cm.name_str(&e.world.params[1].name) == "points")
+	for e.world.param_count < cm.WORLD_MAX_PARAMS {
+		cm.world_add_param(&e.world)
+	}
+	e.note = ""
+	run(e, .New)
+	testing.expect_value(t, e.note, NOTE_FULL)
+	// An empty list has nothing to open, rename or switch.
+	e2 := new_editor()
+	defer free(e2)
+	open_params(e2)
+	press(e2, .Green)
+	testing.expect(t, e2.mode == .List && e2.note == NOTE_EMPTY)
+	run(e2, .Kind)
+	testing.expect_value(t, e2.note, NOTE_EMPTY)
+}
+
+@(test)
+test_parameters_survive_save_and_load_in_the_tool :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	n := cm.world_add_param(&e.world, "round_seconds")
+	cm.world_set_param_number(&e.world, n, 90)
+	s := cm.world_add_param(&e.world, "title")
+	cm.world_set_param_text(&e.world, s, "Hi")
+	tl := tool(e)
+	press(e, .Blue, .Green)
+	text, ok := tl.take_save(tl.data)
+	testing.expect(t, ok && strings.contains(text, `{"name": "round_seconds", "number": 90}`))
+	e2 := new_editor()
+	defer free(e2)
+	tl2 := tool(e2)
+	testing.expect(t, tl2.load(tl2.data, transmute([]u8)text))
+	testing.expect(t, e2.world.param_count == 2 && cm.world_param_number(&e2.world, "round_seconds", 0) == 90 && cm.world_param_text(&e2.world, "title", "") == "Hi")
+	// The hub shows the count.
+	e2.mode = .Hub
+	testing.expect_value(t, section_count(e2, .Params), 2)
+}
+
+@(test)
+test_the_value_screen_text_and_layout_fit :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := new_editor()
+	defer free(e)
+	m := cm.default_input_map()
+	editor_set_labels(e, &m)
+	cm.world_add_param(&e.world, "round")
+	for round in 0 ..< 2 {
+		if round == 1 {
+			for a in cm.Action {
+				cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
+			}
+		}
+		banner := value_banner_text(e)
+		lines, n := value_help_lines(e)
+		if round == 0 {
+			testing.expectf(t, cm.text_is_drawable(banner), "banner: %s", banner)
+		}
+		testing.expectf(t, cm.text_width(banner) + 8 <= BANNER.w, "banner too wide: %s", banner)
+		for line in lines[:n] {
+			if round == 0 {
+				testing.expectf(t, cm.text_is_drawable(line), "help: %s", line)
+			}
+			testing.expectf(t, 8 + cm.text_width(line) <= cm.SCREEN_W - 8, "help line too wide: %s", line)
+		}
+	}
+	for text in ([]string{NOTE_NOT_A_NUMBER, NOTE_OUT_OF_RANGE, NOTE_TEXT_BAD, NOTE_PARAM_NOTHING, "(EMPTY)", "A WHOLE NUMBER", "A SHORT TEXT", "-2147483648", "KIND", "EDIT", "PARAMS", "64 OF 64"}) {
+		testing.expectf(t, cm.text_is_drawable(text) && INFO_X + cm.text_width(text) <= cm.SCREEN_W - 4, "text: %s", text)
+	}
+	// A 32 character text at double size fits the screen from the value's x.
+	testing.expect(t, VALUE_X + cm.text_width("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", 2) <= cm.SCREEN_W - 4)
+	testing.expect(t, VALUE_X + cm.text_width("-2147483648", 2) <= cm.SCREEN_W)
+	rects := [?]Rect{VALUE_MINUS10, VALUE_MINUS1, VALUE_PLUS1, VALUE_PLUS10, VALUE_EDIT, VALUE_KIND, VALUE_BACK, BANNER}
+	for a, i in rects {
+		testing.expectf(t, a.x >= 0 && a.y >= 0 && a.x + a.w <= cm.SCREEN_W && a.y + a.h <= cm.SCREEN_H, "rect %d off screen", i)
+		for b, j in rects {
+			if i < j {
+				overlap := a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+				testing.expectf(t, !overlap, "rects %d and %d overlap", i, j)
+			}
+		}
+	}
+	testing.expect(t, VALUE_BACK.y + VALUE_BACK.h <= HELP_Y && VALUE_PLUS10.y + VALUE_PLUS10.h < VALUE_BACK.y)
+	for label in ([]string{"-10", "-1", "+1", "+10"}) {
+		testing.expect(t, cm.text_width(label) <= VALUE_MINUS1.w - 2 && cm.text_is_drawable(label))
+	}
 }

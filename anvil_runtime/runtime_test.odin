@@ -453,3 +453,29 @@ test_a_game_checks_its_tags_file_against_the_world_at_start_up :: proc(t: ^testi
 	testing.expect(t, parse_game_tags(transmute([]u8)string(`{"tags": ["a", "a"]}`), &g) != "")
 	testing.expect_value(t, g.count, 5)
 }
+
+@(test)
+test_a_game_reads_parameters_by_name_with_defaults :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	source := build_world()
+	n := cm.world_add_param(source, "round_seconds")
+	cm.world_set_param_number(source, n, 45)
+	s := cm.world_add_param(source, "title")
+	cm.world_set_param_text(source, s, "Go Get the Thing!")
+	text := cm.world_to_json(source)
+	free(source)
+	w := new_world()
+	defer free(w)
+	testing.expect_value(t, load(w, transmute([]u8)text), "")
+	testing.expect_value(t, param_count(w), 2)
+	testing.expect_value(t, param_number(w, "round_seconds", 30), 45)
+	testing.expect_value(t, param_number(w, "points_per_pickup", 1), 1) // absent: the default
+	testing.expect_value(t, param_number(w, "title", 9), 9) // a text is not a number
+	testing.expect_value(t, param_text(w, "title", "?"), "Go Get the Thing!")
+	testing.expect_value(t, param_text(w, "subtitle", "none"), "none")
+	testing.expect_value(t, param_text(w, "round_seconds", "none"), "none")
+	// A world from before parameters has none: every read gives its default.
+	old := loaded_world()
+	defer free(old)
+	testing.expect(t, param_count(old) == 0 && param_number(old, "round_seconds", 30) == 30)
+}

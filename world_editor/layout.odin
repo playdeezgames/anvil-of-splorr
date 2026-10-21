@@ -15,18 +15,18 @@ INFO_Y :: 19
 // Hub: one row per part of the world.
 HUB_X :: 24
 HUB_VALUE_X :: 130
-HUB_Y :: 28
-HUB_PITCH :: 10
+HUB_Y :: 26
+HUB_PITCH :: 9
 HUB_MARKER_X :: 12
-WIDTH_MINUS :: Rect{230, 38, 12, 10} // the tile width row (hub row 1)
-WIDTH_PLUS :: Rect{244, 38, 12, 10}
-HEIGHT_MINUS :: Rect{230, 48, 12, 10} // the tile height row (hub row 2)
-HEIGHT_PLUS :: Rect{244, 48, 12, 10}
+WIDTH_MINUS :: Rect{230, 35, 12, 10} // the tile width row (hub row 1)
+WIDTH_PLUS :: Rect{244, 35, 12, 10}
+HEIGHT_MINUS :: Rect{230, 45, 12, 10} // the tile height row (hub row 2)
+HEIGHT_PLUS :: Rect{244, 45, 12, 10}
 
 // The three file buttons under the hub rows.
-SAVE_BUTTON :: Rect{24, 132, 40, 10}
-LOAD_BUTTON :: Rect{68, 132, 40, 10}
-MENU_BUTTON :: Rect{112, 132, 40, 10}
+SAVE_BUTTON :: Rect{24, 130, 40, 10}
+LOAD_BUTTON :: Rect{68, 130, 40, 10}
+MENU_BUTTON :: Rect{112, 130, 40, 10}
 
 // Lists: the named things of one kind, one per line, with the action buttons on the right.
 LIST_X :: 8
@@ -46,6 +46,16 @@ DUPLICATE_BUTTON :: Rect{BUTTON_X, 64, BUTTON_W, BUTTON_H}
 DELETE_BUTTON :: Rect{BUTTON_X, 76, BUTTON_W, BUTTON_H}
 IMPORT_BUTTON :: Rect{BUTTON_X, 88, BUTTON_W, BUTTON_H} // tilesets only
 BACK_BUTTON :: Rect{BUTTON_X, 112, BUTTON_W, BUTTON_H}
+
+// The value screen of a parameter.
+VALUE_X :: 24
+VALUE_MINUS10 :: Rect{24, 92, 34, 12}
+VALUE_MINUS1 :: Rect{62, 92, 34, 12}
+VALUE_PLUS1 :: Rect{100, 92, 34, 12}
+VALUE_PLUS10 :: Rect{138, 92, 34, 12}
+VALUE_EDIT :: Rect{190, 92, 44, 12}
+VALUE_KIND :: Rect{238, 92, 44, 12}
+VALUE_BACK :: Rect{260, 130, 44, 10}
 
 HELP_Y :: 150
 MAX_HELP_LINES :: 4

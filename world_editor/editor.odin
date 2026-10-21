@@ -44,6 +44,7 @@ Mode :: enum {
 	List,
 	Setup,
 	Text,
+	Value, // the value of a game parameter
 	File,
 	Palette,
 	Tileset,
@@ -56,6 +57,7 @@ Mode :: enum {
 
 Section :: enum {
 	Tags,
+	Params,
 	Tilesets,
 	Terrain_Sets,
 	Sprite_Sets,
@@ -67,6 +69,7 @@ Hub_Row :: enum {
 	Tile_Width,
 	Tile_Height,
 	Tags,
+	Params,
 	Tilesets,
 	Terrain_Sets,
 	Sprite_Sets,
@@ -85,6 +88,7 @@ Setup_Row :: enum {
 	Delete,
 	Import,
 	Create, // (tags) add every tag the game needs and the world lacks
+	Kind, // (parameters) switch the selected one between a number and a text
 }
 
 Editor :: struct {
@@ -97,6 +101,7 @@ Editor :: struct {
 	row:            Setup_Row,
 	game_tags:      cm.Game_Tags, // the tags the game needs, from game_tags.json (none if it was not found)
 	aux_current:    Aux_Request, // which file the frontend is delivering
+	text_target:    Text_Target, // what the keypad is typing: a name, or a parameter's value
 	confirm_rename: bool, // renaming a needed tag was asked once: the next one goes ahead
 	open_after:     bool, // the keypad was opened by New / Duplicate / Import: open the item when it closes
 	dirty:          bool, // the world changed since the last save/load
@@ -217,6 +222,8 @@ section_count :: proc(e: ^Editor, s: Section) -> int {
 	switch s {
 	case .Tags:
 		return e.world.tag_count + tags_missing(e)
+	case .Params:
+		return e.world.param_count
 	case .Tilesets:
 		return e.world.tileset_count
 	case .Terrain_Sets:
@@ -233,6 +240,8 @@ section_limit :: proc(s: Section) -> int {
 	switch s {
 	case .Tags:
 		return cm.WORLD_MAX_TAGS
+	case .Params:
+		return cm.WORLD_MAX_PARAMS
 	case .Tilesets:
 		return cm.WORLD_MAX_TILESETS
 	case .Terrain_Sets:
@@ -252,6 +261,8 @@ section_item_name :: proc(e: ^Editor, s: Section, i: int) -> string {
 			return missing_tag_name(e, i - e.world.tag_count)
 		}
 		return cm.name_str(&e.world.tags[i])
+	case .Params:
+		return cm.name_str(&e.world.params[i].name)
 	case .Tilesets:
 		return cm.name_str(&e.world.tileset_names[i])
 	case .Terrain_Sets:
@@ -294,7 +305,6 @@ open_list :: proc(e: ^Editor, s: Section) {
 	fix_selection(e)
 }
 
-@(private = "file")
 touched :: proc(e: ^Editor) {
 	e.dirty = true
 }
@@ -330,6 +340,8 @@ open_item :: proc(e: ^Editor) {
 	switch e.section {
 	case .Tags:
 		e.note = is_missing_row(e, i) ? NOTE_TAG_MISSING : NOTE_TAG_OPEN // a tag has no editor of its own
+	case .Params:
+		begin_value(e)
 	case .Tilesets:
 		te.editor_begin_embedded(&e.tileset_ed, &e.world, i)
 		e.opened = i
@@ -415,7 +427,7 @@ sync_embedded :: proc(e: ^Editor) {
 			e.map_ed.exit_requested = false
 			e.mode = .List
 		}
-	case .Hub, .List, .Setup, .Text, .File:
+	case .Hub, .List, .Setup, .Text, .Value, .File:
 	}
 }
 
@@ -450,6 +462,8 @@ new_item :: proc(e: ^Editor) {
 	switch e.section {
 	case .Tags:
 		n = cm.world_add_tag(&e.world)
+	case .Params:
+		n = cm.world_add_param(&e.world)
 	case .Tilesets:
 		n = cm.world_add_tileset(&e.world)
 	case .Terrain_Sets:
@@ -476,6 +490,8 @@ duplicate_item :: proc(e: ^Editor) {
 	case .Tags:
 		e.note = NOTE_TAG_COPY
 		return
+	case .Params:
+		n = cm.world_duplicate_param(&e.world, selected(e))
 	case .Tilesets:
 		n = cm.world_duplicate_tileset(&e.world, selected(e))
 	case .Terrain_Sets:
@@ -524,6 +540,8 @@ delete_item :: proc(e: ^Editor) {
 	}
 	e.confirm_delete = false
 	switch e.section {
+	case .Params:
+		cm.world_delete_param(&e.world, selected(e))
 	case .Tags:
 		uses, _ := cm.world_delete_tag(&e.world, selected(e))
 		e.note = fmt.tprintf("REMOVED FROM %d THING%s", uses, uses == 1 ? "" : "S")
@@ -643,6 +661,12 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 		request_import(e)
 	case .Create:
 		create_missing_tags(e)
+	case .Kind:
+		if e.section == .Params && has_items(e) && cm.world_toggle_param_kind(&e.world, selected(e)) {
+			touched(e)
+		} else if !has_items(e) {
+			e.note = NOTE_EMPTY
+		}
 	}
 }
 
@@ -654,6 +678,8 @@ row_offered :: proc(e: ^Editor, row: Setup_Row) -> bool {
 		return e.section == .Tilesets
 	case .Create:
 		return e.section == .Tags
+	case .Kind:
+		return e.section == .Params
 	case .Open, .Rename, .New, .Duplicate, .Delete:
 	}
 	return true
@@ -671,6 +697,10 @@ step_row :: proc(e: ^Editor, delta: int) {
 
 @(private = "file")
 handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
+	if e.text_target != .Name { 	// typing a parameter's value
+		handle_value_text(e, ev)
+		return
+	}
 	switch cm.text_entry_handle(&e.entry, ev) {
 	case .Editing:
 	case .Cancelled:
@@ -683,6 +713,8 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 		switch e.section {
 		case .Tags:
 			problem = cm.world_check_tag_name(&e.world, i, name)
+		case .Params:
+			problem = cm.world_check_param_name(&e.world, i, name)
 		case .Tilesets:
 			problem = cm.world_check_tileset_name(&e.world, i, name)
 		case .Terrain_Sets:
@@ -698,6 +730,8 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 				switch e.section {
 				case .Tags:
 					cm.world_rename_tag(&e.world, i, name)
+				case .Params:
+					cm.world_rename_param(&e.world, i, name)
 				case .Tilesets:
 					cm.world_rename_tileset(&e.world, i, name)
 				case .Terrain_Sets:
@@ -746,6 +780,8 @@ run_hub :: proc(e: ^Editor, row: Hub_Row) {
 	case .Tags:
 		open_list(e, .Tags)
 		e.aux_requests += {.Game_Tags} // (re-read: the file may have changed)
+	case .Params:
+		open_list(e, .Params)
 	case .Tilesets:
 		open_list(e, .Tilesets)
 	case .Terrain_Sets:
@@ -770,6 +806,9 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 	switch e.mode {
 	case .Text:
 		handle_text(e, ev)
+		return
+	case .Value:
+		handle_value(e, ev)
 		return
 	case .Palette:
 		pe.editor_handle_event(&e.palette_ed, ev)
@@ -900,7 +939,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Red, .Blue:
 			e.mode = .Hub
 		}
-	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 		// Handled before this point: those modes own the input.
 	}
 }
@@ -1014,6 +1053,8 @@ click :: proc(e: ^Editor, x, y: int) {
 			action(e, .Import)
 		} else if e.section == .Tags {
 			action(e, .Create)
+		} else if e.section == .Params {
+			action(e, .Kind)
 		}
 	case rect_contains(BACK_BUTTON, x, y):
 		e.mode = .Hub

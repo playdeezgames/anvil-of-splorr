@@ -31,6 +31,8 @@ hub_label :: proc(row: Hub_Row) -> string {
 		return "TILE HEIGHT"
 	case .Tags:
 		return "TAGS"
+	case .Params:
+		return "PARAMS"
 	case .Tilesets:
 		return "TILESETS"
 	case .Terrain_Sets:
@@ -51,6 +53,8 @@ section_title :: proc(s: Section) -> string {
 	switch s {
 	case .Tags:
 		return "TAGS"
+	case .Params:
+		return "PARAMS"
 	case .Tilesets:
 		return "TILESETS"
 	case .Terrain_Sets:
@@ -86,7 +90,7 @@ banner_text :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("ACTIONS   %s: DONE", label(e, .Red))
 	case .File:
 		return fmt.tprintf("FILE: %s SAVE  %s LOAD", label(e, .Green), label(e, .Yellow))
-	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 		// These modes draw their own screens.
 	}
 	return ""
@@ -122,7 +126,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	case .File:
 		lines = {fmt.tprintf("%s: SAVE  %s: LOAD", l(e, .Green), l(e, .Yellow)), fmt.tprintf("%s: CANCEL", l(e, .Red)), "", ""}
 		return lines, 2
-	case .Text, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
 	}
 	return lines, 0
 }
@@ -136,6 +140,13 @@ item_detail :: proc(e: ^Editor, s: Section, i: int) -> string {
 	switch s {
 	case .Tags:
 		return tag_detail(e, i)
+	case .Params:
+		p := &e.world.params[i]
+		if p.kind == .Number {
+			return cm.param_value_text(p)
+		}
+		text := cm.param_value_text(p)
+		return fmt.tprintf("\"%s\"", len(text) > 12 ? text[:12] : text)
 	case .Tilesets:
 		n := e.world.tilesets[i].count
 		return fmt.tprintf("%d IMAGE%s", n, n == 1 ? "" : "S")
@@ -228,6 +239,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	case .Text:
 		cm.text_entry_draw(&e.entry, r, e.labels)
 		return
+	case .Value:
+		draw_value(e, r)
+		return
 	case .Palette:
 		pe.editor_draw(&e.palette_ed, r)
 		return
@@ -293,6 +307,8 @@ draw_hub :: proc(e: ^Editor, r: ^cm.Renderer) {
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d", w.tile_w), color)
 		case .Tile_Height:
 			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d", w.tile_h), color)
+		case .Params:
+			cm.draw_text(r, HUB_VALUE_X, y, fmt.tprintf("%d OF %d", w.param_count, cm.WORLD_MAX_PARAMS), color)
 		case .Tags:
 			text := fmt.tprintf("%d OF %d", w.tag_count, cm.WORLD_MAX_TAGS)
 			cm.draw_text(r, HUB_VALUE_X, y, text, color)
@@ -353,12 +369,15 @@ draw_list :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.draw_text(r, LIST_X + LIST_W - cm.text_width(detail) - 3, rc.y + 2, detail, detail_color)
 	}
 	for btn in list_buttons() {
-		if btn.rc == IMPORT_BUTTON && e.section != .Tilesets && e.section != .Tags {
+		if btn.rc == IMPORT_BUTTON && e.section != .Tilesets && e.section != .Tags && e.section != .Params {
 			continue
 		}
 		btn := btn
 		if btn.rc == IMPORT_BUTTON && e.section == .Tags { 	// the same button creates the tags the game needs
 			btn.text, btn.row = "CREATE", Setup_Row.Create
+		}
+		if btn.rc == IMPORT_BUTTON && e.section == .Params { 	// ... and switches a parameter between number and text
+			btn.text, btn.row = "KIND", Setup_Row.Kind
 		}
 		lit := false
 		if row, has := btn.row.?; has && e.mode == .Setup && e.row == row {

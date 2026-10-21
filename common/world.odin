@@ -144,6 +144,8 @@ World :: struct {
 	uuid_state:     u64, // the generator for new uuids (see world_new_uuid)
 	tag_count:      int,
 	tags:           [WORLD_MAX_TAGS]Name, // tag 0 is always "solid"
+	param_count:    int,
+	params:         [WORLD_MAX_PARAMS]Param, // game parameters: named numbers and short texts
 }
 
 world_reset :: proc(w: ^World) {
@@ -878,6 +880,7 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 	}
 	strings.write_string(&b, w.map_count == 0 ? "],\n" : "\n  ],\n")
 	write_sprite_sets(&b, w)
+	write_params(&b, w)
 	write_characters(&b, w)
 	strings.write_string(&b, "}\n")
 	return strings.to_string(b)
@@ -1109,6 +1112,9 @@ world_from_json :: proc(data: []u8, dst: ^World) -> (err: string) {
 		tmp.map_count += 1
 	}
 	if msg := read_sprite_sets(root, tmp); msg != "" {
+		return msg
+	}
+	if msg := read_params(root, tmp); msg != "" {
 		return msg
 	}
 	if msg := read_characters(root, tmp); msg != "" {

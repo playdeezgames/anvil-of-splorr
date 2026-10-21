@@ -207,3 +207,22 @@ parse_game_tags :: proc(bytes: []u8, g: ^Game_Tags) -> (err: string) {
 required_missing :: proc(w: ^World, g: ^Game_Tags) -> []string {
 	return cm.game_tags_missing(w, g)
 }
+
+// --- Game parameters ----------------------------------------------------------------------------
+
+// A named whole number from the world (a round length, points per pickup), or `default` if the
+// world has no such parameter or it is a text. The value fits 32 bits.
+param_number :: proc(w: ^World, name: string, default: int) -> int {
+	return cm.world_param_number(w, name, default)
+}
+
+// A named short text from the world, or `default` if the world has no such parameter or it is a
+// number. The text is valid as long as the world is unchanged: copy it to keep it.
+param_text :: proc(w: ^World, name: string, default: string) -> string {
+	return cm.world_param_text(w, name, default)
+}
+
+// How many parameters the world holds.
+param_count :: proc(w: ^World) -> int {
+	return w.param_count
+}
