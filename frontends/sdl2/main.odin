@@ -446,7 +446,7 @@ close_gamepad :: proc(id: sdl.JoystickID) {
 }
 
 service_files :: proc(tool: ^cm.Tool, path: string) {
-	if text, ok := tool.take_save(tool.data); ok {
+	if text, _, ok := cm.tool_take_save(tool); ok {
 		if err := os.write_entire_file(path, text); err != nil {
 			fmt.eprintfln("save %s failed: %v", path, err)
 		} else {

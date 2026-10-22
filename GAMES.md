@@ -27,6 +27,15 @@ The web steps are the same as for `apps/<name>`: the page title, a link to the c
 
 `testdata/external_app/` is a tiny stand-in game outside `apps/`: `./build.sh check` builds it for native and `js_wasm32` through exactly the steps above and checks that its own `input_map.json` is the one the page links to. If you change `build.sh` or the frontends and the recipe breaks, that check fails first.
 
+## Saving progress
+
+A game that wants a save file sets the file hooks on its `cm.Tool`: `default_file` (say `"save.json"`), `wants_load` (true once, at start, and again whenever the game asks to reload), `load(bytes) -> bool` (false for a file it cannot read, which leaves the game as it was) and one or both of:
+
+- `take_save`: a save the player asked for. Native writes the file in the working directory; the web stores it in browser storage **and offers it as a download** ("Saved: downloaded ...").
+- `take_autosave`: the same, for a save the game makes by itself (after every purchase, say). Native writes the file exactly as for `take_save`; the web stores it in browser storage and nothing else: no download, no message.
+
+Both return `(text, ok)`, with `ok` true once per request and the text on the temp allocator; `saved` is called after the frontend has written either kind. At start the web page restores the game's file from browser storage when `wants_load` answers true, with no "Open file" button and nothing on screen unless the stored text is refused by `load`. If browser storage is unavailable (a private window) the page says so once and the game carries on, simply not keeping its saves. Native never reports a missing file; an unreadable or refused one goes to stderr. `testdata/external_app` shows all of it (yellow counts a press and autosaves the count).
+
 ## When a gamepad does nothing (native build)
 
 The native frontend prints, once at start-up on stderr, what SDL sees: `gamepads: SDL sees N, opened M as standard controllers`, a line for each device it ignores because it has no standard controller mapping (only standard layouts produce commands), and, when SDL sees none although `/dev/input` has devices, the first device file this user cannot open.

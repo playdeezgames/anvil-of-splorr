@@ -25,7 +25,11 @@ Tool :: struct {
 	// File IO, done by the frontend. A tool with files sets all of these.
 	file_name:    proc(data: rawptr) -> string, // optional; overrides default_file (the launcher uses it)
 	take_save:    proc(data: rawptr) -> (text: string, ok: bool), // ok only if a save was requested; text on the temp allocator
-	saved:        proc(data: rawptr), // after the frontend wrote the file
+	// Optional autosave, for games: like take_save, but the web frontend only stores the text in
+	// browser storage (no download, no message); native writes the file exactly as for take_save. A
+	// tool may set this with or without take_save. Frontends call `tool_take_save`.
+	take_autosave: proc(data: rawptr) -> (text: string, ok: bool),
+	saved:        proc(data: rawptr), // after the frontend wrote the file (for either kind of save)
 	wants_load:   proc(data: rawptr) -> bool, // true once per load request
 	load:         proc(data: rawptr, bytes: []u8) -> bool, // false if the bytes are not valid
 
@@ -62,10 +66,27 @@ tool_update :: proc(t: ^Tool, elapsed_ms: f64) -> f64 {
 
 // The file the tool currently loads and saves ("" if it has none).
 tool_file_name :: proc(t: ^Tool) -> string {
-	if t.take_save == nil || t.wants_load == nil || t.load == nil {
+	if (t.take_save == nil && t.take_autosave == nil) || t.wants_load == nil || t.load == nil {
 		return ""
 	}
 	return t.file_name != nil ? t.file_name(t.data) : t.default_file
+}
+
+// The next save the tool wants done, if any: `silent` is true for an autosave (`take_autosave`),
+// which the web frontend stores without offering a download. One request per call; a requested
+// save comes before an autosave.
+tool_take_save :: proc(t: ^Tool) -> (text: string, silent: bool, ok: bool) {
+	if t.take_save != nil {
+		if text, ok = t.take_save(t.data); ok {
+			return text, false, true
+		}
+	}
+	if t.take_autosave != nil {
+		if text, ok = t.take_autosave(t.data); ok {
+			return text, true, true
+		}
+	}
+	return "", false, false
 }
 
 // The read-only second file, or "" if the tool has none.

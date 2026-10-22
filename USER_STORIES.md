@@ -129,10 +129,10 @@ As a game maker, I want a game's Tool to save its progress without a file downlo
 
 Found while planning an incremental game on "Go Get the Thing!" (October 22, 2026). The native frontend writes `take_save`'s text to the tool's file in the working directory and offers `wants_load` at start, which is what a game needs. The web frontend (`frontends/web/web.odin`, `index.html`) turns every `take_save` into localStorage *and* a browser download of the file, with a "Saved: downloaded ..." message; an autosave would open a download on every purchase.
 
-- [ ] A way for a Tool to ask for a save that only goes to browser storage (for example a second hook, or a flag on the save request such as `silent`), with the native frontend unchanged in effect.
-- [ ] The web page restores that storage at start for a game's own file when the game asks to load (`wants_load`), without the "Open file" button, and says nothing on screen unless it fails.
-- [ ] Storage being unavailable (a private window) is reported once and does not stop the game.
-- [ ] `GAMES.md` says how a game saves on both frontends, and the external test app saves and loads a small file through the hooks.
+- [x] (`Tool.take_autosave`, read through `cm.tool_take_save`; native writes the file as for `take_save`, the web stores it silently.) A way for a Tool to ask for a save that only goes to browser storage (for example a second hook, or a flag on the save request such as `silent`), with the native frontend unchanged in effect.
+- [x] The web page restores that storage at start for a game's own file when the game asks to load (`wants_load`), without the "Open file" button, and says nothing on screen unless it fails.
+- [x] Storage being unavailable (a private window) is reported once and does not stop the game.
+- [x] `GAMES.md` says how a game saves on both frontends, and the external test app saves and loads a small file through the hooks.
 - Needed by: the incremental pivot of "Go Get the Thing!" (`DESIGN.md`, last section). Native saving works today.
 
 ## Not requested

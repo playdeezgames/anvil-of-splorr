@@ -215,8 +215,14 @@ tool :: proc(l: ^Launcher) -> cm.Tool {
 			return false
 		},
 		take_save = proc(data: rawptr) -> (string, bool) {
-			if t := file_tool((^Launcher)(data)); t != nil {
+			if t := file_tool((^Launcher)(data)); t != nil && t.take_save != nil {
 				return t.take_save(t.data)
+			}
+			return "", false
+		},
+		take_autosave = proc(data: rawptr) -> (string, bool) {
+			if t := file_tool((^Launcher)(data)); t != nil && t.take_autosave != nil {
+				return t.take_autosave(t.data)
 			}
 			return "", false
 		},

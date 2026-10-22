@@ -44,3 +44,46 @@ test_a_tool_without_a_clock_is_unaffected :: proc(t: ^testing.T) {
 	testing.expect_value(t, tool_update(&editor, 33), 33.0)
 	testing.expect_value(t, tool_update(&editor, 500), MAX_FRAME_MS)
 }
+
+// A requested save comes before an autosave, each is reported once with its kind, and a tool with only
+// an autosave hook still has a file.
+@(test)
+test_tool_take_save_reports_the_kind_of_save :: proc(t: ^testing.T) {
+	Saves :: struct {
+		loud, quiet: bool,
+	}
+	s := Saves{true, true}
+	tool := Tool {
+		data = &s,
+		take_save = proc(data: rawptr) -> (string, bool) {
+			d := (^Saves)(data)
+			was := d.loud
+			d.loud = false
+			return "loud", was
+		},
+		take_autosave = proc(data: rawptr) -> (string, bool) {
+			d := (^Saves)(data)
+			was := d.quiet
+			d.quiet = false
+			return "quiet", was
+		},
+		wants_load = proc(data: rawptr) -> bool {return false},
+		load = proc(data: rawptr, bytes: []u8) -> bool {return true},
+		default_file = "x.json",
+	}
+	text, silent, ok := tool_take_save(&tool)
+	testing.expect(t, ok && !silent && text == "loud", "the requested save first")
+	text, silent, ok = tool_take_save(&tool)
+	testing.expect(t, ok && silent && text == "quiet", "then the autosave")
+	_, _, ok = tool_take_save(&tool)
+	testing.expect(t, !ok, "then nothing")
+
+	only := Tool {
+		data = &s,
+		take_autosave = tool.take_autosave,
+		wants_load = tool.wants_load,
+		load = tool.load,
+		default_file = "y.json",
+	}
+	testing.expect_value(t, tool_file_name(&only), "y.json")
+}

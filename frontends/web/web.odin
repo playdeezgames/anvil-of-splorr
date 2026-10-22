@@ -20,7 +20,10 @@ foreign import host "host"
 foreign host {
 	// Browser storage keyed by file name. get returns the stored length, or -1 if nothing is stored.
 	storage_get :: proc(key: [^]u8, key_len: i32, buf: [^]u8, cap: i32) -> i32 ---
+	// (The page says once, on screen, when browser storage is unavailable; the tool keeps running.)
 	storage_set :: proc(key: [^]u8, key_len: i32, data: [^]u8, len: i32) ---
+	// Puts a short message on the page.
+	notice :: proc(text: [^]u8, len: i32) ---
 	// Offers data to the user as a file download.
 	download :: proc(data: [^]u8, len: i32, name: [^]u8, name_len: i32) ---
 }
@@ -207,7 +210,10 @@ restore_from_storage :: proc(name: string) {
 	if n < 0 || int(n) > len(file_buf) {
 		return
 	}
-	tool.load(tool.data, file_buf[:n])
+	if !tool.load(tool.data, file_buf[:n]) {
+		msg := "The saved game in this browser could not be read."
+		notice(raw_data(msg), i32(len(msg)))
+	}
 	free_all(context.temp_allocator)
 }
 
@@ -223,10 +229,12 @@ restore_aux :: proc(name: string) {
 }
 
 service_files :: proc(name: string) {
-	if text, ok := tool.take_save(tool.data); ok {
+	if text, silent, ok := cm.tool_take_save(&tool); ok {
 		key := name
 		storage_set(raw_data(key), i32(len(key)), raw_data(text), i32(len(text)))
-		download(raw_data(text), i32(len(text)), raw_data(key), i32(len(key)))
+		if !silent {
+			download(raw_data(text), i32(len(text)), raw_data(key), i32(len(key)))
+		}
 		tool.saved(tool.data)
 	}
 	if tool.wants_load(tool.data) {

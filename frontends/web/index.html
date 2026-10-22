@@ -32,6 +32,7 @@ const g = canvasEl.getContext("2d");
 const msgEl = document.getElementById("msg");
 const memory = new odin.WasmMemoryInterface();
 
+let storageWarned = false;
 function say(text) { msgEl.textContent = text; }
 
 const bytesAt = (ptr, len) => new Uint8Array(memory.memory.buffer, ptr, len);
@@ -62,8 +63,12 @@ const imports = {
     storage_set(keyPtr, keyLen, ptr, len) {
       const key = STORAGE_PREFIX + new TextDecoder().decode(bytesAt(keyPtr, keyLen));
       const text = new TextDecoder().decode(bytesAt(ptr, len));
-      try { localStorage.setItem(key, text); } catch (e) { /* storage unavailable */ }
+      try { localStorage.setItem(key, text); }
+      catch (e) { // storage unavailable (private window): say so once, the tool keeps running
+        if (!storageWarned) { storageWarned = true; say("Browser storage is unavailable: saves are not kept."); }
+      }
     },
+    notice(ptr, len) { say(new TextDecoder().decode(bytesAt(ptr, len))); },
     download(ptr, len, namePtr, nameLen) {
       const blob = new Blob([bytesAt(ptr, len).slice()], { type: "application/json" });
       const a = document.createElement("a");

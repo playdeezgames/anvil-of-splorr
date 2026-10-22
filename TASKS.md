@@ -82,3 +82,6 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [x] 10. Present guard (`common/present_guard.odin`): SDL2 presents each frame once whether or not the tool does; external app test
 - [x] 11. Gamepad start-up report and hints (`common/gamepad_hints.odin`, `report_gamepads`), GAMES.md, tester help
 - [x] 12. `world_save` without a path (file name copied before the old one is freed)
+
+## Game story 13 (from the game author, in USER_STORIES.md)
+- [x] 13. Silent autosave (`Tool.take_autosave`, `cm.tool_take_save`): the web stores without a download, unavailable storage is reported once, GAMES.md "Saving progress", the external app saves and loads

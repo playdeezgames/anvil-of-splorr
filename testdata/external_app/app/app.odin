@@ -2,11 +2,14 @@
 // packages through the "anvil" collection (no relative paths into the Anvil repo) and gives the
 // frontends a Tool. `./build.sh check` builds it for native and the web so GAMES.md cannot rot.
 // It also shows the two hooks a game uses: `update` (the clock) and `take_audio` (sound: green plays a
-// jingle on channel 0, blue loops a tune on channel 1, red stops everything).
+// jingle on channel 0, blue loops a tune on channel 1, red stops everything), and the save hooks:
+// yellow counts a press and autosaves the count (`take_autosave`: the web stores it silently, native
+// writes `external.json`), and `wants_load` brings the count back at start.
 package app
 
 import anvil "anvil:anvil_runtime"
 import cm "anvil:common"
+import "core:encoding/json"
 import "core:fmt"
 
 JINGLE :: "T200 O5 L16 C E G >C"
@@ -17,6 +20,10 @@ Demo :: struct {
 	world:   ^anvil.World,
 	pending: [dynamic]cm.Audio_Request,
 	played:  int, // how many sounds were asked for, shown on screen
+	presses: int, // yellow presses, the saved progress
+	save_wanted: bool,
+	load_wanted: bool, // true until the first load request has been answered
+	saves:   int, // saves the frontend has finished
 }
 
 demo: Demo
@@ -32,8 +39,10 @@ make_tool :: proc() -> cm.Tool {
 	demo.world = anvil.new_world()
 	add_sound(demo.world, "jingle", JINGLE, false)
 	add_sound(demo.world, "tune", TUNE, true)
+	demo.load_wanted = true
 	return cm.Tool {
 		title = "External",
+		default_file = "external.json",
 		data = &demo,
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {
 			d := (^Demo)(data)
@@ -54,8 +63,29 @@ make_tool :: proc() -> cm.Tool {
 				}
 			case .Red:
 				append(&d.pending, anvil.sound_stop_all())
-			case .Up, .Down, .Left, .Right, .Yellow:
+			case .Yellow:
+				d.presses += 1
+				d.save_wanted = true
+			case .Up, .Down, .Left, .Right:
 			}
+		},
+		take_autosave = proc(data: rawptr) -> (string, bool) {
+			d := (^Demo)(data)
+			if !d.save_wanted {
+				return "", false
+			}
+			d.save_wanted = false
+			return fmt.tprintf("{{\"presses\": %d}}", d.presses), true
+		},
+		saved = proc(data: rawptr) {(^Demo)(data).saves += 1},
+		wants_load = proc(data: rawptr) -> bool {
+			d := (^Demo)(data)
+			was := d.load_wanted
+			d.load_wanted = false
+			return was
+		},
+		load = proc(data: rawptr, bytes: []u8) -> bool {
+			return load_progress((^Demo)(data), bytes)
 		},
 		update = proc(data: rawptr, dt_ms: f64) {(^Demo)(data).seconds += dt_ms / 1000},
 		take_audio = proc(data: rawptr) -> (cm.Audio_Request, bool) {
@@ -71,6 +101,7 @@ make_tool :: proc() -> cm.Tool {
 			cm.draw_text(r, 8, 8, "EXTERNAL APP", cm.Color{255, 255, 255})
 			cm.draw_text(r, 8, 20, "GREEN: JINGLE  BLUE: LOOP  RED: STOP", cm.Color{180, 180, 255})
 			cm.draw_text(r, 8, 32, fmt_clock(d), cm.Color{255, 220, 80})
+			cm.draw_text(r, 8, 44, fmt.tprintf("YELLOW: SAVE  PRESSES %d", d.presses), cm.Color{180, 255, 180})
 		},
 	}
 }
@@ -79,4 +110,16 @@ make_tool :: proc() -> cm.Tool {
 fmt_clock :: proc(d: ^Demo) -> string {
 	tenths := int(d.seconds * 10)
 	return fmt.tprintf("TIME %d.%d  SOUNDS %d", tenths / 10, tenths % 10, d.played)
+}
+
+// The saved file is {"presses": n}; anything else is refused and leaves the count alone.
+load_progress :: proc(d: ^Demo, bytes: []u8) -> bool {
+	v: struct {
+		presses: int,
+	}
+	if json.unmarshal(bytes, &v) != nil || v.presses < 0 {
+		return false
+	}
+	d.presses = v.presses
+	return true
 }
