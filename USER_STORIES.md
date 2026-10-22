@@ -114,14 +114,14 @@ Found while trying the real pad on the native build: a "USB Gamepad" (vendor 007
 - [ ] The same goes in `GAMES.md` and the gamepad tester's help (what to check when a pad is not found).
 - Needed by: trying a gamepad on any native build. The user's fix on this machine is outside the repos (the `input` group or a udev ACL).
 
-## 12. `world_save` without a path after the first save (MCP bug)
+## 12. `world_save` without a path after the first save (MCP bug): FIXED (October 22, 2026)
 
 As a game maker, I want `world_save` with no path to keep working, so that the tool behaves as its description says ("without a path it saves to the file it was opened from or last saved to").
 
 Found on the prod MCP (October 21-22, 2026): after a save, `world_summary` shows `"file"` as a string of NUL bytes (`"\u0000\u0000..."`, 15 of them) and a later `world_save` with no path fails with "the path must end in .json"; the result of a no-path save also prints the NUL string as the file. Saving with an explicit `path` works, and so does `world_export`. The file name seems to be kept as a pointer to memory that is freed (a temp-allocator string) rather than a copy.
 
-- [ ] After `world_new`+`world_save path=x.json`, or `world_open x.json`, the summary shows `x.json` and a pathless `world_save` writes it, repeatedly and after other tool calls.
-- [ ] A test calls several tools between two saves and checks the file name is intact.
+- [x] After `world_new`+`world_save path=x.json`, or `world_open x.json`, the summary shows `x.json` and a pathless `world_save` writes it, repeatedly and after other tool calls. (Cause: `set_file` freed the old name before copying the new one, and a pathless save passes the old name itself, so the copy was made from freed memory. It now copies first, and the save keeps its own copy of the name. Checked on the installed prod build over stdio: five saves in a row.)
+- [x] A test calls several tools between two saves and checks the file name is intact. (`test_a_pathless_save_keeps_the_file_name_intact`, run under an allocator that overwrites every freed string, so the old code fails it with exactly the reported "the path must end in .json".)
 
 ## Not requested
 

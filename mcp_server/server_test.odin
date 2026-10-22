@@ -3,6 +3,7 @@ package mcp_server
 
 import "core:encoding/json"
 import "core:fmt"
+import "core:mem"
 import "core:os"
 import "core:strings"
 import "core:testing"
@@ -241,4 +242,69 @@ test_a_session_can_find_and_get_the_worlds_it_saved :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(strings.to_string(whole), `"tile_width": 5`))
 	_, bad = call(t, s2, "world_read", `{"path":"missing.json"}`)
 	testing.expect(t, bad)
+}
+
+// An allocator that overwrites every freed string, so a use after free shows up as garbage at once
+// (the default allocator often leaves freed bytes looking fine).
+Poison :: struct {
+	inner: mem.Allocator,
+}
+
+poison_proc :: proc(
+	data: rawptr,
+	mode: mem.Allocator_Mode,
+	size, alignment: int,
+	old_ptr: rawptr,
+	old_size: int,
+	loc := #caller_location,
+) -> (
+	[]byte,
+	mem.Allocator_Error,
+) {
+	p := (^Poison)(data)
+	if mode == .Free && old_ptr != nil && old_size > 0 {
+		mem.set(old_ptr, 0xAA, old_size)
+	}
+	return p.inner.procedure(p.inner.data, mode, size, alignment, old_ptr, old_size, loc)
+}
+
+// Story 12: after a save, the file name must stay intact however many other tools run, and a save with
+// no path must keep working (the name used to be freed while it was being copied).
+@(test)
+test_a_pathless_save_keeps_the_file_name_intact :: proc(t: ^testing.T) {
+	poison := Poison{context.allocator}
+	context.allocator = mem.Allocator{poison_proc, &poison}
+	dir := strings.clone(temp_dir("pathless")) // (kept across the free_all below)
+	defer delete(dir)
+	s := new_server(dir)
+	defer free_server(s)
+	call(t, s, "world_new")
+	_, bad := call(t, s, "world_save", `{"path":"x.json"}`)
+	testing.expect(t, !bad && s.file == "x.json")
+	for round in 0 ..< 6 {
+		// Other tool calls in between (they allocate and free on the temp allocator).
+		call(t, s, "tag_new", fmt.tprintf(`{{"name":"tag%d"}}`, round))
+		call(t, s, "world_list")
+		call(t, s, "palette_get")
+		text, _ := call(t, s, "world_summary")
+		testing.expectf(t, strings.contains(text, `"file":"x.json"`), "round %d summary: %s", round, text)
+		text, bad = call(t, s, "world_save") // no path
+		testing.expectf(t, !bad && strings.contains(text, `"saved":"x.json"`) && strings.contains(text, fmt.tprintf(`%s/x.json`, dir)), "round %d save: %s", round, text)
+		testing.expect_value(t, s.file, "x.json")
+		free_all(context.temp_allocator) // what a long-running server does between requests
+	}
+	// The same after opening a file, and after a save to a new name.
+	s2 := new_server(dir)
+	defer free_server(s2)
+	call(t, s2, "world_open", `{"path":"x.json"}`)
+	for _ in 0 ..< 3 {
+		text, bad2 := call(t, s2, "world_save")
+		testing.expect(t, !bad2 && strings.contains(text, `"saved":"x.json"`), text)
+		free_all(context.temp_allocator)
+	}
+	call(t, s2, "world_save", `{"path":"y.json"}`)
+	text, _ := call(t, s2, "world_summary")
+	testing.expect(t, strings.contains(text, `"file":"y.json"`), text)
+	_, bad = call(t, s2, "world_save")
+	testing.expect(t, !bad && s2.file == "y.json")
 }

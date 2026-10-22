@@ -107,9 +107,12 @@ unsaved_refusal :: proc(s: ^Server, args: json.Object) -> (refused: bool, res: T
 	return false, {}
 }
 
+// Remembers the file the world belongs to. `name` may be the very string being replaced (a save with
+// no path passes s.file itself), so the copy is made before the old one is freed.
 set_file :: proc(s: ^Server, name: string) {
+	copy := strings.clone(name)
 	delete(s.file)
-	s.file = strings.clone(name)
+	s.file = copy
 }
 
 tool_world_new :: proc(s: ^Server, args: json.Object) -> Tool_Result {
@@ -155,7 +158,7 @@ tool_world_save :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 		if s.file == "" {
 			return fail("this world has no file yet: give a path")
 		}
-		name = s.file
+		name = strings.clone(s.file, context.temp_allocator) // (a copy: saving replaces s.file)
 	}
 	path, perr := resolve_path(s, name)
 	if perr != "" {
