@@ -21,14 +21,17 @@ Demo :: struct {
 
 demo: Demo
 
-// A PLAY text as an audio request (the samples are on the temp allocator).
-sound :: proc(text: string, channel: int, loop: bool) -> cm.Audio_Request {
-	notes, _, _ := cm.play_parse(text)
-	return {action = .Play, channel = channel, samples = cm.play_render(notes), loop = loop}
+// A real game gets its sounds from the world file (made in the world editor); this stand-in makes two.
+add_sound :: proc(w: ^anvil.World, name, text: string, loop: bool) {
+	i := cm.world_add_sound(w, name)
+	cm.world_set_sound_text(w, i, text)
+	cm.world_set_sound_loop(w, i, loop)
 }
 
 make_tool :: proc() -> cm.Tool {
 	demo.world = anvil.new_world()
+	add_sound(demo.world, "jingle", JINGLE, false)
+	add_sound(demo.world, "tune", TUNE, true)
 	return cm.Tool {
 		title = "External",
 		data = &demo,
@@ -40,13 +43,17 @@ make_tool :: proc() -> cm.Tool {
 			}
 			switch cmd.action {
 			case .Green:
-				append(&d.pending, sound(JINGLE, 0, false))
-				d.played += 1
+				if req, ok := anvil.sound_play(d.world, "jingle", 0); ok {
+					append(&d.pending, req)
+					d.played += 1
+				}
 			case .Blue:
-				append(&d.pending, sound(TUNE, 1, true))
-				d.played += 1
+				if req, ok := anvil.sound_play(d.world, "tune", 1); ok {
+					append(&d.pending, req)
+					d.played += 1
+				}
 			case .Red:
-				append(&d.pending, cm.Audio_Request{action = .Stop_All})
+				append(&d.pending, anvil.sound_stop_all())
 			case .Up, .Down, .Left, .Right, .Yellow:
 			}
 		},

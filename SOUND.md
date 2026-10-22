@@ -1,4 +1,4 @@
-# Sound: plan
+# Sound: plan (all six pieces are built)
 
 Goal (USER_STORIES 5): make and name short sounds and tunes, play them in the editors on both frontends, and let a game play one by name. Decisions made with the user:
 

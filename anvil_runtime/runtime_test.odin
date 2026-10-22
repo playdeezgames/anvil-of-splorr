@@ -510,3 +510,93 @@ test_an_embedded_world_file_loads_like_any_other :: proc(t: ^testing.T) {
 	testing.expect_value(t, steps, 5) // from column 3 to column 8
 	testing.expect_value(t, play_step(ps, w, pi, 1, 0), Move_Result.Solid)
 }
+
+// --- Sounds ------------------------------------------------------------------------------------
+
+sound_world :: proc() -> ^World {
+	w := new_world()
+	i := cm.world_add_sound(w, "pickup")
+	cm.world_set_sound_text(w, i, "T240 L16 C E G")
+	j := cm.world_add_sound(w, "theme")
+	cm.world_set_sound_text(w, j, "L8 CDEFGAB>C")
+	cm.world_set_sound_loop(w, j, true)
+	k := cm.world_add_sound(w, "broken")
+	cm.world_set_sound_text(w, k, "C X")
+	cm.world_add_sound(w, "silent") // no text
+	return w
+}
+
+@(test)
+test_a_game_finds_and_checks_its_sounds :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := sound_world()
+	defer free(w)
+	testing.expect_value(t, sound_count(w), 4)
+	i, ok := find_sound(w, "theme")
+	testing.expect(t, ok && i == 1 && sound_loops(w, i) && !sound_loops(w, 0) && !sound_loops(w, 9))
+	_, ok = find_sound(w, "nope")
+	testing.expect(t, !ok)
+	testing.expect_value(t, len(missing_sounds(w, {"pickup", "theme"})), 0)
+	missing := missing_sounds(w, {"pickup", "gameover", "start"})
+	testing.expect(t, len(missing) == 2 && missing[0] == "gameover" && missing[1] == "start")
+	broken := broken_sounds(w)
+	testing.expect(t, len(broken) == 1 && broken[0] == "broken") // an empty text is not broken
+	testing.expect(t, sound_seconds(w, 0) > 0.18 && sound_seconds(w, 0) < 0.19) // three sixteenths at T240: 0.1875
+	testing.expect(t, sound_seconds(w, 2) == 0 && sound_seconds(w, 3) == 0 && sound_seconds(w, -1) == 0)
+}
+
+@(test)
+test_a_game_gets_audio_requests_for_its_sounds :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := sound_world()
+	defer free(w)
+	req, ok := sound_play(w, "pickup", 2)
+	testing.expect(t, ok && req.action == .Play && req.channel == 2 && !req.loop && req.rate == cm.SOUND_RATE && len(req.samples) > 0)
+	notes, _, _ := cm.play_parse("T240 L16 C E G")
+	testing.expect_value(t, len(req.samples), len(cm.play_render(notes)))
+	req, ok = sound_play(w, "theme", 0)
+	testing.expect(t, ok && req.loop)
+	// Unknown, broken, silent sounds and bad channels give nothing.
+	for name in ([]string{"nope", "broken", "silent"}) {
+		_, ok = sound_play(w, name, 0)
+		testing.expectf(t, !ok, "%s", name)
+	}
+	_, ok = sound_play(w, "pickup", AUDIO_CHANNELS)
+	testing.expect(t, !ok)
+	_, ok = sound_play(w, "pickup", -1)
+	testing.expect(t, !ok)
+	// Stopping, and mixing what a game asked for.
+	m: cm.Mixer
+	defer cm.mixer_free(&m)
+	a, _ := sound_play(w, "pickup", 0)
+	b, _ := sound_play(w, "theme", 1)
+	cm.mixer_apply(&m, a)
+	cm.mixer_apply(&m, b)
+	testing.expect_value(t, cm.mixer_active(&m), 2)
+	cm.mixer_apply(&m, sound_stop(1))
+	testing.expect_value(t, cm.mixer_active(&m), 1)
+	cm.mixer_apply(&m, sound_stop_all())
+	testing.expect_value(t, cm.mixer_active(&m), 0)
+	// pcm for one sound, and a copy on a longer-lived allocator.
+	samples, found := sound_pcm(w, 0, context.allocator)
+	testing.expect(t, found && len(samples) > 0)
+	delete(samples)
+	_, found = sound_pcm(w, 2)
+	testing.expect(t, !found)
+	_, found = sound_pcm(w, 77)
+	testing.expect(t, !found)
+}
+
+@(test)
+test_sounds_come_through_a_world_file :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := sound_world()
+	defer free(w)
+	text := cm.world_to_json(w)
+	loaded := new_world()
+	defer free(loaded)
+	testing.expect_value(t, load(loaded, transmute([]u8)text), "")
+	req, ok := sound_play(loaded, "pickup", 0)
+	testing.expect(t, ok && len(req.samples) > 0)
+	testing.expect(t, sound_loops(loaded, 1))
+}
