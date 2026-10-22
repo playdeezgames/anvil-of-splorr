@@ -76,7 +76,7 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [x] 3. Map editor Features layer and shared drawing
 - [x] 4. Runtime queries, Play_State features, Move_Result.Feature, world editor Play mode
 - [x] 5. MCP tools, render, play_walk, MCP_TOOLS.md, install prod
-- [ ] 6. Docs, demo world, browser look
+- [x] 6. Docs, demo world, browser look
 
 ## Game stories 10 to 12 (from the game author, in USER_STORIES.md)
 - [x] 10. Present guard (`common/present_guard.odin`): SDL2 presents each frame once whether or not the tool does; external app test

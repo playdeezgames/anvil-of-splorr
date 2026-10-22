@@ -35,3 +35,23 @@ The native frontend prints, once at start-up on stderr, what SDL sees: `gamepads
 - **A device is ignored**: SDL has no standard mapping for it. Add one to the `SDL_GAMECONTROLLERCONFIG` environment variable (SDL's controller database format) and start again.
 - **Nothing is printed about permissions and the list is empty**: no pad is plugged in, or the cable or hub is at fault.
 - The gamepad tester (a menu entry) shows what the frontend receives, and its empty screen points here. The web build uses the browser's Gamepad API instead: press a button on the pad while the page is focused.
+
+## Features and collisions
+
+Features (trees, doors, signs) stand still and always block. A game loads them with the world and gets them from `anvil_runtime`: `feature_count`, `feature_type`, `feature_sprite`/`feature_image`, `feature_has_tag`, `feature_at`, `features_with_tag`. In play they live in the `Play_State` (`play_feature_at`, `play_unplace_feature`, `play_place_feature`); draw them with `draw_features` before `draw_characters`.
+
+To react when something is bumped, drain the collision queue after stepping:
+
+```odin
+rt.play_step(&ps, w, player, dx, dy)
+for c, ok in rt.play_take_collision(&ps); ok; c, ok = rt.play_take_collision(&ps) {
+	switch c.kind {
+	case .Feature:   // c.other is a feature index; ask its tags
+		if rt.feature_has_tag(w, c.other, door_tag) { rt.play_unplace_feature(&ps, c.other) } // open it
+	case .Character: // c.other is a character index
+		...
+	}
+}
+```
+
+A `Collision` has the mover (a character index), `kind`, `other`, the map and target cell, and the step (`dx`, `dy`). Only steps refused by a character or a feature queue one; walls and map edges do not. The queue holds 64 (oldest dropped, counted in `collisions_lost`) and `play_init` empties it.

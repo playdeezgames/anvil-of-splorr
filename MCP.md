@@ -45,6 +45,7 @@ Goal: another Claude session or agent authors a world (`world.json`) through MCP
 | Rules | `tag_list/new/rename/delete`, `param_list/set_number/set_text/delete` |
 | Actors | `character_type_*`, `character_*` (create, set type, tags, player, place/unplace), `map_new/delete/resize/set_set`, `map_get` (rows of terrain-letter codes + legend), `map_paint_cells`, `map_fill_rect`, `map_flood_fill`, `map_set_cell_tags` |
 | Pictures | `render_map` (zoom, window), `render_tile`, `render_sprite`, `render_palette` → MCP image content (base64 PNG) |
+| Features | `feature_type_list/new/edit/delete`, `feature_list/new/edit/delete/place/unplace`; `map_get` lists a window's features, `render_map` draws them, `play_walk` reports `feature` |
 | Play | `play_walk` (list of directions through `anvil_runtime` play; returns where the player ends and the refusal reasons), to test a layout |
 
 Bulk forms exist wherever an agent would otherwise make thousands of calls (map rows, image rows, `paint_cells` with a list).

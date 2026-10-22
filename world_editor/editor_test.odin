@@ -4,6 +4,7 @@ package world_editor
 import rt "../anvil_runtime"
 import cm "../common"
 import spe "../sprite_editor"
+import "core:fmt"
 import "core:strings"
 import "core:testing"
 
@@ -2135,4 +2136,20 @@ test_play_text_and_layout_fit :: proc(t: ^testing.T) {
 	testing.expect(t, PLAY_BACK.x + PLAY_BACK.w <= cm.SCREEN_W && PLAY_BACK.y + PLAY_BACK.h <= PLAY_STRIP_H)
 	testing.expect(t, PLAY_BUTTON.x >= MENU_BUTTON.x + MENU_BUTTON.w && PLAY_BUTTON.x + PLAY_BUTTON.w <= cm.SCREEN_W && PLAY_BUTTON.y + PLAY_BUTTON.h <= HELP_Y)
 	testing.expect(t, cm.text_width("PLAY") <= PLAY_BUTTON.w - 2)
+}
+
+@(test)
+test_a_note_built_in_temp_memory_survives_the_frontends_freeing_it :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	add_player(e, 1, 1)
+	other := cm.world_add_character(&e.world, 0)
+	cm.name_assign(&e.world.characters[other].name, "Goblin")
+	cm.world_place_character(&e.world, 0, 1, 2, e.world.characters[other].uuid)
+	press(e, .Yellow, .Down)
+	testing.expect_value(t, e.note, "BLOCKED BY Goblin")
+	free_all(context.temp_allocator) // what the frontends do after each event
+	_ = fmt.tprintf("%s", "PLAYING  ESC/B: BACK, long enough to reuse the memory the note had")
+	testing.expect_value(t, e.note, "BLOCKED BY Goblin")
 }

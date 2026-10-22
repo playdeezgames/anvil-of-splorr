@@ -187,7 +187,8 @@ Editor :: struct {
 	exit_requested: bool,
 	confirm_exit:   bool,
 	confirm_delete: bool,
-	note:           string,
+	note:           string, // always constant text or inside `note_buf` (see `keep_note`)
+	note_buf:       [96]u8,
 	palette_ed:     pe.Editor,
 	tileset_ed:     te.Editor, // about 1 MB
 	terrain_ed:     tre.Editor,
@@ -952,7 +953,17 @@ run_hub :: proc(e: ^Editor, row: Hub_Row) {
 
 // --- Events ---
 
+// Notes are often built with `fmt.tprintf`, and the frontends free the temp allocator after every
+// event, so a note is copied into the editor's own buffer once the event is handled.
+keep_note :: proc(e: ^Editor) {
+	if e.note != "" {
+		n := copy(e.note_buf[:], e.note)
+		e.note = string(e.note_buf[:n])
+	}
+}
+
 editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
+	defer keep_note(e)
 	// The keypad and the embedded editors see everything while they are up.
 	switch e.mode {
 	case .Text:
