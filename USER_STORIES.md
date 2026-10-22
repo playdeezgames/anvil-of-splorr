@@ -93,6 +93,36 @@ Today `build.sh` only builds apps found under the Anvil's own `apps/<name>/`, an
 - [x] The way to do this is written in `CLAUDE.md` or a short `GAMES.md`, and one test or check builds a tiny external app for native and `js_wasm32` so the recipe cannot rot. (`GAMES.md`; `testdata/external_app` is built by `./build.sh check`.)
 - Needed by: "Go Get the Thing!" (`/home/yermom/git/go-get-the-thing`), which is only an `app/` package, a `game/` package and an embedded `world.json`.
 
+## 10. A game's frame is shown without the game knowing a platform detail (important)
+
+As a game maker, I want the frontends to put a finished frame on the screen themselves, so that a game that only draws works on native and on the web alike.
+
+Found in "Go Get the Thing!" (October 22, 2026): the web build showed the game at once, the native SDL2 window stayed black. The SDL2 frontend calls `tool.draw` and never `renderer.present`; the editors each call `cm.renderer_present(r)` at the end of their draw, the web canvas shows every draw at once, and nothing in `GAMES.md` says a game must present. The game fixed it by presenting itself.
+
+- [ ] Either the SDL2 frontend presents after `tool.draw` (and a tool that also presents is harmless, or the editors stop doing it), or `GAMES.md` says in its "What the game provides" list that `draw` must end with `cm.renderer_present(r)`.
+- [ ] The tiny external app in `testdata/external_app` is drawn the same way a real game would be, and `./build.sh check` (or a test) catches an app whose frames are never presented.
+- Needed by: any game on the native frontend.
+
+## 11. The native frontend says when it has no usable gamepad (important)
+
+As a game maker, I want to be told why a gamepad does nothing, so that I do not have to debug SDL by hand.
+
+Found while trying the real pad on the native build: a "USB Gamepad" (vendor 0079, product 0011) is plugged in (`/dev/input/js0`, `event16`), the game runs, and the pad does nothing. A probe program with `vendor:sdl2` reports `NumJoysticks = 0`. Cause on this machine: `/dev/input/event16` is `root:input`, mode `rw-rw----`, and the user is not in the `input` group and has no ACL, so SDL's evdev driver cannot open it (`js0` is world readable, but SDL does not use it). The frontend gives no hint: no pad, no message. (Pads SDL has no standard mapping for are also ignored silently, per `CLAUDE.md`.)
+
+- [ ] At start-up the SDL2 frontend prints one line to stderr about gamepads: how many SDL sees, how many it opens as standard controllers, and the name of any device it ignores because it has no standard mapping.
+- [ ] If SDL sees none but `/dev/input/js*` or `event*` files exist, it prints a line saying the devices may not be readable by this user (the `input` group or a udev rule), naming the first unreadable path.
+- [ ] The same goes in `GAMES.md` and the gamepad tester's help (what to check when a pad is not found).
+- Needed by: trying a gamepad on any native build. The user's fix on this machine is outside the repos (the `input` group or a udev ACL).
+
+## 12. `world_save` without a path after the first save (MCP bug)
+
+As a game maker, I want `world_save` with no path to keep working, so that the tool behaves as its description says ("without a path it saves to the file it was opened from or last saved to").
+
+Found on the prod MCP (October 21-22, 2026): after a save, `world_summary` shows `"file"` as a string of NUL bytes (`"\u0000\u0000..."`, 15 of them) and a later `world_save` with no path fails with "the path must end in .json"; the result of a no-path save also prints the NUL string as the file. Saving with an explicit `path` works, and so does `world_export`. The file name seems to be kept as a pointer to memory that is freed (a temp-allocator string) rather than a copy.
+
+- [ ] After `world_new`+`world_save path=x.json`, or `world_open x.json`, the summary shows `x.json` and a pathless `world_save` writes it, repeatedly and after other tool calls.
+- [ ] A test calls several tools between two saves and checks the file name is intact.
+
 ## Not requested
 
 Character behaviour data (speed, facing, animation frames) is not needed by this game and is not asked for.
