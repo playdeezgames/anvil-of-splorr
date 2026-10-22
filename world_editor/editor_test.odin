@@ -267,6 +267,7 @@ test_hub_summaries_fit_at_their_longest :: proc(t: ^testing.T) {
 	e.world.tileset_count, e.world.set_count, e.world.sprite_set_count = 16, 16, 16
 	e.world.tag_count, e.world.param_count = 64, 64
 	e.world.char_type_count, e.world.character_count, e.world.map_count = 64, 1024, 64
+	e.world.feature_type_count, e.world.feature_count = 64, 2048
 	for s in Hub_Section {
 		text := hub_section_summary(e, s)
 		testing.expectf(t, cm.text_is_drawable(text), "summary: %s", text)
@@ -688,7 +689,7 @@ Input_Method :: enum {
 @(test)
 test_every_part_can_be_opened_by_each_input :: proc(t: ^testing.T) {
 	for m in Input_Method {
-		for row in ([]Hub_Row{.Palette, .Tags, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Character_Types, .Characters, .Maps}) {
+		for row in ([]Hub_Row{.Palette, .Tags, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Character_Types, .Characters, .Feature_Types, .Features, .Maps}) {
 			e := with_content()
 			switch m {
 			case .Commands:
@@ -705,6 +706,10 @@ test_every_part_can_be_opened_by_each_input :: proc(t: ^testing.T) {
 				want = .Char_Type
 			case .Characters:
 				want = .Character
+			case .Feature_Types:
+				want = .Feature_Type
+			case .Features:
+				want = .Feature
 			case:
 				want = .List
 			}
@@ -1047,6 +1052,14 @@ test_every_screen_draws_on_screen_in_every_mode :: proc(t: ^testing.T) {
 				e.mode = .Hub
 				e.hub = .Characters
 				press(e, .Green)
+			case .Feature_Type:
+				e.mode = .Hub
+				e.hub = .Feature_Types
+				press(e, .Green)
+			case .Feature:
+				e.mode = .Hub
+				e.hub = .Features
+				press(e, .Green)
 			case .Map:
 				e.section = .Maps
 				e.mode = .List
@@ -1238,7 +1251,7 @@ test_a_sprite_set_a_character_type_uses_cannot_be_deleted :: proc(t: ^testing.T)
 	open(e, .Sprite_Sets)
 	run(e, .Delete)
 	press(e, .Green)
-	testing.expect(t, e.world.sprite_set_count == 1 && e.note == "USED BY 1 CHARACTER TYPE")
+	testing.expect(t, e.world.sprite_set_count == 1 && e.note == "USED BY 1 TYPE")
 	e.world.char_type_count = 0 // free again
 	e.mode = .List
 	run(e, .Delete)

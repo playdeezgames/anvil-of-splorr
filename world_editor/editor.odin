@@ -4,6 +4,8 @@ import rt "../anvil_runtime"
 import cce "../character_editor"
 import cm "../common"
 import cte "../character_type_editor"
+import fe "../feature_editor"
+import fte "../feature_type_editor"
 import me "../map_editor"
 import pe "../palette_editor"
 import spe "../sprite_editor"
@@ -55,6 +57,8 @@ Mode :: enum {
 	Sprite,
 	Char_Type,
 	Character,
+	Feature_Type,
+	Feature,
 	Map,
 }
 
@@ -80,6 +84,8 @@ Hub_Row :: enum {
 	Sprite_Sets,
 	Character_Types,
 	Characters,
+	Feature_Types,
+	Features,
 	Maps,
 }
 
@@ -90,7 +96,7 @@ HUB_ROWS :: len(Hub_Row)
 Hub_Section :: enum {
 	Look, // what things look like: palette, tile size, tilesets, terrain sets, sprite sets
 	Rules, // tags, game parameters and sounds
-	Actors, // character types, characters and maps
+	Actors, // character types, characters, feature types, features and maps
 }
 
 HUB_SECTIONS :: len(Hub_Section)
@@ -105,7 +111,7 @@ LOOK_ROWS := [?]Hub_Row{.Palette, .Tile_Width, .Tile_Height, .Tilesets, .Terrain
 @(rodata)
 RULES_ROWS := [?]Hub_Row{.Tags, .Params, .Sounds}
 @(rodata)
-ACTORS_ROWS := [?]Hub_Row{.Character_Types, .Characters, .Maps}
+ACTORS_ROWS := [?]Hub_Row{.Character_Types, .Characters, .Feature_Types, .Features, .Maps}
 
 // The rows of a section, in order.
 section_rows :: proc(s: Hub_Section) -> []Hub_Row {
@@ -127,7 +133,7 @@ hub_row_section :: proc(row: Hub_Row) -> Hub_Section {
 		return .Look
 	case .Tags, .Params, .Sounds:
 		return .Rules
-	case .Character_Types, .Characters, .Maps:
+	case .Character_Types, .Characters, .Feature_Types, .Features, .Maps:
 		return .Actors
 	}
 	return .Look
@@ -188,6 +194,8 @@ Editor :: struct {
 	sprite_ed:      spe.Editor,
 	char_type_ed:   cte.Editor,
 	character_ed:   cce.Editor,
+	feature_type_ed: fte.Editor,
+	feature_ed:     fe.Editor,
 	map_ed:         me.Editor,
 	opened:         int, // the tileset being edited in Tileset mode
 	audio_ops:      [8]Audio_Op, // sound requests for the frontend (editor_take_audio)
@@ -248,6 +256,8 @@ set_sub_labels :: proc(e: ^Editor) {
 	spe.editor_set_labels(&e.sprite_ed, e.labels)
 	cte.editor_set_labels(&e.char_type_ed, e.labels)
 	cce.editor_set_labels(&e.character_ed, e.labels)
+	fte.editor_set_labels(&e.feature_type_ed, e.labels)
+	fe.editor_set_labels(&e.feature_ed, e.labels)
 	me.editor_set_labels(&e.map_ed, e.labels)
 }
 
@@ -490,6 +500,24 @@ sync_embedded :: proc(e: ^Editor) {
 			e.character_ed.exit_requested = false
 			e.mode = .Hub
 		}
+	case .Feature_Type:
+		if e.feature_type_ed.dirty {
+			e.feature_type_ed.dirty = false
+			touched(e)
+		}
+		if e.feature_type_ed.exit_requested {
+			e.feature_type_ed.exit_requested = false
+			e.mode = .Hub
+		}
+	case .Feature:
+		if e.feature_ed.dirty {
+			e.feature_ed.dirty = false
+			touched(e)
+		}
+		if e.feature_ed.exit_requested {
+			e.feature_ed.exit_requested = false
+			e.mode = .Hub
+		}
 	case .Sprite:
 		if e.sprite_ed.dirty {
 			e.sprite_ed.dirty = false
@@ -647,7 +675,7 @@ delete_item :: proc(e: ^Editor) {
 	case .Sprite_Sets:
 		name := cm.name_str(&e.world.sprite_sets[selected(e)].name)
 		if uses := cm.world_sprite_set_uses(&e.world, name); uses > 0 {
-			e.note = fmt.tprintf("USED BY %d CHARACTER TYPE%s", uses, uses == 1 ? "" : "S")
+			e.note = fmt.tprintf("USED BY %d TYPE%s", uses, uses == 1 ? "" : "S")
 			return
 		}
 		cm.world_delete_sprite_set(&e.world, selected(e))
@@ -911,6 +939,12 @@ run_hub :: proc(e: ^Editor, row: Hub_Row) {
 	case .Characters:
 		cce.editor_begin(&e.character_ed, &e.world)
 		e.mode = .Character
+	case .Feature_Types:
+		fte.editor_begin(&e.feature_type_ed, &e.world)
+		e.mode = .Feature_Type
+	case .Features:
+		fe.editor_begin(&e.feature_ed, &e.world)
+		e.mode = .Feature
 	case .Maps:
 		open_list(e, .Maps)
 	}
@@ -955,6 +989,14 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		return
 	case .Character:
 		cce.editor_handle_event(&e.character_ed, ev)
+		sync_embedded(e)
+		return
+	case .Feature_Type:
+		fte.editor_handle_event(&e.feature_type_ed, ev)
+		sync_embedded(e)
+		return
+	case .Feature:
+		fe.editor_handle_event(&e.feature_ed, ev)
 		sync_embedded(e)
 		return
 	case .Map:
@@ -1078,7 +1120,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Red, .Blue:
 			e.mode = .Hub
 		}
-	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Feature_Type, .Feature, .Map:
 		// Handled before this point: those modes own the input.
 	}
 }

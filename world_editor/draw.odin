@@ -1,6 +1,8 @@
 package world_editor
 
 import cce "../character_editor"
+import fe "../feature_editor"
+import fte "../feature_type_editor"
 import cm "../common"
 import cte "../character_type_editor"
 import me "../map_editor"
@@ -45,6 +47,10 @@ hub_label :: proc(row: Hub_Row) -> string {
 		return "CHARACTER TYPES"
 	case .Characters:
 		return "CHARACTERS"
+	case .Feature_Types:
+		return "FEATURE TYPES"
+	case .Features:
+		return "FEATURES"
 	case .Maps:
 		return "MAPS"
 	}
@@ -97,7 +103,7 @@ banner_text :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("ACTIONS   %s: DONE", label(e, .Red))
 	case .File:
 		return fmt.tprintf("FILE: %s SAVE  %s LOAD", label(e, .Green), label(e, .Yellow))
-	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Feature_Type, .Feature, .Map:
 		// These modes draw their own screens.
 	}
 	return ""
@@ -142,7 +148,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	case .File:
 		lines = {fmt.tprintf("%s: SAVE  %s: LOAD", l(e, .Green), l(e, .Yellow)), fmt.tprintf("%s: CANCEL", l(e, .Red)), "", ""}
 		return lines, 2
-	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Map:
+	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Feature_Type, .Feature, .Map:
 	}
 	return lines, 0
 }
@@ -292,6 +298,12 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	case .Character:
 		cce.editor_draw(&e.character_ed, r)
 		return
+	case .Feature_Type:
+		fte.editor_draw(&e.feature_type_ed, r)
+		return
+	case .Feature:
+		fe.editor_draw(&e.feature_ed, r)
+		return
 	case .Map:
 		me.editor_draw(&e.map_ed, r)
 		return
@@ -350,7 +362,7 @@ hub_section_summary :: proc(e: ^Editor, s: Hub_Section) -> string {
 	case .Rules:
 		return fmt.tprintf("%d TAGS  %d PARAMS  %d SOUNDS", w.tag_count, w.param_count, w.sound_count)
 	case .Actors:
-		return fmt.tprintf("%d TYPES  %d CHARACTERS  %d MAPS", w.char_type_count, w.character_count, w.map_count)
+		return fmt.tprintf("%d CHARACTERS  %d FEATURES  %d MAPS", w.character_count, w.feature_count, w.map_count)
 	}
 	return ""
 }
@@ -416,6 +428,10 @@ draw_hub_inside :: proc(e: ^Editor, r: ^cm.Renderer) {
 			count(r, y, w.char_type_count, cm.WORLD_MAX_CHARACTER_TYPES, color)
 		case .Characters:
 			count(r, y, w.character_count, cm.WORLD_MAX_CHARACTERS, color)
+		case .Feature_Types:
+			count(r, y, w.feature_type_count, cm.WORLD_MAX_FEATURE_TYPES, color)
+		case .Features:
+			count(r, y, w.feature_count, cm.WORLD_MAX_FEATURES, color)
 		case .Maps:
 			count(r, y, w.map_count, cm.WORLD_MAX_MAPS, color)
 		}

@@ -328,7 +328,7 @@ delete_sprite :: proc(e: ^Editor) {
 	}
 	if uses := cm.world_sprite_uses(e.world, cm.name_str(&current_set(e).name), sprite_name(e, e.sel)); uses > 0 {
 		e.confirm_delete = false
-		e.note = fmt.tprintf("USED BY %d CHARACTER TYPE%s", uses, uses == 1 ? "" : "S")
+		e.note = fmt.tprintf("USED BY %d TYPE%s", uses, uses == 1 ? "" : "S")
 		return
 	}
 	if !e.confirm_delete {

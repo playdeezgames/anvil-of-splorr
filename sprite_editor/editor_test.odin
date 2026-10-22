@@ -703,7 +703,7 @@ test_a_sprite_a_character_type_draws_cannot_be_deleted_and_renames_follow :: pro
 	testing.expect(t, ct >= 0 && cm.name_str(&world.char_types[ct].sprite) == "slime")
 	run(e, .Delete)
 	press(e, .Green)
-	testing.expect(t, e.note == "USED BY 1 CHARACTER TYPE" && world.sprite_sets[0].count == 2 && !e.confirm_delete)
+	testing.expect(t, e.note == "USED BY 1 TYPE" && world.sprite_sets[0].count == 2 && !e.confirm_delete)
 	// A rename follows into the type.
 	run(e, .Rename)
 	name_typed(e, "goo")
