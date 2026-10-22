@@ -1992,6 +1992,18 @@ test_the_player_steps_and_is_stopped_by_solid_cells_edges_and_characters :: proc
 	testing.expect(t, e.note == "BLOCKED: SOLID" && pos(e) == [2]int{1, 1} && e.play_steps == 0)
 	press(e, .Down)
 	testing.expect(t, e.note == "BLOCKED BY Goblin" && pos(e) == [2]int{1, 1})
+	// A feature blocks too, whatever its tags say, and is named like a character.
+	ft := cm.world_add_feature_type(&e.world)
+	tree := cm.world_add_feature(&e.world, ft)
+	cm.name_assign(&e.world.features[tree].name, "Oak")
+	cm.world_place_feature(&e.world, 0, 0, 1, e.world.features[tree].uuid)
+	press(e, .Red, .Yellow)
+	press(e, .Left)
+	testing.expect(t, e.note == "BLOCKED BY Oak" && pos(e) == [2]int{1, 1})
+	press(e, .Red)
+	cm.world_unplace_feature(&e.world, e.world.features[tree].uuid)
+	before = cm.world_to_json(&e.world) // the feature is part of the world now
+	press(e, .Yellow)
 	press(e, .Up)
 	testing.expect(t, e.note == "" && pos(e) == [2]int{1, 0} && e.play_steps == 1)
 	press(e, .Up)

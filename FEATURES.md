@@ -7,6 +7,10 @@ A **Feature** is like a character that cannot move: a tree, a door, a rock, a si
 - **Runtime: a game can change features.** The `Play_State` copies the authored features and a game may remove or place them (open a door, cut a tree); the loaded world is never changed.
 - **Limits and places**: up to **64 feature types** (like character types) and up to **2048 features** in the world's table. In the world editor, hub rows **FEATURE TYPES** and **FEATURES** in the ACTORS section, and a **Features layer** in the map editor to place them, one per cell.
 
+## Collision notifications (added after piece 4)
+
+`play_step` queues a `Collision {mover, kind, other, map_index, x, y, dx, dy}` when a character is refused by another character or a feature; the game drains the queue with `play_take_collision` and decides from tags what it means. Bounded (64, oldest dropped). Walls and edges are not collisions.
+
 ## Design
 
 - `common/world_features.odin`: `Feature_Type {name, sprite_set, sprite, tags}`, `Feature {uuid, name, type, tags_set, tags_cleared}`, `World.feature_types [64]`, `World.features [2048]`, and a per-map grid `World_Map.features [64][64]Uuid`; add / duplicate / rename / delete for both (a type cannot be deleted while a feature has it; deleting a feature takes it off its map; sprites and sprite sets that types draw are protected like character types'); `world_place_feature` / `world_unplace_feature` / `world_feature_at` / `world_feature_location`; effective tags `world_feature_has_tag` (its own setting, else its type's). Names unique for types (1..32 printable ASCII), labels only for features.

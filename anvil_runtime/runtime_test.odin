@@ -600,3 +600,153 @@ test_sounds_come_through_a_world_file :: proc(t: ^testing.T) {
 	testing.expect(t, ok && len(req.samples) > 0)
 	testing.expect(t, sound_loops(loaded, 1))
 }
+
+// The room plus a feature type "tree" (sprite star, tag "thing"), Tree at 2,2 and Stump off the map.
+loaded_world_with_features :: proc() -> ^World {
+	w := build_world()
+	defer free(w)
+	ft := cm.world_add_feature_type(w, "tree")
+	cm.name_assign(&w.feature_types[ft].sprite_set, "actors")
+	cm.name_assign(&w.feature_types[ft].sprite, "star")
+	w.feature_types[ft].tags = cm.tag_bit(2) // "thing"
+	tree := cm.world_add_feature(w, ft)
+	cm.name_assign(&w.features[tree].name, "Tree")
+	stump := cm.world_add_feature(w, ft)
+	cm.name_assign(&w.features[stump].name, "Stump")
+	cm.world_place_feature(w, 0, 2, 2, w.features[tree].uuid)
+	out := new_world()
+	err := load(out, transmute([]u8)cm.world_to_json(w))
+	assert(err == "", err)
+	return out
+}
+
+@(test)
+test_features_are_queried_as_authored_and_block_stepping_in_play :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := loaded_world_with_features()
+	defer free(w)
+	hero := index_of_character(w, "Hero")
+	testing.expect_value(t, feature_count(w), 2)
+	testing.expect(t, feature_type(w, 0) != nil && feature_sprite(w, 0) != nil && feature_image(w, 0) != nil)
+	testing.expect(t, feature_type(w, 5) == nil && feature_sprite(w, -1) == nil)
+	thing, _ := find_tag(w, "thing")
+	testing.expect(t, feature_has_tag(w, 0, thing) && feature_has_tag(w, 1, thing))
+	testing.expect_value(t, len(features_with_tag(w, thing)), 2)
+	testing.expect_value(t, feature_at(w, 0, 2, 2), 0)
+	testing.expect_value(t, feature_at(w, 0, 0, 1), -1)
+	mi, x, y, ok := authored_feature_location(w, 0)
+	testing.expect(t, ok && mi == 0 && x == 2 && y == 2)
+	_, _, _, ok = authored_feature_location(w, 1)
+	testing.expect(t, !ok)
+
+	ps := new(Play_State)
+	defer free(ps)
+	play_init(ps, w)
+	testing.expect_value(t, play_feature_position(ps, 0), Position{0, 2, 2, true})
+	testing.expect(t, !play_feature_position(ps, 1).placed && !play_feature_position(ps, 9).placed)
+	testing.expect_value(t, play_feature_at(ps, 0, 2, 2), 0)
+	testing.expect_value(t, len(play_features_in_map(ps, 0)), 1)
+	// The hero goes down to 1,2; the tree is to its right and always blocks.
+	testing.expect_value(t, play_step(ps, w, hero, 0, 1), Move_Result.Moved)
+	r, tx, ty := play_can_step(ps, w, hero, 1, 0)
+	testing.expect(t, r == .Feature && tx == 2 && ty == 2)
+	testing.expect_value(t, play_step(ps, w, hero, 1, 0), Move_Result.Feature)
+	// Cutting the tree down clears the way; the world is untouched.
+	testing.expect(t, play_unplace_feature(ps, 0) && !play_unplace_feature(ps, 0))
+	testing.expect_value(t, play_step(ps, w, hero, 1, 0), Move_Result.Moved)
+	testing.expect_value(t, cm.world_feature_at(w, 0, 2, 2), 0)
+	// Placing: the hero's cell and other features refuse; a free cell takes it.
+	testing.expect_value(t, play_place_feature(ps, w, 0, 0, 2, 2), cm.Place_Result.Character_There)
+	testing.expect_value(t, play_place_feature(ps, w, 0, 0, 4, 3), cm.Place_Result.Placed)
+	testing.expect_value(t, play_place_feature(ps, w, 1, 0, 4, 3), cm.Place_Result.Taken)
+	testing.expect_value(t, play_place_feature(ps, w, 1, 0, 9, 3), cm.Place_Result.Outside)
+	testing.expect_value(t, play_place_feature(ps, w, 7, 0, 0, 1), cm.Place_Result.Unknown)
+	testing.expect_value(t, play_place_feature(ps, w, 0, 0, 4, 3), cm.Place_Result.Placed) // already there
+	// A character cannot be put on a feature either.
+	testing.expect_value(t, play_place(ps, w, hero, 0, 4, 3), cm.Place_Result.Feature_There)
+	testing.expect_value(t, play_position(ps, hero), Position{0, 2, 2, true})
+}
+
+@(test)
+test_a_game_draws_the_features_where_they_are_now :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := loaded_world_with_features()
+	defer free(w)
+	ps := new(Play_State)
+	defer free(ps)
+	play_init(ps, w)
+	log: Draw_Log
+	defer delete(log.rects)
+	defer delete(log.colors)
+	r := draw_renderer(&log)
+	d := zoom_window(w, 0, 0, 0, 5, 4, 20, 10, 3)
+	draw_features(&r, w, ps, d)
+	cell := cm.world_cell_rect(d, 2, 2)
+	testing.expect(t, len(log.rects) > 0)
+	for rc in log.rects {
+		testing.expect(t, rc.x >= cell.x && rc.y >= cell.y && rc.x + rc.w <= cell.x + cell.w && rc.y + rc.h <= cell.y + cell.h)
+	}
+	play_unplace_feature(ps, 0)
+	clear(&log.rects)
+	clear(&log.colors)
+	draw_features(&r, w, ps, d)
+	testing.expect_value(t, len(log.rects), 0)
+	play_place_feature(ps, w, 0, 0, 0, 1)
+	draw_features(&r, w, ps, zoom_window(w, 0, 1, 0, 4, 4, 20, 10, 3)) // column 0 is outside this window
+	testing.expect_value(t, len(log.rects), 0)
+}
+
+@(test)
+test_running_into_a_character_or_a_feature_queues_a_collision :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	w := loaded_world_with_features()
+	defer free(w)
+	hero, star := index_of_character(w, "Hero"), index_of_character(w, "Star")
+	ps := new(Play_State)
+	defer free(ps)
+	play_init(ps, w)
+	_, ok := play_take_collision(ps)
+	testing.expect(t, !ok)
+	// Walls, edges and asking do not count.
+	play_step(ps, w, hero, 0, -1) // the wall row
+	play_can_step(ps, w, hero, 0, 1)
+	play_step(ps, w, hero, 0, 1) // to 1,2
+	_, ok = play_take_collision(ps)
+	testing.expect(t, !ok)
+	// Into the tree at 2,2.
+	testing.expect_value(t, play_step(ps, w, hero, 1, 0), Move_Result.Feature)
+	c: Collision
+	c, ok = play_take_collision(ps)
+	testing.expect(t, ok && c == Collision{hero, .Feature, 0, 0, 2, 2, 1, 0})
+	_, ok = play_take_collision(ps)
+	testing.expect(t, !ok)
+	// Into the star at 3,2, from above (1,2 -> 1,1 -> 3,1 -> down).
+	play_step(ps, w, hero, 0, -1)
+	play_step(ps, w, hero, 1, 0)
+	play_step(ps, w, hero, 1, 0)
+	testing.expect_value(t, play_step(ps, w, hero, 0, 1), Move_Result.Occupied)
+	c, ok = play_take_collision(ps)
+	testing.expect(t, ok && c == Collision{hero, .Character, star, 0, 3, 2, 0, 1})
+	// A non-player character bumping works the same, and events come out oldest first.
+	play_step(ps, w, star, -1, 0) // the tree is to its left
+	c, ok = play_take_collision(ps)
+	testing.expect(t, ok && c.mover == star && c.kind == .Feature && c.dx == -1)
+	// The queue is bounded: the oldest are dropped and counted.
+	play_clear_collisions(ps)
+	play_place(ps, w, star, 0, 3, 2) // next to the tree again
+	for _ in 0 ..< MAX_COLLISIONS + 5 {
+		play_step(ps, w, star, -1, 0)
+	}
+	testing.expect_value(t, ps.collision_count, MAX_COLLISIONS)
+	testing.expect_value(t, ps.collisions_lost, 5)
+	n := 0
+	for _, ok2 := play_take_collision(ps); ok2; _, ok2 = play_take_collision(ps) {
+		n += 1
+	}
+	testing.expect_value(t, n, MAX_COLLISIONS)
+	// Starting over empties the queue.
+	play_step(ps, w, star, -1, 0)
+	play_init(ps, w)
+	_, ok = play_take_collision(ps)
+	testing.expect(t, !ok)
+}

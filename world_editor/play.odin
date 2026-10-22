@@ -89,6 +89,10 @@ step_player :: proc(e: ^Editor, dx, dy: int) {
 		other := rt.play_character_at(&e.play, p.map_index, tx, ty)
 		name := other >= 0 ? cm.name_str(&e.world.characters[other].name) : ""
 		e.note = fmt.tprintf("BLOCKED BY %s", name[:min(len(name), 20)])
+	case .Feature:
+		fi := rt.play_feature_at(&e.play, rt.play_position(&e.play, e.play_player).map_index, tx, ty)
+		name := fi >= 0 ? cm.name_str(&e.world.features[fi].name) : ""
+		e.note = fmt.tprintf("BLOCKED BY %s", name[:min(len(name), 20)])
 	case .Not_Placed:
 		e.note = NOTE_PLAYER_OFF_MAP
 	}
@@ -152,6 +156,7 @@ draw_play :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.renderer_clear(r, BG)
 	d := play_window(e)
 	rt.draw_terrain(r, &e.world, d)
+	rt.draw_features(r, &e.world, &e.play, d)
 	rt.draw_characters(r, &e.world, &e.play, d)
 	// The top strip, drawn last so nothing from the map shows through it.
 	fill(r, Rect{0, 0, cm.SCREEN_W, PLAY_STRIP_H}, PANEL)

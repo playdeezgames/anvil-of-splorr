@@ -1047,6 +1047,8 @@ move_text :: proc(r: rt.Move_Result) -> string {
 		return "solid"
 	case .Occupied:
 		return "occupied"
+	case .Feature:
+		return "feature"
 	}
 	return "?"
 }

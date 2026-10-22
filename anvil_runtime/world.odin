@@ -28,6 +28,7 @@ Terrain :: cm.Terrain
 Sprite :: cm.Sprite
 Character :: cm.Character
 Character_Type :: cm.Character_Type
+Feature_Type :: cm.Feature_Type
 Image4 :: cm.Image4
 Palette :: cm.Palette
 
@@ -200,6 +201,60 @@ authored_location :: proc(w: ^World, ci: int) -> (mi, x, y: int, ok: bool) {
 		return 0, 0, 0, false
 	}
 	return cm.world_character_location(w, w.characters[ci].uuid)
+}
+
+// --- Features (as authored) --------------------------------------------------------------------
+
+feature_count :: proc(w: ^World) -> int {
+	return w.feature_count
+}
+
+feature_type :: proc(w: ^World, fi: int) -> ^Feature_Type {
+	if fi < 0 || fi >= w.feature_count {
+		return nil
+	}
+	ti := cm.world_find_feature_type(w, cm.name_str(&w.features[fi].type))
+	return ti >= 0 ? &w.feature_types[ti] : nil
+}
+
+// The sprite a feature draws (through its type), or nil.
+feature_sprite :: proc(w: ^World, fi: int) -> ^Sprite {
+	return cm.world_feature_sprite(w, fi)
+}
+
+// The tile image of a feature's sprite, or nil (draw it without the sprite's `transparent` colour).
+feature_image :: proc(w: ^World, fi: int) -> ^Image4 {
+	sp := feature_sprite(w, fi)
+	return sp == nil ? nil : cm.world_sprite_image(w, sp)
+}
+
+// Whether a feature has a tag: its own setting if it has one, else its type's.
+feature_has_tag :: proc(w: ^World, fi, tag: int) -> bool {
+	return cm.world_feature_has_tag(w, fi, tag)
+}
+
+// The feature the authors put in a cell, or -1. For where features are now, ask the Play_State.
+feature_at :: proc(w: ^World, mi, x, y: int) -> int {
+	return cm.world_feature_at(w, mi, x, y)
+}
+
+// Where the authors put a feature: its map and cell.
+authored_feature_location :: proc(w: ^World, fi: int) -> (mi, x, y: int, ok: bool) {
+	if fi < 0 || fi >= w.feature_count {
+		return 0, 0, 0, false
+	}
+	return cm.world_feature_location(w, w.features[fi].uuid)
+}
+
+// The features that have a tag, in table order. On the temp allocator unless another is given.
+features_with_tag :: proc(w: ^World, tag: int, allocator := context.temp_allocator) -> []int {
+	out := make([dynamic]int, allocator)
+	for fi in 0 ..< w.feature_count {
+		if cm.world_feature_has_tag(w, fi, tag) {
+			append(&out, fi)
+		}
+	}
+	return out[:]
 }
 
 // --- Tags a game needs --------------------------------------------------------------------------
