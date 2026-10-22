@@ -77,3 +77,8 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [ ] 4. Runtime queries, Play_State features, Move_Result.Feature, world editor Play mode
 - [ ] 5. MCP tools, render, play_walk, MCP_TOOLS.md, install prod
 - [ ] 6. Docs, demo world, browser look
+
+## Game stories 10 to 12 (from the game author, in USER_STORIES.md)
+- [x] 10. Present guard (`common/present_guard.odin`): SDL2 presents each frame once whether or not the tool does; external app test
+- [x] 11. Gamepad start-up report and hints (`common/gamepad_hints.odin`, `report_gamepads`), GAMES.md, tester help
+- [x] 12. `world_save` without a path (file name copied before the old one is freed)

@@ -6,6 +6,7 @@ import "core:fmt"
 import "base:runtime"
 import "core:c"
 import "core:os"
+import "core:strings"
 import sdl "vendor:sdl2"
 
 SCALE :: 4
@@ -96,6 +97,7 @@ main :: proc() {
 	for i in 0 ..< sdl.NumJoysticks() {
 		open_gamepad(i)
 	}
+	report_gamepads()
 	defer for g in gamepads {
 		sdl.GameControllerClose(g.handle)
 	}
@@ -128,6 +130,13 @@ main :: proc() {
 		},
 	}
 
+	// Every frame is presented exactly once, whether or not the tool presents itself (the editors do; a
+	// game that only draws does not): see common/present_guard.odin.
+	guard := cm.Present_Guard {
+		inner = r,
+	}
+	guarded := cm.present_guard_renderer(&guard)
+
 	shown_dirty := !cm.tool_is_dirty(&tool) // forces the first title update
 	pads, prev_pads: cm.Pads
 	last_ticks := sdl.GetTicks()
@@ -157,7 +166,9 @@ main :: proc() {
 		cm.tool_update(&tool, f64(now_ticks - last_ticks))
 		last_ticks = now_ticks
 
-		tool.draw(tool.data, &r)
+		cm.present_guard_begin(&guard)
+		tool.draw(tool.data, &guarded)
+		cm.present_guard_end(&guard)
 
 		if dirty := cm.tool_is_dirty(&tool); dirty != shown_dirty {
 			shown_dirty = dirty
@@ -344,6 +355,66 @@ poll_pads :: proc(pads: ^cm.Pads) {
 			3 = axis_value(g.handle, .RIGHTY),
 		}
 	}
+}
+
+// Says at start-up, on stderr, what SDL sees of gamepads and why a pad may be missing (see
+// common/gamepad_hints.odin): the usual cause is device files only the `input` group can read.
+report_gamepads :: proc() {
+	report := cm.Pad_Report {
+		seen   = int(sdl.NumJoysticks()),
+		opened = len(gamepads),
+	}
+	ignored := make([dynamic]string, context.temp_allocator)
+	for i in 0 ..< sdl.NumJoysticks() {
+		if !sdl.IsGameController(i) {
+			name := sdl.JoystickNameForIndex(i)
+			append(&ignored, name != nil ? string(name) : "unnamed device")
+		}
+	}
+	report.ignored = ignored[:]
+	report.devices_exist, report.unreadable = input_device_access()
+	for line in cm.gamepad_report_lines(report) {
+		fmt.eprintln(line)
+	}
+	free_all(context.temp_allocator)
+}
+
+// Whether /dev/input has joystick or event files, and the first one this user cannot open. The event
+// files of joysticks (found through /sys/class/input/jsN/device) come first, since those are the ones
+// SDL needs for a pad.
+input_device_access :: proc() -> (exist: bool, unreadable: string) {
+	entries, err := os.read_all_directory_by_path("/dev/input", context.temp_allocator)
+	if err != nil {
+		return false, ""
+	}
+	candidates := make([dynamic]string, context.temp_allocator)
+	events := make([dynamic]string, context.temp_allocator)
+	for e in entries {
+		if strings.has_prefix(e.name, "js") {
+			append(&candidates, fmt.tprintf("/dev/input/%s", e.name))
+			sys, sys_err := os.read_all_directory_by_path(fmt.tprintf("/sys/class/input/%s/device", e.name), context.temp_allocator)
+			if sys_err == nil {
+				for d in sys {
+					if strings.has_prefix(d.name, "event") {
+						append(&candidates, fmt.tprintf("/dev/input/%s", d.name))
+					}
+				}
+			}
+		} else if strings.has_prefix(e.name, "event") {
+			append(&events, fmt.tprintf("/dev/input/%s", e.name))
+		}
+	}
+	for path in events {
+		append(&candidates, path)
+	}
+	for path in candidates {
+		f, open_err := os.open(path)
+		if open_err != nil {
+			return true, strings.clone(path)
+		}
+		os.close(f)
+	}
+	return len(candidates) > 0, ""
 }
 
 open_gamepad :: proc(device_index: i32) {

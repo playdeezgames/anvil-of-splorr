@@ -23,6 +23,10 @@ fill_rect :: proc(r: ^cm.Renderer, rc: [4]int, c: cm.Color) {
 	cm.renderer_fill_rect(r, rc[0], rc[1], rc[2], rc[3], c)
 }
 
+// Under "no gamepad": what to check (the native build also prints the reason at start-up).
+NO_PAD_HINT_1 :: "STILL NOTHING? THE NATIVE BUILD PRINTS WHY"
+NO_PAD_HINT_2 :: "AT START-UP: SEE GAMES.MD (INPUT GROUP, MAPPING)"
+
 tester_draw :: proc(t: ^Tester, r: ^cm.Renderer) {
 	cm.renderer_clear(r, BG)
 	cm.draw_text(r, 8, 4, "GAMEPAD TESTER", HILITE)
@@ -39,6 +43,10 @@ tester_draw :: proc(t: ^Tester, r: ^cm.Renderer) {
 		cm.draw_text(r, (cm.SCREEN_W - cm.text_width(msg)) / 2, 80, msg, TEXT)
 		msg = "CONNECT ONE AND PRESS A BUTTON"
 		cm.draw_text(r, (cm.SCREEN_W - cm.text_width(msg)) / 2, 90, msg, DIM)
+		msg = NO_PAD_HINT_1
+		cm.draw_text(r, (cm.SCREEN_W - cm.text_width(msg)) / 2, 108, msg, DIM)
+		msg = NO_PAD_HINT_2
+		cm.draw_text(r, (cm.SCREEN_W - cm.text_width(msg)) / 2, 114, msg, DIM)
 		cm.renderer_present(r)
 		return
 	}

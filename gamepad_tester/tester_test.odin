@@ -144,3 +144,10 @@ test_enter_clears_a_stale_exit :: proc(t: ^testing.T) {
 	tl.enter(tl.data)
 	testing.expect(t, !tl.take_exit(tl.data))
 }
+
+@(test)
+test_the_no_pad_hint_is_drawable_and_fits :: proc(t: ^testing.T) {
+	for hint in ([]string{NO_PAD_HINT_1, NO_PAD_HINT_2}) {
+		testing.expectf(t, cm.text_is_drawable(hint) && cm.text_width(hint) <= cm.SCREEN_W - 8, "hint: %s", hint)
+	}
+}

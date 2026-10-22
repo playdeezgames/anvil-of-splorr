@@ -87,6 +87,7 @@ case "$target" in
 			odin check frontends/web -target:js_wasm32 "-collection:app=apps/$t"
 		done
 		# The recipe for a game's own app (GAMES.md) must not rot: build a tiny external one both ways.
+		odin test testdata/external_app/app -collection:anvil="$PWD"
 		APP_DIR=testdata/external_app/app APP_NAME=external_check OUT_DIR=build/ext-check "$0" native
 		APP_DIR=testdata/external_app/app APP_NAME=external_check OUT_DIR=build/ext-check "$0" web
 		# ... and the page uses the game's own input_map.json, not the Anvil's

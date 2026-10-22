@@ -93,25 +93,25 @@ Today `build.sh` only builds apps found under the Anvil's own `apps/<name>/`, an
 - [x] The way to do this is written in `CLAUDE.md` or a short `GAMES.md`, and one test or check builds a tiny external app for native and `js_wasm32` so the recipe cannot rot. (`GAMES.md`; `testdata/external_app` is built by `./build.sh check`.)
 - Needed by: "Go Get the Thing!" (`/home/yermom/git/go-get-the-thing`), which is only an `app/` package, a `game/` package and an embedded `world.json`.
 
-## 10. A game's frame is shown without the game knowing a platform detail (important)
+## 10. A game's frame is shown without the game knowing a platform detail (important): DONE (October 22, 2026)
 
 As a game maker, I want the frontends to put a finished frame on the screen themselves, so that a game that only draws works on native and on the web alike.
 
 Found in "Go Get the Thing!" (October 22, 2026): the web build showed the game at once, the native SDL2 window stayed black. The SDL2 frontend calls `tool.draw` and never `renderer.present`; the editors each call `cm.renderer_present(r)` at the end of their draw, the web canvas shows every draw at once, and nothing in `GAMES.md` says a game must present. The game fixed it by presenting itself.
 
-- [ ] Either the SDL2 frontend presents after `tool.draw` (and a tool that also presents is harmless, or the editors stop doing it), or `GAMES.md` says in its "What the game provides" list that `draw` must end with `cm.renderer_present(r)`.
-- [ ] The tiny external app in `testdata/external_app` is drawn the same way a real game would be, and `./build.sh check` (or a test) catches an app whose frames are never presented.
+- [x] Either the SDL2 frontend presents after `tool.draw` (and a tool that also presents is harmless, or the editors stop doing it), or `GAMES.md` says in its "What the game provides" list that `draw` must end with `cm.renderer_present(r)`. (Done the first way: the SDL2 frontend draws through a `Present_Guard` (`common/present_guard.odin`) that presents once after `draw` unless the tool already did, so the editors, which present, and a game that only draws both work, and a tool that presents twice is not helped or harmed. `GAMES.md` says draw only has to draw.)
+- [x] The tiny external app in `testdata/external_app` is drawn the same way a real game would be, and `./build.sh check` (or a test) catches an app whose frames are never presented. (The app never calls `renderer_present`, as a game would not; `testdata/external_app/app/app_test.odin` drives it through the guard for five frames and expects five presents, and `./build.sh check` runs it. The guard itself is tested in `common/present_guard_test.odin`. Not seen in a native window by the builder, which has only run the demo under SDL's dummy video driver; the user ran the demo natively earlier, before this change.)
 - Needed by: any game on the native frontend.
 
-## 11. The native frontend says when it has no usable gamepad (important)
+## 11. The native frontend says when it has no usable gamepad (important): DONE (October 22, 2026)
 
 As a game maker, I want to be told why a gamepad does nothing, so that I do not have to debug SDL by hand.
 
 Found while trying the real pad on the native build: a "USB Gamepad" (vendor 0079, product 0011) is plugged in (`/dev/input/js0`, `event16`), the game runs, and the pad does nothing. A probe program with `vendor:sdl2` reports `NumJoysticks = 0`. Cause on this machine: `/dev/input/event16` is `root:input`, mode `rw-rw----`, and the user is not in the `input` group and has no ACL, so SDL's evdev driver cannot open it (`js0` is world readable, but SDL does not use it). The frontend gives no hint: no pad, no message. (Pads SDL has no standard mapping for are also ignored silently, per `CLAUDE.md`.)
 
-- [ ] At start-up the SDL2 frontend prints one line to stderr about gamepads: how many SDL sees, how many it opens as standard controllers, and the name of any device it ignores because it has no standard mapping.
-- [ ] If SDL sees none but `/dev/input/js*` or `event*` files exist, it prints a line saying the devices may not be readable by this user (the `input` group or a udev rule), naming the first unreadable path.
-- [ ] The same goes in `GAMES.md` and the gamepad tester's help (what to check when a pad is not found).
+- [x] At start-up the SDL2 frontend prints one line to stderr about gamepads: how many SDL sees, how many it opens as standard controllers, and the name of any device it ignores because it has no standard mapping. (`gamepads: SDL sees N, opened M as standard controllers`, then a line per ignored device; `report_gamepads` in `frontends/sdl2/main.odin`, the wording in `common/gamepad_hints.odin` with `common/gamepad_hints_test.odin`. On this machine, now with an ACL on `event16`, it prints `SDL sees 1, opened 1`.)
+- [x] If SDL sees none but `/dev/input/js*` or `event*` files exist, it prints a line saying the devices may not be readable by this user (the `input` group or a udev rule), naming the first unreadable path. (The event files of joysticks, found through `/sys/class/input/jsN/device`, are tried first, then the others; if all are readable the line says so instead. Only tested as text: the permission failure itself cannot be reproduced here now that the ACL exists.)
+- [x] The same goes in `GAMES.md` and the gamepad tester's help (what to check when a pad is not found). (`GAMES.md` "When a gamepad does nothing"; the tester's empty screen has two hint lines.)
 - Needed by: trying a gamepad on any native build. The user's fix on this machine is outside the repos (the `input` group or a udev ACL).
 
 ## 12. `world_save` without a path after the first save (MCP bug): FIXED (October 22, 2026)
@@ -122,6 +122,18 @@ Found on the prod MCP (October 21-22, 2026): after a save, `world_summary` shows
 
 - [x] After `world_new`+`world_save path=x.json`, or `world_open x.json`, the summary shows `x.json` and a pathless `world_save` writes it, repeatedly and after other tool calls. (Cause: `set_file` freed the old name before copying the new one, and a pathless save passes the old name itself, so the copy was made from freed memory. It now copies first, and the save keeps its own copy of the name. Checked on the installed prod build over stdio: five saves in a row.)
 - [x] A test calls several tools between two saves and checks the file name is intact. (`test_a_pathless_save_keeps_the_file_name_intact`, run under an allocator that overwrites every freed string, so the old code fails it with exactly the reported "the path must end in .json".)
+
+## 13. A game can save silently (important)
+
+As a game maker, I want a game's Tool to save its progress without a file download on the web, and to load it at start, so that an incremental game can autosave after every purchase.
+
+Found while planning an incremental game on "Go Get the Thing!" (October 22, 2026). The native frontend writes `take_save`'s text to the tool's file in the working directory and offers `wants_load` at start, which is what a game needs. The web frontend (`frontends/web/web.odin`, `index.html`) turns every `take_save` into localStorage *and* a browser download of the file, with a "Saved: downloaded ..." message; an autosave would open a download on every purchase.
+
+- [ ] A way for a Tool to ask for a save that only goes to browser storage (for example a second hook, or a flag on the save request such as `silent`), with the native frontend unchanged in effect.
+- [ ] The web page restores that storage at start for a game's own file when the game asks to load (`wants_load`), without the "Open file" button, and says nothing on screen unless it fails.
+- [ ] Storage being unavailable (a private window) is reported once and does not stop the game.
+- [ ] `GAMES.md` says how a game saves on both frontends, and the external test app saves and loads a small file through the hooks.
+- Needed by: the incremental pivot of "Go Get the Thing!" (`DESIGN.md`, last section). Native saving works today.
 
 ## Not requested
 
