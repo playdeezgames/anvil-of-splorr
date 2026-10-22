@@ -102,6 +102,15 @@ test_the_layer_switch_and_the_rows_each_layer_offers :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, seen == {.Character, .Char_Type, .Char_Player, .Char_Rename, .Char_New, .Char_Unplace, .Char_Delete, .Zoom, .Layer, .Tags})
 	e.row = .Layer
+	press(e, .Green) // characters -> features -> terrain
+	testing.expect(t, e.layer == .Features && e.row == .Feature)
+	seen = {}
+	for _ in 0 ..< 12 {
+		seen += {e.row}
+		press(e, .Down)
+	}
+	testing.expect(t, seen == {.Feature, .Feat_Type, .Feat_Rename, .Feat_New, .Feat_Unplace, .Feat_Delete, .Zoom, .Layer, .Tags})
+	e.row = .Layer
 	press(e, .Green)
 	testing.expect(t, e.layer == .Terrain && e.row == .Terrain)
 	seen = {}
@@ -112,6 +121,8 @@ test_the_layer_switch_and_the_rows_each_layer_offers :: proc(t: ^testing.T) {
 	testing.expect(t, .Character not_in seen && .Flip_Horizontal in seen && .Layer in seen && .Clear in seen && .Tags in seen)
 	click_rect(e, LAYER_BUTTON)
 	testing.expect_value(t, e.layer, Layer.Characters)
+	click_rect(e, LAYER_BUTTON)
+	testing.expect_value(t, e.layer, Layer.Features)
 	click_rect(e, LAYER_BUTTON)
 	testing.expect_value(t, e.layer, Layer.Terrain)
 	// Switching abandons an armed tool.
@@ -423,7 +434,7 @@ test_every_character_function_is_reachable_by_each_input :: proc(t: ^testing.T) 
 		case .Mouse:
 			click_rect(e, LAYER_BUTTON)
 		}
-		testing.expectf(t, e.layer == .Terrain, "%v layer", m)
+		testing.expectf(t, e.layer == .Features, "%v layer", m) // the next layer after characters
 		e.layer = .Characters
 		switch m {
 		case .Commands:
@@ -442,6 +453,7 @@ test_flips_rotations_and_resizing_carry_characters_in_the_editor :: proc(t: ^tes
 	defer free_all(context.temp_allocator)
 	e, world := char_editor(3, 3)
 	defer free_both(e, world)
+	toggle_layer(e) // features
 	toggle_layer(e) // terrain tools
 	// Goo is at 1,0: a flip of the columns leaves it, a flip of the rows moves it.
 	run(e, .Flip_Vertical)
@@ -688,7 +700,8 @@ test_a_characters_tags_are_edited_from_the_map_too :: proc(t: ^testing.T) {
 	e.row = .Tags
 	press(e, .Green)
 	testing.expect(t, e.mode == .Setup && e.note == NOTE_NO_CHARACTERS)
-	toggle_layer(e)
+	toggle_layer(e) // features (none yet)
+	toggle_layer(e) // terrain
 	e.mode = .Setup
 	e.row = .Tags
 	press(e, .Green)
@@ -713,6 +726,7 @@ test_the_tags_screen_draws_on_screen_for_both_layers :: proc(t: ^testing.T) {
 	for world.tag_count < cm.WORLD_MAX_TAGS {
 		cm.world_add_tag(world, "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW")
 	}
+	cm.world_add_feature(world, cm.world_add_feature_type(world, "tree")) // the Features layer needs one to tag
 	for layer in Layer {
 		e.layer = layer
 		e.mode = .Setup

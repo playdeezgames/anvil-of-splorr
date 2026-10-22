@@ -18,6 +18,7 @@ import "core:fmt"
 Layer :: enum {
 	Terrain,
 	Characters,
+	Features,
 }
 
 NOTE_NO_CHARACTERS :: "NO CHARACTERS YET: USE NEW"
@@ -36,6 +37,8 @@ row_offered :: proc(layer: Layer, row: Setup_Row) -> bool {
 		return layer == .Terrain
 	case .Character, .Char_Type, .Char_Player, .Char_Rename, .Char_New, .Char_Unplace, .Char_Delete:
 		return layer == .Characters
+	case .Feature, .Feat_Type, .Feat_Rename, .Feat_New, .Feat_Unplace, .Feat_Delete:
+		return layer == .Features
 	case .Zoom, .Layer, .Tags:
 		return true
 	}
@@ -219,9 +222,16 @@ delete_character :: proc(e: ^Editor) {
 // The layer switch: terrain painting or characters. Abandons any rectangle in progress.
 toggle_layer :: proc(e: ^Editor) {
 	cancel_shape(e)
-	e.layer = e.layer == .Terrain ? .Characters : .Terrain
+	e.layer = Layer((int(e.layer) + 1) % len(Layer)) // terrain, characters, features, and round again
 	e.confirm_delete = false
-	e.row = e.layer == .Terrain ? .Terrain : .Character
+	switch e.layer {
+	case .Terrain:
+		e.row = .Terrain
+	case .Characters:
+		e.row = .Character
+	case .Features:
+		e.row = .Feature
+	}
 }
 
 char_handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
@@ -230,6 +240,18 @@ char_handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 	case .Cancelled:
 		e.mode = e.back
 	case .Done:
+		if e.layer == .Features {
+			switch cm.world_rename_feature(e.world, cur_feature_index(e), cm.text_entry_text(&e.entry)) {
+			case .None:
+				e.dirty = true
+				e.mode = e.back
+			case .Empty:
+				cm.text_entry_resume(&e.entry, NOTE_NAME_EMPTY)
+			case .Too_Long, .Bad_Character, .In_Use:
+				cm.text_entry_resume(&e.entry, NOTE_NAME_BAD)
+			}
+			return
+		}
 		switch cm.world_rename_character(e.world, e.cur_char, cm.text_entry_text(&e.entry)) {
 		case .None:
 			e.dirty = true
@@ -435,6 +457,14 @@ char_place_text :: proc(e: ^Editor, index: int) -> string {
 // What the tags of the thing being tagged are: in the Characters layer the current character's own
 // settings over its type's tags, in the Terrain layer the cursor cell's own settings over its terrain's.
 tag_view :: proc(e: ^Editor) -> cm.Tag_View {
+	if e.layer == .Features {
+		f := current_feature(e)
+		inherited: cm.Tag_Mask
+		if ti := cm.world_find_feature_type(e.world, cm.name_str(&f.type)); ti >= 0 {
+			inherited = e.world.feature_types[ti].tags
+		}
+		return cm.Tag_View{set = f.tags_set, cleared = f.tags_cleared, inherited = inherited, instance = true}
+	}
 	if e.layer == .Characters {
 		c := current_character(e)
 		inherited: cm.Tag_Mask
@@ -457,6 +487,10 @@ begin_tags :: proc(e: ^Editor) {
 		e.note = NOTE_NO_CHARACTERS
 		return
 	}
+	if e.layer == .Features && !has_features(e) {
+		e.note = NOTE_NO_FEATURES
+		return
+	}
 	e.back = e.mode
 	e.mode = .Tags
 	cm.tag_list_fix(&e.tags, e.world.tag_count)
@@ -466,7 +500,9 @@ begin_tags :: proc(e: ^Editor) {
 @(private = "file")
 cycle_tag :: proc(e: ^Editor, tag: int) {
 	ok := false
-	if e.layer == .Characters {
+	if e.layer == .Features {
+		ok = cm.world_cycle_feature_tag(e.world, cur_feature_index(e), tag)
+	} else if e.layer == .Characters {
 		ok = cm.world_cycle_character_tag(e.world, clamp(e.cur_char, 0, char_count(e) - 1), tag)
 	} else {
 		ok = cm.world_cycle_cell_tag(e.world, e.index, e.cx, e.cy, tag)

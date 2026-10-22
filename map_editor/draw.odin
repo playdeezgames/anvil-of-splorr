@@ -17,6 +17,15 @@ label :: proc(e: ^Editor, a: cm.Action) -> string {
 
 // Strings are on the temp allocator: valid until the frontend's next free_all.
 banner_text :: proc(e: ^Editor) -> string {
+	if e.layer == .Features && e.mode != .Tags && e.mode != .Text {
+		if e.confirm_delete {
+			return fmt.tprintf("DELETE IT?  %s: CONFIRM", label(e, .Green))
+		}
+		if e.mode == .Setup {
+			return fmt.tprintf("SETUP   %s: DONE", label(e, .Red))
+		}
+		return fmt.tprintf("FEATURES   %s: PLACE", label(e, .Green))
+	}
 	if e.layer == .Characters {
 		if e.confirm_delete {
 			return fmt.tprintf("DELETE IT?  %s: CONFIRM", label(e, .Green))
@@ -54,12 +63,30 @@ banner_text :: proc(e: ^Editor) -> string {
 help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 	l :: label
 	if e.mode == .Tags {
-		what := e.layer == .Characters ? "THIS CHARACTER" : "THIS CELL"
+		what := e.layer == .Characters ? "THIS CHARACTER" : (e.layer == .Features ? "THIS FEATURE" : "THIS CELL")
 		lines = {
 			fmt.tprintf("%s/%s: CHOOSE A TAG", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s: INHERIT, THEN SET, THEN CLEAR FOR %s", l(e, .Green), what),
 			fmt.tprintf("%s: BACK", l(e, .Red)),
 			"MOUSE: CLICK A TAG; WHEEL SCROLLS",
+		}
+		return lines, 4
+	}
+	if e.layer == .Features {
+		if e.mode == .Setup {
+			lines = {
+				fmt.tprintf("%s/%s: CHOOSE A ROW  %s: NEXT 16", l(e, .Up), l(e, .Down), l(e, .Blue)),
+				fmt.tprintf("%s/%s: CHANGE FEATURE / TYPE", l(e, .Left), l(e, .Right)),
+				fmt.tprintf("%s: RUN RENAME / NEW / UNPLACE / DELETE / LAYER", l(e, .Green)),
+				fmt.tprintf("%s: DONE", l(e, .Red)),
+			}
+			return lines, 4
+		}
+		lines = {
+			fmt.tprintf("%s/%s/%s/%s: MOVE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
+			fmt.tprintf("%s: PLACE OR PICK  %s: SETUP", l(e, .Green), l(e, .Yellow)),
+			fmt.tprintf("%s: NEXT 16 FEATURES  %s: BACK", l(e, .Blue), l(e, .Red)),
+			"MOUSE: CLICK PLACES OR PICKS; RIGHT CLICK PICKS",
 		}
 		return lines, 4
 	}
@@ -177,6 +204,18 @@ buttons :: proc() -> [12]Button {
 	}
 }
 
+// The Features layer's buttons.
+feat_buttons :: proc() -> [6]Button {
+	return {
+		{FEAT_NEW_BUTTON, "NEW", .Feat_New, .None, .None},
+		{FEAT_UNPLACE_BUTTON, "UNPLACE", .Feat_Unplace, .None, .None},
+		{FEAT_DELETE_BUTTON, "DEL", .Feat_Delete, .None, .None},
+		{FEAT_RENAME_BUTTON, "RENAME", .Feat_Rename, .None, .None},
+		{BACK_BUTTON, "BACK", .Terrain, .None, .None},
+		{LAYER_BUTTON, "LAYER", .Layer, .None, .None},
+	}
+}
+
 // The Characters layer's buttons.
 char_buttons :: proc() -> [7]Button {
 	return {
@@ -223,6 +262,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		player_mark = HILITE,
 	}
 	cm.world_draw_terrain(r, e.world, window) // the same code the game draws its maps with
+	cm.world_draw_authored_features(r, e.world, window) // features under characters
 	cm.world_draw_authored_characters(r, e.world, window)
 	if cell_visible(e, e.cx, e.cy) {
 		outline(r, cell_rect(e, e.cx, e.cy), e.mode == .Setup ? DIM : HILITE)
@@ -251,6 +291,12 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, banner_text(e), (warning || e.mode != .Draw) ? BG : TEXT)
 	if e.note != "" {
 		cm.draw_text(r, INFO_X, INFO_Y, e.note, WARN)
+	} else if e.layer == .Features {
+		what := "-"
+		if i := cm.world_feature_at(e.world, e.index, e.cx, e.cy); i >= 0 {
+			what = feature_name(e, i)
+		}
+		cm.draw_text(r, INFO_X, INFO_Y, fmt.tprintf("CURSOR: %d,%d  %s%s", e.cx, e.cy, what[:min(len(what), 18)], e.dirty ? " *" : ""), TEXT)
 	} else if e.layer == .Characters {
 		who := "-"
 		if i := cm.world_character_at(e.world, e.index, e.cx, e.cy); i >= 0 {
@@ -276,7 +322,23 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		buttons:     bool, // false: a readout with no - and + buttons
 	}
 	rows: [5]Panel_Row
-	if e.layer == .Characters {
+	if e.layer == .Features {
+		cur_name, cur_type, tags := "NONE", "-", "-"
+		if has_features(e) {
+			f := current_feature(e)
+			cur_name = fmt.tprintf("%d/%d %s", cur_feature_index(e) + 1, feat_count(e), feature_name(e, cur_feature_index(e)))
+			cur_type = cm.name_str(&f.type)
+			tags = cm.tag_count_text(e.world, tag_view(e))
+		}
+		at := has_features(e) ? feat_place_text(e, cur_feature_index(e)) : "-"
+		rows = {
+			{TERRAIN_MINUS, TERRAIN_PLUS, .Feature, "FEATURE", cur_name, true},
+			{COLUMNS_MINUS, COLUMNS_PLUS, .Feat_Type, "TYPE", cur_type, true},
+			{ROWS_MINUS, ROWS_PLUS, .Layer, "TAGS", tags, false},
+			{SET_MINUS, SET_PLUS, .Layer, "PLACE", at, false},
+			{ZOOM_MINUS, ZOOM_PLUS, .Zoom, "ZOOM", zoom_text, true},
+		}
+	} else if e.layer == .Characters {
 		cur_name, cur_type, player := "NONE", "-", "NO"
 		if has_characters(e) {
 			c := current_character(e)
@@ -324,7 +386,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	}
 
 	// The picker: the page of 16 terrains (or characters) holding the current one, which is framed.
-	if e.layer == .Characters {
+	if e.layer == .Features {
+		draw_feature_picker(e, r)
+	} else if e.layer == .Characters {
 		draw_character_picker(e, r)
 	} else {
 		page := e.terrain / PICKER_PAGE * PICKER_PAGE
@@ -353,13 +417,16 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 			if btn.rc != BACK_BUTTON && e.mode == .Setup && e.row == btn.row {
 				lit = true
 			}
-			turn_blocked := m.width != m.height && (btn.rc == ROT_L_BUTTON || btn.rc == ROT_R_BUTTON)
-			needs_char := e.layer == .Characters && !has_characters(e) && btn.row != .Char_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON
+			turn_blocked := e.layer == .Terrain && m.width != m.height && (btn.rc == ROT_L_BUTTON || btn.rc == ROT_R_BUTTON) // (the other layers' buttons share those places)
+			needs_char := (e.layer == .Characters && !has_characters(e) && btn.row != .Char_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON) || (e.layer == .Features && !has_features(e) && btn.row != .Feat_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON)
 			fill(r, btn.rc, lit ? HILITE : PANEL)
 			cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.txt, lit ? BG : ((turn_blocked || needs_char) ? DIM : TEXT))
 		}
 	}
-	if e.layer == .Characters {
+	if e.layer == .Features {
+		fb := feat_buttons()
+		draw_buttons(e, r, fb[:])
+	} else if e.layer == .Characters {
 		cb := char_buttons()
 		draw_buttons(e, r, cb[:])
 	} else {
@@ -382,6 +449,32 @@ draw_character_sprite :: proc(e: ^Editor, r: ^cm.Renderer, area: Rect, ci: int, 
 		cm.canvas_draw_checker(r, area, cm.Color{96, 96, 108}, cm.Color{72, 72, 84}, max(2, area.w / 4))
 	}
 	cm.world_draw_character(r, e.world, ci, area, cm.SURFACE, UNSET)
+}
+
+// One feature's sprite in `area`, over a checkerboard when `backdrop`.
+draw_feature_sprite :: proc(e: ^Editor, r: ^cm.Renderer, area: Rect, fi: int, backdrop: bool) {
+	if backdrop {
+		cm.canvas_draw_checker(r, area, cm.Color{96, 96, 108}, cm.Color{72, 72, 84}, max(2, area.w / 4))
+	}
+	cm.world_draw_feature(r, e.world, fi, area, cm.SURFACE, UNSET)
+}
+
+// The picker of the Features layer: the page holding the current feature.
+draw_feature_picker :: proc(e: ^Editor, r: ^cm.Renderer) {
+	page := cur_feature_index(e) / FEAT_PAGE * FEAT_PAGE
+	for slot in 0 ..< PICKER_PAGE {
+		rc := picker_rect(slot)
+		i := page + slot
+		if i >= feat_count(e) {
+			fill(r, rc, cm.Color{22, 22, 28})
+			continue
+		}
+		fill(r, rc, PANEL)
+		draw_feature_sprite(e, r, rc, i, true)
+		if i == cur_feature_index(e) {
+			outline(r, rc, HILITE)
+		}
+	}
 }
 
 // The picker of the Characters layer: the page holding the current character.
@@ -418,7 +511,13 @@ draw_tags_screen :: proc(e: ^Editor, r: ^cm.Renderer) {
 	inner := Rect{preview.x + 1, preview.y + 1, preview.w - 2, preview.h - 2}
 	fill(r, inner, cm.Color{22, 22, 28})
 	title, name := "", ""
-	if e.layer == .Characters {
+	if e.layer == .Features {
+		if has_features(e) {
+			f := current_feature(e)
+			draw_feature_sprite(e, r, inner, cur_feature_index(e), true)
+			title, name = "FEATURE", cm.name_str(&f.name)
+		}
+	} else if e.layer == .Characters {
 		if has_characters(e) {
 			c := current_character(e)
 			draw_character_sprite(e, r, inner, clamp(e.cur_char, 0, char_count(e) - 1), true)

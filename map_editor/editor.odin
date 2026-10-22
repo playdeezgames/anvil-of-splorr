@@ -59,6 +59,12 @@ Setup_Row :: enum {
 	Char_New,
 	Char_Unplace,
 	Char_Delete,
+	Feature,
+	Feat_Type,
+	Feat_Rename,
+	Feat_New,
+	Feat_Unplace,
+	Feat_Delete,
 }
 
 Point_Tool :: enum {
@@ -86,8 +92,9 @@ Editor :: struct {
 	zoom:           int, // index into ZOOM_SIZES; 0 fits the whole map in the canvas
 	vx, vy:         int, // the top-left visible cell
 	bar_drag:       Maybe(Bar), // a scroll bar thumb being dragged
-	layer:          Layer, // what green does: paint terrain, or place and pick characters
+	layer:          Layer, // what green does: paint terrain, or place and pick characters or features
 	cur_char:       int, // the current character: an index in the world's table
+	cur_feat:       int, // the current feature: an index in the world's features table
 	back:           Mode, // where the keypad returns to
 	confirm_delete: bool, // Delete (a character) was run once: the next one is the confirmation
 	tags:           cm.Tag_List, // Tags mode: the selected tag
@@ -446,7 +453,9 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		}
 	case cm.Mouse_Wheel:
 		if in_picker(e.mx, e.my) {
-			if e.layer == .Characters {
+			if e.layer == .Features {
+				step_feature(e, -v.dy * FEAT_PAGE)
+			} else if e.layer == .Characters {
 				step_character(e, -v.dy * CHAR_PAGE)
 			} else {
 				step_terrain(e, -v.dy * PICKER_PAGE)
@@ -465,6 +474,9 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 @(private = "file")
 apply_action :: proc(e: ^Editor, a: cm.Action) {
 	if e.layer == .Characters && char_action(e, a) {
+		return
+	}
+	if e.layer == .Features && feat_action(e, a) {
 		return
 	}
 	m := current_map(e)
@@ -577,6 +589,10 @@ pick :: proc(e: ^Editor, x, y: int) {
 		char_pick(e, x, y)
 		return
 	}
+	if e.layer == .Features {
+		feat_pick(e, x, y)
+		return
+	}
 	m := current_map(e)
 	if cx, cy, ok := cell_at(e, x, y); ok {
 		if e.shape == .None {
@@ -633,6 +649,10 @@ toggle_point_tool :: proc(e: ^Editor, tool: Point_Tool) {
 click :: proc(e: ^Editor, x, y: int) {
 	if e.layer == .Characters {
 		char_click(e, x, y)
+		return
+	}
+	if e.layer == .Features {
+		feat_click(e, x, y)
 		return
 	}
 	m := current_map(e)

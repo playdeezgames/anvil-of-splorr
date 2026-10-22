@@ -73,7 +73,7 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 ## Features (plan in FEATURES.md)
 - [x] 1. Model and file: `common/world_features.odin`, map grids, shared cell rule, tests
 - [x] 2. Feature type editor, feature editor, hub rows, Tags screens
-- [ ] 3. Map editor Features layer and shared drawing
+- [x] 3. Map editor Features layer and shared drawing
 - [ ] 4. Runtime queries, Play_State features, Move_Result.Feature, world editor Play mode
 - [ ] 5. MCP tools, render, play_walk, MCP_TOOLS.md, install prod
 - [ ] 6. Docs, demo world, browser look

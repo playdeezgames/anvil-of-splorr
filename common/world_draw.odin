@@ -160,6 +160,30 @@ world_draw_character :: proc(r: ^Renderer, w: ^World, ci: int, area: Rect, clip:
 	renderer_fill_rect(&cr, area.x, area.y, area.w, area.h, missing)
 }
 
+// Draws the features the map itself holds, over the terrain and under the characters: each in its cell,
+// in the window and the clip.
+world_draw_authored_features :: proc(r: ^Renderer, w: ^World, d: World_Draw) {
+	if d.cell_w <= 0 || d.cell_h <= 0 || d.map_index < 0 || d.map_index >= w.map_count {
+		return
+	}
+	m := &w.maps[d.map_index]
+	cs: Clip_State
+	cr := clipped_renderer(&cs, r, d.clip)
+	for cy in max(d.row, 0) ..< min(d.row + d.rows, m.height) {
+		for cx in max(d.col, 0) ..< min(d.col + d.cols, m.width) {
+			u := m.features[cy][cx]
+			if uuid_is_none(u) {
+				continue
+			}
+			area := world_cell_rect(d, cx, cy)
+			if _, visible := rect_intersect(area, d.clip); !visible {
+				continue
+			}
+			world_draw_feature(&cr, w, world_find_feature(w, u), area, d.clip, d.missing)
+		}
+	}
+}
+
 // The sprite a feature draws (through its type), or nil.
 world_feature_sprite :: proc(w: ^World, fi: int) -> ^Sprite {
 	if fi < 0 || fi >= w.feature_count {
