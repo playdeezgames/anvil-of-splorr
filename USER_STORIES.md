@@ -4,6 +4,8 @@ Written from the needs of the demo game "Go Get the Thing!" (`/home/yermom/git/g
 
 Acceptance review (October 21, 2026, against commit `f92ea49`): `./build.sh check` and `./build.sh test` both pass (all packages, including `anvil_runtime` for `js_wasm32`). Each criterion was checked in the code and the test names below. Nothing was run by hand in a window or browser, so the mouse/keyboard/gamepad claims rest on the tests only. Legend: [x] met, [ ] not met.
 
+> Maintained by the Anvil session: other sessions add stories at the end; the Anvil session works them as directed and ticks them here when done (with what was built).
+
 ## 1. Game-side runtime package (blocking): ACCEPTED
 
 As a game maker, I want a package a game can import to load a `world.json` and query it, so that my game does not copy code out of the editors.
@@ -43,13 +45,13 @@ As a game maker, I want named numbers and short texts in the world file, so that
 - [x] Uses the same keypad and command model as the other editors (covered by the editor tests above); not exercised by hand here.
 - Note: text parameters are limited to 32 characters, which is enough for this game (round length, points per pickup).
 
-## 5. Sound effects (nice to have): DEFERRED, as the story allowed
+## 5. Sound effects (nice to have): DONE (October 22, 2026)
 
 As a game maker, I want to make and name short sound effects, so that a pickup and the game over can be heard.
 
-- [ ] A sound format, editor, playback on both frontends, and a runtime play call: not built.
+- [x] A sound format, editor, playback on both frontends, and a runtime play call. Built as SOUND.md describes: a world holds up to 64 named sounds, each BASIC-style PLAY text (one square-wave voice, up to 1024 characters) with a loop flag, saved in `world.json`; the world editor's SOUNDS list and sound screen (play, stop, loop, long-text keypad, parse errors marked); playback through a 4-channel mixer on SDL2 and Web Audio (the web starts audio on the first key press or click); and `anvil_runtime.sound_play(world, name, channel)` with `missing_sounds`, `broken_sounds`, `sound_pcm`, `sound_stop`. MCP tools can store, check, render and export sounds. Tests cover the parser, synth, WAV, mixer, editor screens (commands and mouse) and the runtime; playback was not heard by the builder, only checked in the browser's audio pipeline and with SDL's dummy driver.
 - [x] "If sound is out of scope for now, record it in `BACKLOG.md`": done, with a description of the intended design and the reason (the only story needing new platform code; the demo game does not use it).
-- Decision for this game: it ships silent.
+- Decision for this game: it ships silent; a game that wants sound reads `GAMES.md` (Sound).
 
 ## 6. Run a world as a game from the suite (nice to have): ACCEPTED
 
@@ -66,6 +68,30 @@ As a game maker, I want a web game to load its `world.json` without the editors'
 
 - [x] A game build can embed its world with `#load` (documented in `anvil_runtime/world.odin`, tested by `test_an_embedded_world_file_loads_like_any_other` with `testdata/demo_world.json`), or have the page fetch it (`WEB_FETCH=world.json ./build.sh web <app>`), on native and web.
 - [x] The size limit and how to raise it are documented beside `FILE_CAP` in `frontends/web/web.odin` (`WEB_FILE_MIB=<n>`); `BACKLOG.md` marks the game case as settled and leaves only huge-world editing open.
+
+## 8. A game tool knows how much time has passed (important): DONE: ACCEPTED
+
+As a game maker, I want my game's `Tool` to be told how many milliseconds passed since the last frame, so that a countdown timer takes the same real time on a 60 Hz and a 144 Hz display, in a background tab, and on both frontends.
+
+Today `cm.Tool` only has `handle_event` and `draw`; there is no clock, so the game would have to count `draw` calls and assume 60 frames a second. The web `step` already receives `dt` and the SDL2 frontend can read its tick counter; neither passes it on.
+
+- [x] An optional `Tool.update(data, dt_ms)` (nil for the editors), called once per frame by both frontends before `draw`, with the real elapsed milliseconds. (`common/tool.odin`: `Tool.update`, `tool_update`; web `step` passes `dt * 1000`, SDL2 passes the tick difference.)
+- [x] `dt_ms` is clamped (for example to 100 ms) so a hidden tab or a dragged window does not make one huge step that ends a round. (`MAX_FRAME_MS` = 100 in `tool_update`; a clock that goes backwards or NaN counts as 0.)
+- [x] Both frontends call it, and a test shows a fake frontend loop drives it with given times. (`common/tool_test.odin`: `test_a_tool_is_told_the_elapsed_time_each_frame_clamped`, `..._a_tool_without_a_clock_is_unaffected`; the real SDL2 and browser loops were read, not run.)
+- [x] The editors are unchanged and `./build.sh check` and `test` still pass. (Accepted October 21, 2026: `./build.sh check` passed in full, including the external app for native and `js_wasm32`; the two tests above passed; the full `./build.sh test` was not re-run here.)
+- Needed by: the round timer in "Go Get the Thing!" (`round_seconds`). Until this exists the game counts frames at an assumed 60 fps.
+
+## 9. Build a game's own app with the Anvil's frontends (important): DONE: ACCEPTED
+
+As a game maker, I want to build the Anvil's native and web frontends around an app that lives in my own repository, so that my game does not copy or fork the frontends and gets every frontend fix (input map, gamepad, canvas, wasm loader) for free.
+
+Today `build.sh` only builds apps found under the Anvil's own `apps/<name>/`, and the frontends import `app:app` plus the Anvil's `common` by relative path. A game can already pass its own `-collection:app=<dir>` to `odin build`, but nothing documents or tests that, and `build.sh`'s web page steps (`input_map.json` link, `game_tags.json` link, `title.txt`, `WEB_FETCH`) would have to be redone by hand.
+
+- [x] `./build.sh native|web` accept an external app folder (for example `APP_DIR=/path/to/game/app`, containing `app.odin` and `title.txt`) and an output folder (`OUT_DIR`), and do the same page steps as for `apps/<name>`. (`APP_DIR` is the folder holding `app.odin`, any name; also `APP_NAME` and `run`/`serve`; see `GAMES.md`.)
+- [x] A game can `import` the Anvil's `common` and `anvil_runtime` packages without relative paths into the Anvil repo, by a documented collection (for example `-collection:anvil=<anvil repo>`), and `build.sh` passes it. (`import cm "anvil:common"` and `"anvil:anvil_runtime"`; `-collection:anvil=<repo>` is always passed.)
+- [x] The web build can take the game's own `input_map.json` (not only the Anvil's) so a game's bindings and labels are its own. (From `APP_DIR` or its parent; `./build.sh check` verifies the page links it.)
+- [x] The way to do this is written in `CLAUDE.md` or a short `GAMES.md`, and one test or check builds a tiny external app for native and `js_wasm32` so the recipe cannot rot. (`GAMES.md`; `testdata/external_app` is built by `./build.sh check`.)
+- Needed by: "Go Get the Thing!" (`/home/yermom/git/go-get-the-thing`), which is only an `app/` package, a `game/` package and an embedded `world.json`.
 
 ## Not requested
 
