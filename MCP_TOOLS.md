@@ -262,7 +262,7 @@ Input schema: `{"type":"object","properties":{"set":{"type":"string"},"name":{"t
 
 ## `map_list`
 
-List the maps: name, terrain set, size, characters standing on it.
+List the maps: name, terrain set, size, characters and features on it.
 
 Input schema: `{"type":"object","properties":{}}`
 
@@ -280,13 +280,13 @@ Input schema: `{"type":"object","properties":{"name":{"type":"string"},"new_name
 
 ## `map_delete`
 
-Delete a map; characters standing on it stay in the table, standing nowhere.
+Delete a map; characters and features on it stay in the table, standing nowhere.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`
 
 ## `map_resize`
 
-Resize a map (1..64). New cells take the set's default terrain. Refused while a character stands in the part that would be cut off.
+Resize a map (1..64). New cells take the set's default terrain. Refused while a character or feature stands in the part that would be cut off.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["name","width","height"]}`
 
@@ -298,7 +298,7 @@ Input schema: `{"type":"object","properties":{"name":{"type":"string"},"set":{"t
 
 ## `map_get`
 
-Read a window of a map (default all): rows of symbols, a legend of symbol to terrain (the first 90 terrains of the set), and the characters standing in the window.
+Read a window of a map (default all): rows of symbols, a legend of symbol to terrain (the first 90 terrains of the set), and the characters and features standing in the window.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["name"]}`
 
@@ -406,15 +406,75 @@ Input schema: `{"type":"object","properties":{"id":{"type":"string"}}}`
 
 ## `play_walk`
 
-Try a layout: walk a character (default the player) from where it stands. moves is a string of u, d, l, r or a list of up/down/left/right. Reports each step (moved, solid, outside, occupied) and where it ends; the world is not changed.
+Try a layout: walk a character (default the player) from where it stands. moves is a string of u, d, l, r or a list of up/down/left/right. Reports each step (moved, solid, outside, occupied, feature) and where it ends; the world is not changed.
 
 Input schema: `{"type":"object","properties":{"moves":{"type":["string","array"],"items":{"type":"string"}},"id":{"type":"string"}},"required":["moves"]}`
 
+## `feature_type_list`
+
+List the feature types: name, sprite, tags.
+
+Input schema: `{"type":"object","properties":{}}`
+
+## `feature_type_new`
+
+Add a feature type (up to 64). sprite_set and sprite name the picture (both or neither); tags lists the tags every feature of the type has.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"sprite_set":{"type":"string"},"sprite":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["name"]}`
+
+## `feature_type_edit`
+
+Change a feature type; only the fields given change. Features of the type follow a rename.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"new_name":{"type":"string"},"sprite_set":{"type":"string"},"sprite":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["name"]}`
+
+## `feature_type_delete`
+
+Delete a feature type unless a feature has it.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`
+
+## `feature_list`
+
+List features (all, or those standing on map): id, name, type, where, and its own tag settings. A feature always blocks: no character can share its cell.
+
+Input schema: `{"type":"object","properties":{"map":{"type":"string"}}}`
+
+## `feature_new`
+
+Add a feature of a type (up to 2048), standing nowhere. Returns its id. tags_set / tags_cleared are its own tag settings.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["name","type"]}`
+
+## `feature_edit`
+
+Change a feature by id; only the fields given change (name, type, tags_set, tags_cleared).
+
+Input schema: `{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["id"]}`
+
+## `feature_delete`
+
+Delete a feature; it leaves its map.
+
+Input schema: `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`
+
+## `feature_place`
+
+Stand a feature in a map cell (moving it if it stood elsewhere). Refused if another feature or a character is in the cell.
+
+Input schema: `{"type":"object","properties":{"id":{"type":"string"},"map":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"}},"required":["id","map","x","y"]}`
+
+## `feature_unplace`
+
+Take a feature off its map.
+
+Input schema: `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`
+
 ## `render_map`
 
-Draw a map (or a window of it: x, y, width, height in cells) as a PNG, with its characters. zoom is pixels per tile pixel (default: the largest that keeps the picture within 512 pixels, at most 1024). grid true draws magenta cell lines so cells can be counted; characters false leaves them out.
+Draw a map (or a window of it: x, y, width, height in cells) as a PNG, with its features and characters. zoom is pixels per tile pixel (default: the largest that keeps the picture within 512 pixels, at most 1024). grid true draws magenta cell lines so cells can be counted; features false / characters false leave them out.
 
-Input schema: `{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"},"zoom":{"type":"integer"},"grid":{"type":"boolean"},"characters":{"type":"boolean"}},"required":["name"]}`
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"},"zoom":{"type":"integer"},"grid":{"type":"boolean"},"characters":{"type":"boolean"},"features":{"type":"boolean"}},"required":["name"]}`
 
 ## `render_tile`
 

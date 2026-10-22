@@ -198,11 +198,12 @@ tool_world_summary :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 	write_name_list(&b, "terrain_sets", w.set_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.sets[i].name)}, w)
 	write_name_list(&b, "sprite_sets", w.sprite_set_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.sprite_sets[i].name)}, w)
 	write_name_list(&b, "character_types", w.char_type_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.char_types[i].name)}, w)
+	write_name_list(&b, "feature_types", w.feature_type_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.feature_types[i].name)}, w)
 	write_name_list(&b, "maps", w.map_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.maps[i].name)}, w)
 	write_name_list(&b, "tags", w.tag_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.tags[i])}, w)
 	write_name_list(&b, "params", w.param_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.params[i].name)}, w)
 	write_name_list(&b, "sounds", w.sound_count, proc(w: ^cm.World, i: int) -> string {return cm.name_str(&w.sounds[i].name)}, w)
-	fmt.sbprintf(&b, `,"characters":%d,"has_player":%v}}`, w.character_count, w.player != cm.Uuid{})
+	fmt.sbprintf(&b, `,"characters":%d,"features":%d,"has_player":%v}}`, w.character_count, w.feature_count, w.player != cm.Uuid{})
 	return ok_result(strings.to_string(b))
 }
 

@@ -13,7 +13,7 @@ symbols: string = TERRAIN_SYMBOLS // (a variable, so it can be indexed)
 
 actor_tools :: proc() -> []Tool {
 	@(static) table := [?]Tool {
-		{"map_list", "List the maps: name, terrain set, size, characters standing on it.", `{"type":"object","properties":{}}`, tool_map_list},
+		{"map_list", "List the maps: name, terrain set, size, characters and features on it.", `{"type":"object","properties":{}}`, tool_map_list},
 		{
 			"map_new",
 			"Add a map (up to 64) using a terrain set; every cell takes the set's default terrain. width and height default to 32 (1..64).",
@@ -21,10 +21,10 @@ actor_tools :: proc() -> []Tool {
 			tool_map_new,
 		},
 		{"map_rename", "Rename a map.", RENAME_ARG, tool_map_rename},
-		{"map_delete", "Delete a map; characters standing on it stay in the table, standing nowhere.", NAME_ARG, tool_map_delete},
+		{"map_delete", "Delete a map; characters and features on it stay in the table, standing nowhere.", NAME_ARG, tool_map_delete},
 		{
 			"map_resize",
-			"Resize a map (1..64). New cells take the set's default terrain. Refused while a character stands in the part that would be cut off.",
+			"Resize a map (1..64). New cells take the set's default terrain. Refused while a character or feature stands in the part that would be cut off.",
 			`{"type":"object","properties":{"name":{"type":"string"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["name","width","height"]}`,
 			tool_map_resize,
 		},
@@ -36,7 +36,7 @@ actor_tools :: proc() -> []Tool {
 		},
 		{
 			"map_get",
-			"Read a window of a map (default all): rows of symbols, a legend of symbol to terrain (the first 90 terrains of the set), and the characters standing in the window.",
+			"Read a window of a map (default all): rows of symbols, a legend of symbol to terrain (the first 90 terrains of the set), and the characters and features standing in the window.",
 			`{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["name"]}`,
 			tool_map_get,
 		},
@@ -119,7 +119,7 @@ actor_tools :: proc() -> []Tool {
 		{"player_set", "Make a character the world's player; an empty or missing id means nobody.", `{"type":"object","properties":{"id":{"type":"string"}}}`, tool_player_set},
 		{
 			"play_walk",
-			"Try a layout: walk a character (default the player) from where it stands. moves is a string of u, d, l, r or a list of up/down/left/right. Reports each step (moved, solid, outside, occupied) and where it ends; the world is not changed.",
+			"Try a layout: walk a character (default the player) from where it stands. moves is a string of u, d, l, r or a list of up/down/left/right. Reports each step (moved, solid, outside, occupied, feature) and where it ends; the world is not changed.",
 			`{"type":"object","properties":{"moves":{"type":["string","array"],"items":{"type":"string"}},"id":{"type":"string"}},"required":["moves"]}`,
 			tool_play_walk,
 		},
@@ -232,7 +232,7 @@ tool_map_list :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 			strings.write_string(&b, ",")
 		}
 		m := &w.maps[i]
-		fmt.sbprintf(&b, `{{"name":%s,"set":%s,"width":%d,"height":%d,"characters":%d}}`, quote(cm.name_str(&m.name)), quote(cm.name_str(&m.set)), m.width, m.height, cm.world_map_character_count(w, i))
+		fmt.sbprintf(&b, `{{"name":%s,"set":%s,"width":%d,"height":%d,"characters":%d,"features":%d}}`, quote(cm.name_str(&m.name)), quote(cm.name_str(&m.set)), m.width, m.height, cm.world_map_character_count(w, i), cm.world_map_feature_count(w, i))
 	}
 	strings.write_string(&b, "]}")
 	return ok_result(strings.to_string(b))
@@ -404,6 +404,18 @@ tool_map_get :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 				first = false
 				c := &w.characters[ci]
 				fmt.sbprintf(&b, `{{"id":%s,"name":%s,"type":%s,"x":%d,"y":%d}}`, quote(cm.uuid_to_string(c.uuid)), quote(cm.name_str(&c.name)), quote(cm.name_str(&c.type)), x, y)
+			}
+		}
+	}
+	strings.write_string(&b, `],"features":[`)
+	first = true
+	for y in y0 ..< y0 + rows {
+		for x in x0 ..< x0 + cols {
+			if fi := cm.world_find_feature(w, m.features[y][x]); fi >= 0 {
+				strings.write_string(&b, first ? "" : ",")
+				first = false
+				f := &w.features[fi]
+				fmt.sbprintf(&b, `{{"id":%s,"name":%s,"type":%s,"x":%d,"y":%d}}`, quote(cm.uuid_to_string(f.uuid)), quote(cm.name_str(&f.name)), quote(cm.name_str(&f.type)), x, y)
 			}
 		}
 	}
