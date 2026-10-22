@@ -138,6 +138,16 @@ world_tag_uses :: proc(w: ^World, tag: int) -> (n: int) {
 			n += 1
 		}
 	}
+	for i in 0 ..< w.feature_type_count {
+		if w.feature_types[i].tags & b != 0 {
+			n += 1
+		}
+	}
+	for i in 0 ..< w.feature_count {
+		if (w.features[i].tags_set | w.features[i].tags_cleared) & b != 0 {
+			n += 1
+		}
+	}
 	for mi in 0 ..< w.map_count {
 		m := &w.maps[mi]
 		for y in 0 ..< m.height {
@@ -176,6 +186,13 @@ world_delete_tag :: proc(w: ^World, i: int) -> (uses: int, ok: bool) {
 	for k in 0 ..< w.character_count {
 		w.characters[k].tags_set = close_gap(w.characters[k].tags_set, i)
 		w.characters[k].tags_cleared = close_gap(w.characters[k].tags_cleared, i)
+	}
+	for k in 0 ..< w.feature_type_count {
+		w.feature_types[k].tags = close_gap(w.feature_types[k].tags, i)
+	}
+	for k in 0 ..< w.feature_count {
+		w.features[k].tags_set = close_gap(w.features[k].tags_set, i)
+		w.features[k].tags_cleared = close_gap(w.features[k].tags_cleared, i)
 	}
 	for mi in 0 ..< w.map_count {
 		m := &w.maps[mi]
@@ -245,6 +262,41 @@ world_cycle_character_tag :: proc(w: ^World, ci, tag: int) -> bool {
 	}
 	c := &w.characters[ci]
 	c.tags_set, c.tags_cleared = cycled(c.tags_set, c.tags_cleared, tag)
+	return true
+}
+
+world_toggle_feature_type_tag :: proc(w: ^World, ft, tag: int) -> bool {
+	if ft < 0 || ft >= w.feature_type_count || tag < 0 || tag >= w.tag_count {
+		return false
+	}
+	w.feature_types[ft].tags ~= tag_bit(tag)
+	return true
+}
+
+// Whether a feature has the tag: its own setting if it has one, else its type's.
+world_feature_has_tag :: proc(w: ^World, fi, tag: int) -> bool {
+	if fi < 0 || fi >= w.feature_count || tag < 0 || tag >= WORLD_MAX_TAGS {
+		return false
+	}
+	f := &w.features[fi]
+	switch tag_state(f.tags_set, f.tags_cleared, tag) {
+	case .Set:
+		return true
+	case .Cleared:
+		return false
+	case .Inherit:
+	}
+	ti := world_find_feature_type(w, name_str(&f.type))
+	return ti >= 0 && w.feature_types[ti].tags & tag_bit(tag) != 0
+}
+
+// Inherit -> set -> cleared -> inherit, for a feature.
+world_cycle_feature_tag :: proc(w: ^World, fi, tag: int) -> bool {
+	if fi < 0 || fi >= w.feature_count || tag < 0 || tag >= w.tag_count {
+		return false
+	}
+	f := &w.features[fi]
+	f.tags_set, f.tags_cleared = cycled(f.tags_set, f.tags_cleared, tag)
 	return true
 }
 

@@ -71,7 +71,7 @@ Decisions: the runtime lives in a new `runtime/` package that imports `common`; 
 - [x] 9. External app folders: `APP_DIR`/`APP_NAME`/`OUT_DIR`, `anvil` collection, the game's own `input_map.json` for the web page, `GAMES.md`, a check that builds `testdata/external_app` for native and wasm
 
 ## Features (plan in FEATURES.md)
-- [ ] 1. Model and file: `common/world_features.odin`, map grids, shared cell rule, tests
+- [x] 1. Model and file: `common/world_features.odin`, map grids, shared cell rule, tests
 - [ ] 2. Feature type editor, feature editor, hub rows, Tags screens
 - [ ] 3. Map editor Features layer and shared drawing
 - [ ] 4. Runtime queries, Play_State features, Move_Result.Feature, world editor Play mode

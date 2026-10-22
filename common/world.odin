@@ -121,6 +121,7 @@ World_Map :: struct {
 	width, height: int, // columns and rows, 1..MAP_MAX
 	cells:         [MAP_MAX][MAP_MAX]u8, // [row][column]: a terrain index in the set; only the visible region counts
 	characters:    [MAP_MAX][MAP_MAX]Uuid, // [row][column]: the character standing there (a uuid of the world's table) or none
+	features:      [MAP_MAX][MAP_MAX]Uuid, // [row][column]: the feature standing there (a uuid of the features table) or none; never together with a character
 	cell_tags:     [MAP_MAX][MAP_MAX]Cell_Tags, // [row][column]: a cell's own tag settings (else its terrain's)
 }
 
@@ -140,6 +141,10 @@ World :: struct {
 	char_types:     [WORLD_MAX_CHARACTER_TYPES]Character_Type,
 	character_count: int,
 	characters:     [WORLD_MAX_CHARACTERS]Character, // the table every map cell and the player refer into, by uuid
+	feature_type_count: int,
+	feature_types:  [WORLD_MAX_FEATURE_TYPES]Feature_Type,
+	feature_count:  int,
+	features:       [WORLD_MAX_FEATURES]Feature, // like the characters table: map cells refer into it by uuid
 	player:         Uuid, // the player's character, or none
 	uuid_state:     u64, // the generator for new uuids (see world_new_uuid)
 	tag_count:      int,
@@ -655,6 +660,8 @@ world_duplicate_map :: proc(w: ^World, i: int) -> int {
 		w.maps[k] = w.maps[k - 1]
 	}
 	w.maps[at] = w.maps[i]
+	w.maps[at].characters = {} // a character or feature stands in one cell of the world: the copy has none
+	w.maps[at].features = {}
 	name_assign(&w.maps[at].name, unique_among(fmt.tprintf("%s_copy", name_str(&w.maps[i].name)), map_name_list(w)))
 	w.map_count += 1
 	return at
@@ -863,6 +870,8 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 				}
 			}
 		}
+		strings.write_string(&b, "],\n      \"features\": [")
+		write_map_features(&b, m)
 		strings.write_string(&b, "],\n      \"cell_tags\": [")
 		first_tags := true
 		for y in 0 ..< m.height {
@@ -884,6 +893,7 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 	write_sprite_sets(&b, w)
 	write_params(&b, w)
 	write_sounds(&b, w)
+	write_features(&b, w)
 	write_characters(&b, w)
 	strings.write_string(&b, "}\n")
 	return strings.to_string(b)
@@ -1124,6 +1134,9 @@ world_from_json :: proc(data: []u8, dst: ^World) -> (err: string) {
 		return msg
 	}
 	if msg := read_characters(root, tmp); msg != "" {
+		return msg
+	}
+	if msg := read_features(root, tmp); msg != "" {
 		return msg
 	}
 	tmp.uuid_state = dst.uuid_state // new uuids keep coming from the running generator

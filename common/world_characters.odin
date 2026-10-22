@@ -105,7 +105,7 @@ world_new_uuid :: proc(w: ^World) -> Uuid {
 		}
 		u[6] = u[6] & 0x0F | 0x40 // version 4
 		u[8] = u[8] & 0x3F | 0x80 // variant
-		if world_find_character(w, u) < 0 {
+		if world_find_character(w, u) < 0 && world_find_feature(w, u) < 0 {
 			return u
 		}
 	}
@@ -386,7 +386,9 @@ Place_Result :: enum {
 	Placed,
 	Taken, // another character is in that cell
 	Outside, // not a cell of the map
-	Unknown, // no such map or character
+	Unknown, // no such map, character or feature
+	Feature_There, // (placing a character) a feature stands in that cell: features always block
+	Character_There, // (placing a feature) a character stands in that cell
 }
 
 // The table index of the character standing in a cell, or -1.
@@ -435,6 +437,9 @@ world_place_character :: proc(w: ^World, mi, x, y: int, u: Uuid) -> Place_Result
 	if !uuid_is_none(m.characters[y][x]) {
 		return .Taken
 	}
+	if !uuid_is_none(m.features[y][x]) {
+		return .Feature_There
+	}
 	world_unplace_character(w, u)
 	m.characters[y][x] = u
 	return .Placed
@@ -449,7 +454,7 @@ world_unplace_character :: proc(w: ^World, u: Uuid) -> bool {
 	return false
 }
 
-// How many characters stand in the part of map mi that a new size would cut off.
+// How many characters and features stand in the part of map mi that a new size would cut off.
 world_map_shrink_blocked :: proc(w: ^World, mi, width, height: int) -> (n: int) {
 	if mi < 0 || mi >= w.map_count {
 		return 0
@@ -462,7 +467,7 @@ world_map_shrink_blocked :: proc(w: ^World, mi, width, height: int) -> (n: int) 
 			}
 		}
 	}
-	return
+	return n + world_map_feature_shrink_blocked(w, mi, width, height)
 }
 
 // How many characters stand on map mi.

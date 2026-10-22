@@ -915,9 +915,11 @@ tool_character_place :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 		return changed(s, "placed")
 	case .Taken:
 		return fail("another character stands in that cell")
+	case .Feature_There:
+		return fail("a feature stands in that cell: features always block")
 	case .Outside:
 		return fail("that cell is outside the map")
-	case .Unknown:
+	case .Unknown, .Character_There:
 		return fail("no such map or character")
 	}
 	return fail("not placed")

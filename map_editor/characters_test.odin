@@ -555,7 +555,7 @@ test_the_characters_layer_text_is_in_the_font_and_fits :: proc(t: ^testing.T) {
 			}
 		}
 	}
-	for note in ([]string{NOTE_NO_CHARACTERS, NOTE_NEED_TYPE, NOTE_CELL_TAKEN, NOTE_NOT_PLACED, NOTE_CHAR_FULL, NOTE_NAME_EMPTY, NOTE_NAME_BAD, "1024 CHARACTERS IN THE WAY"}) {
+	for note in ([]string{NOTE_NO_CHARACTERS, NOTE_NEED_TYPE, NOTE_CELL_TAKEN, NOTE_CELL_FEATURE, NOTE_NOT_PLACED, NOTE_CHAR_FULL, NOTE_NAME_EMPTY, NOTE_NAME_BAD, "1024 CHARACTERS IN THE WAY"}) {
 		testing.expectf(t, cm.text_is_drawable(note) && INFO_X + cm.text_width(note) <= cm.SCREEN_W - 2, "note: %s", note)
 	}
 	for word in ([]string{"CHAR", "TYPE", "PLAYER", "PLACE", "NEW", "UNPLACE", "DEL", "RENAME", "LAYER", "NONE", "YES", "NO", "OFF MAP", "AT 63,63"}) {

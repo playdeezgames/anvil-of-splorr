@@ -23,6 +23,7 @@ Layer :: enum {
 NOTE_NO_CHARACTERS :: "NO CHARACTERS YET: USE NEW"
 NOTE_NEED_TYPE :: "ADD A CHARACTER TYPE FIRST"
 NOTE_CELL_TAKEN :: "THAT CELL IS TAKEN"
+NOTE_CELL_FEATURE :: "A FEATURE STANDS THERE"
 NOTE_NOT_PLACED :: "NOT ON ANY MAP"
 NOTE_CHAR_FULL :: "THE WORLD HAS 1024 CHARACTERS"
 NOTE_NAME_EMPTY :: "A NAME CANNOT BE EMPTY"
@@ -111,7 +112,9 @@ char_green :: proc(e: ^Editor) {
 		e.dirty = true
 	case .Taken:
 		e.note = NOTE_CELL_TAKEN
-	case .Outside, .Unknown:
+	case .Feature_There:
+		e.note = NOTE_CELL_FEATURE
+	case .Outside, .Unknown, .Character_There:
 	}
 }
 

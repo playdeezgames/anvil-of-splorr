@@ -99,12 +99,12 @@ world_duplicate_sprite_set :: proc(w: ^World, i: int) -> int {
 
 // How many character types draw sprites of this set.
 world_sprite_set_uses :: proc(w: ^World, set: string) -> int {
-	return world_sprite_set_char_type_uses(w, set)
+	return world_sprite_set_char_type_uses(w, set) + world_sprite_set_feature_type_uses(w, set)
 }
 
 // How many character types draw this sprite.
 world_sprite_uses :: proc(w: ^World, set, sprite: string) -> int {
-	return world_sprite_char_type_uses(w, set, sprite)
+	return world_sprite_char_type_uses(w, set, sprite) + world_sprite_feature_type_uses(w, set, sprite)
 }
 
 // Deletes set i unless a character type draws one of its sprites. Returns false if it is in use
@@ -129,6 +129,7 @@ world_rename_sprite_set :: proc(w: ^World, i: int, name: string) -> Name_Problem
 		return p
 	}
 	char_types_follow_sprite_set(w, name_str(&w.sprite_sets[i].name), name)
+	feature_types_follow_sprite_set(w, name_str(&w.sprite_sets[i].name), name)
 	name_assign(&w.sprite_sets[i].name, name)
 	return .None
 }
@@ -376,6 +377,7 @@ world_rename_sprite :: proc(w: ^World, si, i: int, name: string) -> Name_Problem
 		return p
 	}
 	char_types_follow_sprite(w, name_str(&s.name), name_str(&s.sprites[i].name), name)
+	feature_types_follow_sprite(w, name_str(&s.name), name_str(&s.sprites[i].name), name)
 	name_assign(&s.sprites[i].name, name)
 	return .None
 }
