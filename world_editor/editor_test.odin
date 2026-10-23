@@ -6,6 +6,7 @@ import cce "../character_editor"
 import cm "../common"
 import fe "../feature_editor"
 import ite "../item_type_editor"
+import me "../map_editor"
 import spe "../sprite_editor"
 import "core:fmt"
 import "core:strings"
@@ -2275,4 +2276,40 @@ test_item_types_are_added_in_the_hosted_editor_and_mark_the_world_changed :: pro
 	testing.expect_value(t, e.item_type_ed.row, ite.Setup_Row.New)
 	press(e, .Green) // New: names it right away
 	testing.expect(t, e.world.item_type_count == before + 1 && e.dirty)
+}
+
+@(test)
+test_the_map_editors_items_layer_opens_the_cells_inventory_and_comes_back :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	cm.world_add_item_type(&e.world, "gold")
+	e.section = .Maps
+	e.mode = .List
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Map)
+	for _ in 0 ..< 3 {
+		me.toggle_layer(&e.map_ed) // characters, features, items
+	}
+	testing.expect_value(t, e.map_ed.layer, me.Layer.Items)
+	e.dirty = false
+	press(e, .Right, .Down) // the cell 1,1
+	press(e, .Green)
+	testing.expect(t, e.mode == .Inventory && e.inventory_ed.owner == cm.owner_cell(0, 1, 1))
+	press(e, .Green, .Green) // the NEW row, the first type
+	testing.expect(t, cm.world_owner_entry_count(&e.world, cm.owner_cell(0, 1, 1)) == 1 && e.dirty)
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Map)
+	testing.expect(t, e.map_ed.cx == 1 && e.map_ed.cy == 1 && e.map_ed.layer == .Items) // the map editor kept its place
+	// The cell is drawn on the map and listed; clearing it from the layer (twice) removes it.
+	testing.expect_value(t, me.cell_entry_count(&e.map_ed), 1)
+	press(e, .Yellow)
+	for _ in 0 ..< 10 {
+		if e.map_ed.row == .Cell_Clear {
+			break
+		}
+		press(e, .Down)
+	}
+	press(e, .Green, .Green)
+	testing.expect_value(t, e.world.inventory_count, 0)
 }

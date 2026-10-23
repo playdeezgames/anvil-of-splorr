@@ -569,6 +569,10 @@ sync_embedded :: proc(e: ^Editor) {
 			e.mode = .List
 		}
 	case .Map:
+		if e.map_ed.items_requested {
+			e.map_ed.items_requested = false
+			open_inventory(e, me.cursor_owner(&e.map_ed), .Map) // the map editor keeps its place behind it
+		}
 		if e.map_ed.dirty {
 			e.map_ed.dirty = false
 			touched(e)

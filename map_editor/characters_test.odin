@@ -111,6 +111,15 @@ test_the_layer_switch_and_the_rows_each_layer_offers :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, seen == {.Feature, .Feat_Type, .Feat_Rename, .Feat_New, .Feat_Unplace, .Feat_Delete, .Zoom, .Layer, .Tags})
 	e.row = .Layer
+	press(e, .Green) // features -> items -> terrain
+	testing.expect(t, e.layer == .Items && e.row == .Cell_Open)
+	seen = {}
+	for _ in 0 ..< 12 {
+		seen += {e.row}
+		press(e, .Down)
+	}
+	testing.expect(t, seen == {.Cell_Open, .Cell_Clear, .Zoom, .Layer}) // no tags: an inventory has none of its own
+	e.row = .Layer
 	press(e, .Green)
 	testing.expect(t, e.layer == .Terrain && e.row == .Terrain)
 	seen = {}
@@ -123,6 +132,8 @@ test_the_layer_switch_and_the_rows_each_layer_offers :: proc(t: ^testing.T) {
 	testing.expect_value(t, e.layer, Layer.Characters)
 	click_rect(e, LAYER_BUTTON)
 	testing.expect_value(t, e.layer, Layer.Features)
+	click_rect(e, LAYER_BUTTON)
+	testing.expect_value(t, e.layer, Layer.Items)
 	click_rect(e, LAYER_BUTTON)
 	testing.expect_value(t, e.layer, Layer.Terrain)
 	// Switching abandons an armed tool.
@@ -454,6 +465,7 @@ test_flips_rotations_and_resizing_carry_characters_in_the_editor :: proc(t: ^tes
 	e, world := char_editor(3, 3)
 	defer free_both(e, world)
 	toggle_layer(e) // features
+	toggle_layer(e) // items
 	toggle_layer(e) // terrain tools
 	// Goo is at 1,0: a flip of the columns leaves it, a flip of the rows moves it.
 	run(e, .Flip_Vertical)
@@ -470,7 +482,7 @@ test_flips_rotations_and_resizing_carry_characters_in_the_editor :: proc(t: ^tes
 	press(e, .Left)
 	testing.expect_value(t, current_map(e).width, 2) // Goo at column 1 still fits
 	press(e, .Left)
-	testing.expect(t, current_map(e).width == 2 && e.note == "1 CHARACTER IN THE WAY")
+	testing.expect(t, current_map(e).width == 2 && e.note == "1 THING IN THE WAY")
 	goto_row(e, .Rows)
 	press(e, .Left)
 	testing.expect(t, current_map(e).height == 2 && cm.world_character_at(world, 0, 1, 0) == 0)
@@ -567,7 +579,7 @@ test_the_characters_layer_text_is_in_the_font_and_fits :: proc(t: ^testing.T) {
 			}
 		}
 	}
-	for note in ([]string{NOTE_NO_CHARACTERS, NOTE_NEED_TYPE, NOTE_CELL_TAKEN, NOTE_CELL_FEATURE, NOTE_NOT_PLACED, NOTE_CHAR_FULL, NOTE_NAME_EMPTY, NOTE_NAME_BAD, "1024 CHARACTERS IN THE WAY"}) {
+	for note in ([]string{NOTE_NO_CHARACTERS, NOTE_NEED_TYPE, NOTE_CELL_TAKEN, NOTE_CELL_FEATURE, NOTE_NOT_PLACED, NOTE_CHAR_FULL, NOTE_NAME_EMPTY, NOTE_NAME_BAD, "2048 THINGS IN THE WAY"}) {
 		testing.expectf(t, cm.text_is_drawable(note) && INFO_X + cm.text_width(note) <= cm.SCREEN_W - 2, "note: %s", note)
 	}
 	for word in ([]string{"CHAR", "TYPE", "PLAYER", "PLACE", "NEW", "UNPLACE", "DEL", "RENAME", "LAYER", "NONE", "YES", "NO", "OFF MAP", "AT 63,63"}) {
@@ -701,6 +713,7 @@ test_a_characters_tags_are_edited_from_the_map_too :: proc(t: ^testing.T) {
 	press(e, .Green)
 	testing.expect(t, e.mode == .Setup && e.note == NOTE_NO_CHARACTERS)
 	toggle_layer(e) // features (none yet)
+	toggle_layer(e) // items
 	toggle_layer(e) // terrain
 	e.mode = .Setup
 	e.row = .Tags
@@ -728,6 +741,9 @@ test_the_tags_screen_draws_on_screen_for_both_layers :: proc(t: ^testing.T) {
 	}
 	cm.world_add_feature(world, cm.world_add_feature_type(world, "tree")) // the Features layer needs one to tag
 	for layer in Layer {
+		if layer == .Items {
+			continue // (an inventory has no tags of its own)
+		}
 		e.layer = layer
 		e.mode = .Setup
 		e.row = .Tags

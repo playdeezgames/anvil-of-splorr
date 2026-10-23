@@ -17,6 +17,15 @@ label :: proc(e: ^Editor, a: cm.Action) -> string {
 
 // Strings are on the temp allocator: valid until the frontend's next free_all.
 banner_text :: proc(e: ^Editor) -> string {
+	if e.layer == .Items && e.mode != .Tags && e.mode != .Text {
+		if e.confirm_delete {
+			return fmt.tprintf("CLEAR THE CELL?  %s: CONFIRM", label(e, .Green))
+		}
+		if e.mode == .Setup {
+			return fmt.tprintf("SETUP   %s: DONE", label(e, .Red))
+		}
+		return fmt.tprintf("ITEMS   %s: OPEN", label(e, .Green))
+	}
 	if e.layer == .Features && e.mode != .Tags && e.mode != .Text {
 		if e.confirm_delete {
 			return fmt.tprintf("DELETE IT?  %s: CONFIRM", label(e, .Green))
@@ -69,6 +78,24 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 			fmt.tprintf("%s: INHERIT, THEN SET, THEN CLEAR FOR %s", l(e, .Green), what),
 			fmt.tprintf("%s: BACK", l(e, .Red)),
 			"MOUSE: CLICK A TAG; WHEEL SCROLLS",
+		}
+		return lines, 4
+	}
+	if e.layer == .Items {
+		if e.mode == .Setup {
+			lines = {
+				fmt.tprintf("%s/%s: CHOOSE A ROW", l(e, .Up), l(e, .Down)),
+				fmt.tprintf("%s/%s: CHANGE THE ZOOM", l(e, .Left), l(e, .Right)),
+				fmt.tprintf("%s: RUN OPEN / CLEAR (TWICE) / LAYER", l(e, .Green)),
+				fmt.tprintf("%s: DONE", l(e, .Red)),
+			}
+			return lines, 4
+		}
+		lines = {
+			fmt.tprintf("%s/%s/%s/%s: MOVE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
+			fmt.tprintf("%s: OPEN THIS CELL'S ITEMS  %s: SETUP", l(e, .Green), l(e, .Yellow)),
+			fmt.tprintf("%s: BACK", l(e, .Red)),
+			"MOUSE: CLICK A CELL TO OPEN ITS ITEMS",
 		}
 		return lines, 4
 	}
@@ -216,6 +243,16 @@ feat_buttons :: proc() -> [6]Button {
 	}
 }
 
+// The Items layer's buttons.
+item_buttons :: proc() -> [4]Button {
+	return {
+		{ITEM_OPEN_BUTTON, "OPEN", .Cell_Open, .None, .None},
+		{ITEM_CLEAR_BUTTON, "CLEAR", .Cell_Clear, .None, .None},
+		{BACK_BUTTON, "BACK", .Terrain, .None, .None},
+		{LAYER_BUTTON, "LAYER", .Layer, .None, .None},
+	}
+}
+
 // The Characters layer's buttons.
 char_buttons :: proc() -> [7]Button {
 	return {
@@ -262,6 +299,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		player_mark = HILITE,
 	}
 	cm.world_draw_terrain(r, e.world, window) // the same code the game draws its maps with
+	cm.world_draw_authored_inventories(r, e.world, window) // what lies in a cell, under everything else
 	cm.world_draw_authored_features(r, e.world, window) // features under characters
 	cm.world_draw_authored_characters(r, e.world, window)
 	if cell_visible(e, e.cx, e.cy) {
@@ -291,6 +329,8 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, banner_text(e), (warning || e.mode != .Draw) ? BG : TEXT)
 	if e.note != "" {
 		cm.draw_text(r, INFO_X, INFO_Y, e.note, WARN)
+	} else if e.layer == .Items {
+		cm.draw_text(r, INFO_X, INFO_Y, fmt.tprintf("CURSOR: %d,%d  %s%s", e.cx, e.cy, cell_items_text(e), e.dirty ? " *" : ""), TEXT)
 	} else if e.layer == .Features {
 		what := "-"
 		if i := cm.world_feature_at(e.world, e.index, e.cx, e.cy); i >= 0 {
@@ -322,7 +362,15 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		buttons:     bool, // false: a readout with no - and + buttons
 	}
 	rows: [5]Panel_Row
-	if e.layer == .Features {
+	if e.layer == .Items {
+		rows = {
+			{TERRAIN_MINUS, TERRAIN_PLUS, .Layer, "CELL", fmt.tprintf("%d,%d", e.cx, e.cy), false},
+			{COLUMNS_MINUS, COLUMNS_PLUS, .Layer, "HERE", cell_items_text(e), false},
+			{ROWS_MINUS, ROWS_PLUS, .Layer, "ON MAP", fmt.tprintf("%d CELLS", cm.world_map_inventory_count(e.world, e.index)), false},
+			{SET_MINUS, SET_PLUS, .Layer, "ITEMS", fmt.tprintf("%d", map_item_total(e)), false},
+			{ZOOM_MINUS, ZOOM_PLUS, .Zoom, "ZOOM", zoom_text, true},
+		}
+	} else if e.layer == .Features {
 		cur_name, cur_type, tags := "NONE", "-", "-"
 		if has_features(e) {
 			f := current_feature(e)
@@ -363,9 +411,11 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 			{ZOOM_MINUS, ZOOM_PLUS, .Zoom, "ZOOM", zoom_text, true},
 		}
 	}
-	// The TAGS button sits right of the zoom value, in both layers.
-	fill(r, TAGS_BUTTON, PANEL)
-	cm.draw_text(r, TAGS_BUTTON.x + (TAGS_BUTTON.w - cm.text_width("TAGS")) / 2, TAGS_BUTTON.y + 3, "TAGS", e.mode == .Setup && e.row == .Tags ? HILITE : TEXT)
+	// The TAGS button sits right of the zoom value, in the layers that have tags to edit.
+	if e.layer != .Items {
+		fill(r, TAGS_BUTTON, PANEL)
+		cm.draw_text(r, TAGS_BUTTON.x + (TAGS_BUTTON.w - cm.text_width("TAGS")) / 2, TAGS_BUTTON.y + 3, "TAGS", e.mode == .Setup && e.row == .Tags ? HILITE : TEXT)
+	}
 	for row in rows {
 		for b in ([2]struct {
 				rc:  Rect,
@@ -386,7 +436,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	}
 
 	// The picker: the page of 16 terrains (or characters) holding the current one, which is framed.
-	if e.layer == .Features {
+	if e.layer == .Items {
+		draw_item_list(e, r)
+	} else if e.layer == .Features {
 		draw_feature_picker(e, r)
 	} else if e.layer == .Characters {
 		draw_character_picker(e, r)
@@ -418,12 +470,15 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 				lit = true
 			}
 			turn_blocked := e.layer == .Terrain && m.width != m.height && (btn.rc == ROT_L_BUTTON || btn.rc == ROT_R_BUTTON) // (the other layers' buttons share those places)
-			needs_char := (e.layer == .Characters && !has_characters(e) && btn.row != .Char_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON) || (e.layer == .Features && !has_features(e) && btn.row != .Feat_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON)
+			needs_char := (e.layer == .Items && btn.row == .Cell_Clear && cell_entry_count(e) == 0) || (e.layer == .Characters && !has_characters(e) && btn.row != .Char_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON) || (e.layer == .Features && !has_features(e) && btn.row != .Feat_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON)
 			fill(r, btn.rc, lit ? HILITE : PANEL)
 			cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.txt, lit ? BG : ((turn_blocked || needs_char) ? DIM : TEXT))
 		}
 	}
-	if e.layer == .Features {
+	if e.layer == .Items {
+		ib := item_buttons()
+		draw_buttons(e, r, ib[:])
+	} else if e.layer == .Features {
 		fb := feat_buttons()
 		draw_buttons(e, r, fb[:])
 	} else if e.layer == .Characters {
@@ -457,6 +512,22 @@ draw_feature_sprite :: proc(e: ^Editor, r: ^cm.Renderer, area: Rect, fi: int, ba
 		cm.canvas_draw_checker(r, area, cm.Color{96, 96, 108}, cm.Color{72, 72, 84}, max(2, area.w / 4))
 	}
 	cm.world_draw_feature(r, e.world, fi, area, cm.SURFACE, UNSET)
+}
+
+// Where the picker is in the other layers, the Items layer lists what lies in the cell under the
+// cursor (read-only; the OPEN button or green edits it), with the first entry's picture beside it.
+draw_item_list :: proc(e: ^Editor, r: ^cm.Renderer) {
+	area := Rect{PICKER_X, PICKER_Y, PICKER_COLS * PICKER_PITCH, PICKER_ROWS * PICKER_PITCH}
+	fill(r, area, cm.Color{22, 22, 28})
+	n := cell_entry_count(e)
+	for i in 0 ..< min(n, ITEM_LIST_LINES) {
+		cm.draw_text(r, area.x + 2, area.y + 2 + i * cm.LINE_ADVANCE, item_list_line(e, i), TEXT)
+	}
+	if n > ITEM_LIST_LINES {
+		cm.draw_text(r, area.x + 2, area.y + 2 + ITEM_LIST_LINES * cm.LINE_ADVANCE, fmt.tprintf("AND %d MORE", n - ITEM_LIST_LINES), DIM)
+	} else if n == 0 {
+		cm.draw_text(r, area.x + 2, area.y + 2, "NOTHING LIES HERE", DIM)
+	}
 }
 
 // The picker of the Features layer: the page holding the current feature.

@@ -19,6 +19,7 @@ Layer :: enum {
 	Terrain,
 	Characters,
 	Features,
+	Items,
 }
 
 NOTE_NO_CHARACTERS :: "NO CHARACTERS YET: USE NEW"
@@ -39,8 +40,12 @@ row_offered :: proc(layer: Layer, row: Setup_Row) -> bool {
 		return layer == .Characters
 	case .Feature, .Feat_Type, .Feat_Rename, .Feat_New, .Feat_Unplace, .Feat_Delete:
 		return layer == .Features
-	case .Zoom, .Layer, .Tags:
+	case .Cell_Open, .Cell_Clear:
+		return layer == .Items
+	case .Zoom, .Layer:
 		return true
+	case .Tags:
+		return layer != .Items
 	}
 	return true
 }
@@ -222,7 +227,7 @@ delete_character :: proc(e: ^Editor) {
 // The layer switch: terrain painting or characters. Abandons any rectangle in progress.
 toggle_layer :: proc(e: ^Editor) {
 	cancel_shape(e)
-	e.layer = Layer((int(e.layer) + 1) % len(Layer)) // terrain, characters, features, and round again
+	e.layer = Layer((int(e.layer) + 1) % len(Layer)) // terrain, characters, features, items, and round again
 	e.confirm_delete = false
 	switch e.layer {
 	case .Terrain:
@@ -231,6 +236,8 @@ toggle_layer :: proc(e: ^Editor) {
 		e.row = .Character
 	case .Features:
 		e.row = .Feature
+	case .Items:
+		e.row = .Cell_Open
 	}
 }
 

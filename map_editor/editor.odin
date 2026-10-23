@@ -65,6 +65,8 @@ Setup_Row :: enum {
 	Feat_New,
 	Feat_Unplace,
 	Feat_Delete,
+	Cell_Open, // Items layer: open the inventory screen of the cell under the cursor
+	Cell_Clear, // Items layer: throw that cell's items away (twice: the first asks)
 }
 
 Point_Tool :: enum {
@@ -82,6 +84,7 @@ Editor :: struct {
 	terrain:        int, // the current terrain: an index in the map's terrain set
 	dirty:          bool, // the map (or its size or set) changed since editor_begin
 	exit_requested: bool,
+	items_requested: bool, // the host should open the inventory screen of the cell under the cursor
 	paint:          Maybe(int), // mouse drag in progress: the terrain being painted
 	shape:          cm.Shape, // the rectangle being placed (Rect mode) or armed with the mouse
 	ax, ay:         int, // the rectangle's first corner
@@ -293,7 +296,7 @@ step_terrain :: proc(e: ^Editor, delta: int) {
 @(private = "file")
 set_size :: proc(e: ^Editor, columns, rows: int) {
 	if n := cm.world_map_shrink_blocked(e.world, e.index, clamp(columns, 1, cm.MAP_MAX), clamp(rows, 1, cm.MAP_MAX)); n > 0 {
-		e.note = fmt.tprintf("%d CHARACTER%s IN THE WAY", n, n == 1 ? "" : "S")
+		e.note = fmt.tprintf("%d THING%s IN THE WAY", n, n == 1 ? "" : "S")
 		return
 	}
 	if cm.world_map_set_size(e.world, e.index, columns, rows) {
@@ -457,6 +460,8 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 				step_feature(e, -v.dy * FEAT_PAGE)
 			} else if e.layer == .Characters {
 				step_character(e, -v.dy * CHAR_PAGE)
+			} else if e.layer == .Items {
+				// (the list there only shows the cell's entries)
 			} else {
 				step_terrain(e, -v.dy * PICKER_PAGE)
 			}
@@ -477,6 +482,9 @@ apply_action :: proc(e: ^Editor, a: cm.Action) {
 		return
 	}
 	if e.layer == .Features && feat_action(e, a) {
+		return
+	}
+	if e.layer == .Items && item_action(e, a) {
 		return
 	}
 	m := current_map(e)
@@ -593,6 +601,10 @@ pick :: proc(e: ^Editor, x, y: int) {
 		feat_pick(e, x, y)
 		return
 	}
+	if e.layer == .Items {
+		item_pick(e, x, y)
+		return
+	}
 	m := current_map(e)
 	if cx, cy, ok := cell_at(e, x, y); ok {
 		if e.shape == .None {
@@ -653,6 +665,10 @@ click :: proc(e: ^Editor, x, y: int) {
 	}
 	if e.layer == .Features {
 		feat_click(e, x, y)
+		return
+	}
+	if e.layer == .Items {
+		item_click(e, x, y)
 		return
 	}
 	m := current_map(e)
