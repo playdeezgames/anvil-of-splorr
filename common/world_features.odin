@@ -27,6 +27,7 @@ Feature :: struct {
 	name: Name, // a label: not unique
 	type: Name, // the feature type, by name
 	tags_set, tags_cleared: Tag_Mask, // its own tag settings; a tag in neither is inherited from the type
+	inventory: Uuid, // the inventory it holds, or none (world_items.odin)
 }
 
 // --- Feature types -----------------------------------------------------------------------------
@@ -231,6 +232,7 @@ world_duplicate_feature :: proc(w: ^World, i: int) -> int {
 	n := w.feature_count
 	w.features[n] = w.features[i]
 	w.features[n].uuid = world_new_uuid(w)
+	w.features[n].inventory = UUID_NONE // an inventory has one owner: the copy holds nothing
 	name_assign(&w.features[n].name, fmt.tprintf("%s_copy", name_str(&w.features[i].name)))
 	w.feature_count += 1
 	return n
@@ -242,6 +244,7 @@ world_delete_feature :: proc(w: ^World, i: int) -> bool {
 		return false
 	}
 	world_unplace_feature(w, w.features[i].uuid)
+	world_delete_inventory(w, w.features[i].inventory) // what it held goes with it
 	for k in i ..< w.feature_count - 1 {
 		w.features[k] = w.features[k + 1]
 	}

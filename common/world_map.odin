@@ -39,6 +39,11 @@ map_flip_horizontal :: proc(m: ^World_Map) -> (changed: bool) {
 				fa^, fb^ = fb^, fa^
 				changed = true
 			}
+			ia, ib := &m.inventories[y][x], &m.inventories[y][m.width - 1 - x]
+			if ia^ != ib^ { 	// and what lies there
+				ia^, ib^ = ib^, ia^
+				changed = true
+			}
 			ta, tb := &m.cell_tags[y][x], &m.cell_tags[y][m.width - 1 - x]
 			if ta^ != tb^ { 	// so do a cell's own tags
 				ta^, tb^ = tb^, ta^
@@ -67,6 +72,11 @@ map_flip_vertical :: proc(m: ^World_Map) -> (changed: bool) {
 				fa^, fb^ = fb^, fa^
 				changed = true
 			}
+			ia, ib := &m.inventories[y][x], &m.inventories[m.height - 1 - y][x]
+			if ia^ != ib^ {
+				ia^, ib^ = ib^, ia^
+				changed = true
+			}
 			ta, tb := &m.cell_tags[y][x], &m.cell_tags[m.height - 1 - y][x]
 			if ta^ != tb^ {
 				ta^, tb^ = tb^, ta^
@@ -92,6 +102,7 @@ rotate :: proc(m: ^World_Map, clockwise: bool) -> (changed: bool) {
 	old := m.cells
 	old_chars := m.characters
 	old_features := m.features
+	old_inventories := m.inventories
 	old_tags := m.cell_tags
 	for y in 0 ..< n {
 		for x in 0 ..< n {
@@ -108,6 +119,11 @@ rotate :: proc(m: ^World_Map, clockwise: bool) -> (changed: bool) {
 			f := clockwise ? old_features[n - 1 - x][y] : old_features[x][n - 1 - y]
 			if m.features[y][x] != f {
 				m.features[y][x] = f
+				changed = true
+			}
+			iv := clockwise ? old_inventories[n - 1 - x][y] : old_inventories[x][n - 1 - y]
+			if m.inventories[y][x] != iv {
+				m.inventories[y][x] = iv
 				changed = true
 			}
 			tg := clockwise ? old_tags[n - 1 - x][y] : old_tags[x][n - 1 - y]

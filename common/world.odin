@@ -123,6 +123,7 @@ World_Map :: struct {
 	characters:    [MAP_MAX][MAP_MAX]Uuid, // [row][column]: the character standing there (a uuid of the world's table) or none
 	features:      [MAP_MAX][MAP_MAX]Uuid, // [row][column]: the feature standing there (a uuid of the features table) or none; never together with a character
 	cell_tags:     [MAP_MAX][MAP_MAX]Cell_Tags, // [row][column]: a cell's own tag settings (else its terrain's)
+	inventories:   [MAP_MAX][MAP_MAX]Uuid, // [row][column]: the inventory lying there (a uuid of the inventories table) or none; never blocks
 }
 
 World :: struct {
@@ -145,6 +146,12 @@ World :: struct {
 	feature_types:  [WORLD_MAX_FEATURE_TYPES]Feature_Type,
 	feature_count:  int,
 	features:       [WORLD_MAX_FEATURES]Feature, // like the characters table: map cells refer into it by uuid
+	item_type_count: int,
+	item_types:     [WORLD_MAX_ITEM_TYPES]Item_Type,
+	inventory_count: int,
+	inventories:    [WORLD_MAX_INVENTORIES]Inventory, // held by a character, a feature or a map cell (world_items.odin)
+	entry_count:    int,
+	entries:        [WORLD_MAX_ENTRIES]Entry, // every inventory's entries, in order, in one pool
 	player:         Uuid, // the player's character, or none
 	uuid_state:     u64, // the generator for new uuids (see world_new_uuid)
 	tag_count:      int,
@@ -662,6 +669,7 @@ world_duplicate_map :: proc(w: ^World, i: int) -> int {
 	w.maps[at] = w.maps[i]
 	w.maps[at].characters = {} // a character or feature stands in one cell of the world: the copy has none
 	w.maps[at].features = {}
+	w.maps[at].inventories = {}
 	name_assign(&w.maps[at].name, unique_among(fmt.tprintf("%s_copy", name_str(&w.maps[i].name)), map_name_list(w)))
 	w.map_count += 1
 	return at
@@ -671,6 +679,7 @@ world_delete_map :: proc(w: ^World, i: int) -> bool {
 	if i < 0 || i >= w.map_count {
 		return false
 	}
+	world_map_clear_inventories(w, i) // what lay on its cells goes with it
 	for k in i ..< w.map_count - 1 {
 		w.maps[k] = w.maps[k + 1]
 	}
@@ -894,6 +903,7 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 	write_params(&b, w)
 	write_sounds(&b, w)
 	write_features(&b, w)
+	write_items(&b, w)
 	write_characters(&b, w)
 	strings.write_string(&b, "}\n")
 	return strings.to_string(b)
@@ -1137,6 +1147,9 @@ world_from_json :: proc(data: []u8, dst: ^World) -> (err: string) {
 		return msg
 	}
 	if msg := read_features(root, tmp); msg != "" {
+		return msg
+	}
+	if msg := read_items(root, tmp); msg != "" {
 		return msg
 	}
 	tmp.uuid_state = dst.uuid_state // new uuids keep coming from the running generator

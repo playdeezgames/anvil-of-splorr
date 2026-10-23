@@ -148,6 +148,11 @@ world_tag_uses :: proc(w: ^World, tag: int) -> (n: int) {
 			n += 1
 		}
 	}
+	for i in 0 ..< w.item_type_count {
+		if w.item_types[i].tags & b != 0 {
+			n += 1
+		}
+	}
 	for mi in 0 ..< w.map_count {
 		m := &w.maps[mi]
 		for y in 0 ..< m.height {
@@ -193,6 +198,9 @@ world_delete_tag :: proc(w: ^World, i: int) -> (uses: int, ok: bool) {
 	for k in 0 ..< w.feature_count {
 		w.features[k].tags_set = close_gap(w.features[k].tags_set, i)
 		w.features[k].tags_cleared = close_gap(w.features[k].tags_cleared, i)
+	}
+	for k in 0 ..< w.item_type_count {
+		w.item_types[k].tags = close_gap(w.item_types[k].tags, i)
 	}
 	for mi in 0 ..< w.map_count {
 		m := &w.maps[mi]

@@ -105,7 +105,7 @@ world_new_uuid :: proc(w: ^World) -> Uuid {
 		}
 		u[6] = u[6] & 0x0F | 0x40 // version 4
 		u[8] = u[8] & 0x3F | 0x80 // variant
-		if world_find_character(w, u) < 0 && world_find_feature(w, u) < 0 {
+		if world_find_character(w, u) < 0 && world_find_feature(w, u) < 0 && world_find_inventory(w, u) < 0 {
 			return u
 		}
 	}
@@ -125,6 +125,7 @@ Character :: struct {
 	name: Name, // a label: not unique
 	type: Name, // the character type, by name
 	tags_set, tags_cleared: Tag_Mask, // its own tag settings; a tag in neither is inherited from the type
+	inventory: Uuid, // the inventory it carries, or none (world_items.odin)
 }
 
 world_find_char_type :: proc(w: ^World, name: string, except := -1) -> int {
@@ -327,6 +328,7 @@ world_duplicate_character :: proc(w: ^World, i: int) -> int {
 	n := w.character_count
 	w.characters[n] = w.characters[i]
 	w.characters[n].uuid = world_new_uuid(w)
+	w.characters[n].inventory = UUID_NONE // an inventory has one owner: the copy carries nothing
 	name_assign(&w.characters[n].name, fmt.tprintf("%s_copy", name_str(&w.characters[i].name)))
 	w.character_count += 1
 	return n
@@ -340,6 +342,7 @@ world_delete_character :: proc(w: ^World, i: int) -> bool {
 	}
 	u := w.characters[i].uuid
 	world_unplace_character(w, u)
+	world_delete_inventory(w, w.characters[i].inventory) // what it carried goes with it
 	if w.player == u {
 		w.player = UUID_NONE
 	}
@@ -467,7 +470,7 @@ world_map_shrink_blocked :: proc(w: ^World, mi, width, height: int) -> (n: int) 
 			}
 		}
 	}
-	return n + world_map_feature_shrink_blocked(w, mi, width, height)
+	return n + world_map_feature_shrink_blocked(w, mi, width, height) + world_map_inventory_shrink_blocked(w, mi, width, height)
 }
 
 // How many characters stand on map mi.
