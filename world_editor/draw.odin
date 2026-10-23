@@ -397,7 +397,7 @@ draw_hub_top :: proc(e: ^Editor, r: ^cm.Renderer) {
 
 draw_hub_inside :: proc(e: ^Editor, r: ^cm.Renderer) {
 	w := &e.world
-	cm.draw_text(r, HUB_MARKER_X, HUB_Y - 12, hub_section_title(e.hub_section), DIM)
+	// (the banner already names the section: a title here would overprint the info line)
 	for row, i in section_rows(e.hub_section) {
 		y := HUB_Y + i * HUB_PITCH
 		on := e.mode == .Hub && e.hub == row

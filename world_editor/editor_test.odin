@@ -2313,3 +2313,39 @@ test_the_map_editors_items_layer_opens_the_cells_inventory_and_comes_back :: pro
 	press(e, .Green, .Green)
 	testing.expect_value(t, e.world.inventory_count, 0)
 }
+
+Band_Log :: struct {
+	in_band: int, // rects drawn in the info line's rows
+}
+
+@(test)
+test_inside_a_hub_section_nothing_but_the_info_line_is_drawn_in_its_rows :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	count :: proc(e: ^Editor) -> int {
+		log: Band_Log
+		r := cm.Renderer {
+			data = &log,
+			clear = proc(d: rawptr, c: cm.Color) {},
+			fill_rect = proc(d: rawptr, x, y, w, h: int, c: cm.Color) {
+				if y < INFO_Y + cm.GLYPH_H && y + h > INFO_Y {
+					(^Band_Log)(d).in_band += 1
+				}
+			},
+			present = proc(d: rawptr) {},
+		}
+		editor_draw(e, &r)
+		return log.in_band
+	}
+	e.mode = .Hub
+	e.hub_level = .Top
+	top := count(e) // the info line alone (the top level starts lower)
+	testing.expect(t, top > 0)
+	for s in Hub_Section {
+		e.hub_level = .Inside
+		e.hub_section = s
+		e.hub = section_rows(s)[0]
+		testing.expectf(t, count(e) == top, "%v: something else is drawn on the info line's rows", s)
+	}
+}
