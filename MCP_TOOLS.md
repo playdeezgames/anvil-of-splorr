@@ -262,7 +262,7 @@ Input schema: `{"type":"object","properties":{"set":{"type":"string"},"name":{"t
 
 ## `map_list`
 
-List the maps: name, terrain set, size, characters and features on it.
+List the maps: name, terrain set, size, characters, features and cell inventories on it.
 
 Input schema: `{"type":"object","properties":{}}`
 
@@ -280,13 +280,13 @@ Input schema: `{"type":"object","properties":{"name":{"type":"string"},"new_name
 
 ## `map_delete`
 
-Delete a map; characters and features on it stay in the table, standing nowhere.
+Delete a map; characters and features on it stay in the table, standing nowhere, but the inventories lying in its cells go.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`
 
 ## `map_resize`
 
-Resize a map (1..64). New cells take the set's default terrain. Refused while a character or feature stands in the part that would be cut off.
+Resize a map (1..64). New cells take the set's default terrain. Refused while a character, a feature or a cell inventory is in the part that would be cut off.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["name","width","height"]}`
 
@@ -298,7 +298,7 @@ Input schema: `{"type":"object","properties":{"name":{"type":"string"},"set":{"t
 
 ## `map_get`
 
-Read a window of a map (default all): rows of symbols, a legend of symbol to terrain (the first 90 terrains of the set), and the characters and features standing in the window.
+Read a window of a map (default all): rows of symbols, a legend of symbol to terrain (the first 90 terrains of the set), and the characters, features and cell inventories (with their entries) in the window.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["name"]}`
 
@@ -382,7 +382,7 @@ Input schema: `{"type":"object","properties":{"id":{"type":"string"},"name":{"ty
 
 ## `character_delete`
 
-Delete a character; it leaves its map, and the player becomes nobody if it was the player.
+Delete a character; it leaves its map, the player becomes nobody if it was the player, and what it carried is gone.
 
 Input schema: `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`
 
@@ -406,7 +406,7 @@ Input schema: `{"type":"object","properties":{"id":{"type":"string"}}}`
 
 ## `play_walk`
 
-Try a layout: walk a character (default the player) from where it stands. moves is a string of u, d, l, r or a list of up/down/left/right. Reports each step (moved, solid, outside, occupied, feature) and where it ends; the world is not changed.
+Try a layout: walk a character (default the player) from where it stands. moves is a string of u, d, l, r or a list of up/down/left/right. Reports each step (moved, solid, outside, occupied, feature) and where it ends, and items_at: the steps that ended on a cell holding an inventory (a step onto one is never refused); the world is not changed.
 
 Input schema: `{"type":"object","properties":{"moves":{"type":["string","array"],"items":{"type":"string"}},"id":{"type":"string"}},"required":["moves"]}`
 
@@ -454,7 +454,7 @@ Input schema: `{"type":"object","properties":{"id":{"type":"string"},"name":{"ty
 
 ## `feature_delete`
 
-Delete a feature; it leaves its map.
+Delete a feature; it leaves its map and what it held is gone.
 
 Input schema: `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`
 
@@ -470,11 +470,83 @@ Take a feature off its map.
 
 Input schema: `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`
 
+## `item_type_list`
+
+List the item types: name, sprite, tags, max_stack (1 = unique items that never stack, more = counted ones like gold) and numeric properties with their defaults.
+
+Input schema: `{"type":"object","properties":{}}`
+
+## `item_type_new`
+
+Add an item type (up to 128). max_stack defaults to 1. sprite_set and sprite name the picture (both or neither); tags lists the tags every item of the type has. Add properties with item_prop_set.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"max_stack":{"type":"integer"},"sprite_set":{"type":"string"},"sprite":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["name"]}`
+
+## `item_type_edit`
+
+Change an item type; only the fields given change. Entries of the type follow a rename. max_stack is refused while an entry holds more than the new size.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"new_name":{"type":"string"},"max_stack":{"type":"integer"},"sprite_set":{"type":"string"},"sprite":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["name"]}`
+
+## `item_type_delete`
+
+Delete an item type unless an inventory entry has it.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`
+
+## `item_prop_set`
+
+Give an item type a numeric property (up to 16, whole numbers that fit in 32 bits) or change its default value; new_name renames it. Entries without their own value follow the default.
+
+Input schema: `{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"value":{"type":"integer"},"new_name":{"type":"string"}},"required":["type","name"]}`
+
+## `item_prop_delete`
+
+Remove a property from an item type; entries lose their value for it.
+
+Input schema: `{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"}},"required":["type","name"]}`
+
+## `inventory_list`
+
+List the inventories (all, or the cell inventories on map): owner and entries. Each entry has its number, item type, count and the value of every property of the type.
+
+Input schema: `{"type":"object","properties":{"map":{"type":"string"}}}`
+
+## `inventory_get`
+
+Show one owner's inventory (entries: [] when it has none). Give exactly one of character (id), feature (id) or map with x and y.
+
+Input schema: `{"type":"object","properties":{"character":{"type":"string"},"feature":{"type":"string"},"map":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"}}}`
+
+## `inventory_add`
+
+Put count items (default 1) of a type into an owner's inventory, made if there is none. Items fill matching stacks first (same type and same property values), and a stack never exceeds the type's max_stack; props is an object of property name to value for this stack. Up to 256 entries per inventory and 8192 in the world; what does not fit is reported.
+
+Input schema: `{"type":"object","properties":{"character":{"type":"string"},"feature":{"type":"string"},"map":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"type":{"type":"string"},"count":{"type":"integer"},"props":{"type":"object"}},"required":["type"]}`
+
+## `inventory_remove`
+
+Take count items (default: the whole entry) out of entry number `entry`. An emptied entry goes, and an inventory with nothing left goes with it.
+
+Input schema: `{"type":"object","properties":{"character":{"type":"string"},"feature":{"type":"string"},"map":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"entry":{"type":"integer"},"count":{"type":"integer"}},"required":["entry"]}`
+
+## `inventory_set`
+
+Change entry number `entry`: count (1..the type's max_stack) and/or props (property name to value; a value equal to the type's default clears the entry's own value).
+
+Input schema: `{"type":"object","properties":{"character":{"type":"string"},"feature":{"type":"string"},"map":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"entry":{"type":"integer"},"count":{"type":"integer"},"props":{"type":"object"}},"required":["entry"]}`
+
+## `inventory_clear`
+
+Throw away an owner's whole inventory.
+
+Input schema: `{"type":"object","properties":{"character":{"type":"string"},"feature":{"type":"string"},"map":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"}}}`
+
 ## `render_map`
 
-Draw a map (or a window of it: x, y, width, height in cells) as a PNG, with its features and characters. zoom is pixels per tile pixel (default: the largest that keeps the picture within 512 pixels, at most 1024). grid true draws magenta cell lines so cells can be counted; features false / characters false leave them out.
+Draw a map (or a window of it: x, y, width, height in cells) as a PNG, with the items lying in its cells, its features and its characters. zoom is pixels per tile pixel (default: the largest that keeps the picture within 512 pixels, at most 1024). grid true draws magenta cell lines so cells can be counted; items false / features false / characters false leave them out.
 
-Input schema: `{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"},"zoom":{"type":"integer"},"grid":{"type":"boolean"},"characters":{"type":"boolean"},"features":{"type":"boolean"}},"required":["name"]}`
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"},"zoom":{"type":"integer"},"grid":{"type":"boolean"},"characters":{"type":"boolean"},"features":{"type":"boolean"},"items":{"type":"boolean"}},"required":["name"]}`
 
 ## `render_tile`
 

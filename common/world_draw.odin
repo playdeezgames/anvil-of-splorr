@@ -211,6 +211,32 @@ world_draw_feature :: proc(r: ^Renderer, w: ^World, fi: int, area: Rect, clip: R
 	renderer_fill_rect(&cr, area.x, area.y, area.w, area.h, missing)
 }
 
+// Draws the inventories the map's cells hold, over the terrain and under the features and characters:
+// each cell shows the sprite of its first entry's item type, in the window and the clip.
+world_draw_authored_inventories :: proc(r: ^Renderer, w: ^World, d: World_Draw) {
+	if d.cell_w <= 0 || d.cell_h <= 0 || d.map_index < 0 || d.map_index >= w.map_count {
+		return
+	}
+	m := &w.maps[d.map_index]
+	cs: Clip_State
+	cr := clipped_renderer(&cs, r, d.clip)
+	for cy in max(d.row, 0) ..< min(d.row + d.rows, m.height) {
+		for cx in max(d.col, 0) ..< min(d.col + d.cols, m.width) {
+			u := m.inventories[cy][cx]
+			if uuid_is_none(u) {
+				continue
+			}
+			area := world_cell_rect(d, cx, cy)
+			if _, visible := rect_intersect(area, d.clip); !visible {
+				continue
+			}
+			if e := world_inventory_entry_index(w, u, 0); e >= 0 {
+				world_draw_item_type(&cr, w, world_find_item_type(w, name_str(&w.entries[e].type)), area, d.clip, d.missing)
+			}
+		}
+	}
+}
+
 // The sprite an item type draws, or nil.
 world_item_type_sprite_of :: proc(w: ^World, ti: int) -> ^Sprite {
 	if ti < 0 || ti >= w.item_type_count {

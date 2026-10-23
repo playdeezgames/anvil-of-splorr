@@ -42,7 +42,7 @@ feature_tools :: proc() -> []Tool {
 			`{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["id"]}`,
 			tool_feature_edit,
 		},
-		{"feature_delete", "Delete a feature; it leaves its map.", `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`, tool_feature_delete},
+		{"feature_delete", "Delete a feature; it leaves its map and what it held is gone.", `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`, tool_feature_delete},
 		{
 			"feature_place",
 			"Stand a feature in a map cell (moving it if it stood elsewhere). Refused if another feature or a character is in the cell.",

@@ -18,6 +18,7 @@ tools :: proc() -> []Tool {
 		append(&all, ..look_tools())
 		append(&all, ..actor_tools())
 		append(&all, ..feature_tools())
+		append(&all, ..item_tools())
 		append(&all, ..render_tools())
 		append(&all, ..sound_tools())
 	})
