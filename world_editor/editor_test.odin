@@ -2153,3 +2153,37 @@ test_a_note_built_in_temp_memory_survives_the_frontends_freeing_it :: proc(t: ^t
 	_ = fmt.tprintf("%s", "PLAYING  ESC/B: BACK, long enough to reuse the memory the note had")
 	testing.expect_value(t, e.note, "BLOCKED BY Goblin")
 }
+
+@(test)
+test_the_player_walks_over_items_and_the_editor_says_what_lies_there :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content() // map "start": 3 x 3, everything grass
+	defer free(e)
+	add_player(e, 0, 1)
+	gold := cm.world_add_item_type(&e.world, "gold")
+	cm.world_set_item_type_max_stack(&e.world, gold, 100)
+	sword := cm.world_add_item_type(&e.world, "sword")
+	cm.world_owner_add(&e.world, cm.owner_cell(0, 1, 1), gold, 5)
+	cm.world_owner_add(&e.world, cm.owner_cell(0, 2, 1), sword, 1)
+	cm.world_owner_add(&e.world, cm.owner_cell(0, 2, 1), gold, 7)
+	before := cm.world_to_json(&e.world)
+	press(e, .Yellow)
+	testing.expect_value(t, e.mode, Mode.Play)
+	press(e, .Right) // never blocked
+	testing.expect(t, e.note == "HERE: 5 gold" && e.play_steps == 1)
+	press(e, .Right)
+	testing.expect_value(t, e.note, "HERE: 1 sword AND 1 MORE")
+	press(e, .Left, .Left)
+	testing.expect(t, e.note == "" || e.note == "HERE: 5 gold")
+	// The mouse steps onto it too, and playing never touches the world.
+	press(e, .Red)
+	testing.expect_value(t, cm.world_to_json(&e.world), before)
+	// The play screen with items on the map and a note stays on the surface and the note is drawable.
+	press(e, .Yellow, .Right)
+	testing.expect(t, cm.text_is_drawable(e.note) && cm.text_width(e.note) + PLAY_STATUS_X <= PLAY_BACK.x)
+	log: Draw_Log
+	r := logging_renderer(&log)
+	draw_play(e, &r)
+	testing.expect_value(t, log.out_of_bounds, 0)
+	testing.expect_value(t, log.presents, 1)
+}

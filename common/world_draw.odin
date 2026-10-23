@@ -211,6 +211,32 @@ world_draw_feature :: proc(r: ^Renderer, w: ^World, fi: int, area: Rect, clip: R
 	renderer_fill_rect(&cr, area.x, area.y, area.w, area.h, missing)
 }
 
+// The sprite an item type draws, or nil.
+world_item_type_sprite_of :: proc(w: ^World, ti: int) -> ^Sprite {
+	if ti < 0 || ti >= w.item_type_count {
+		return nil
+	}
+	return world_item_type_sprite(w, &w.item_types[ti])
+}
+
+// Draws item type `ti` into `area`, like `world_draw_feature`: its sprite's tile image without the
+// sprite's transparent colour, or a block of `missing` when it has no picture. Nothing is drawn
+// outside `clip`.
+world_draw_item_type :: proc(r: ^Renderer, w: ^World, ti: int, area: Rect, clip: Rect, missing: Color) {
+	if area.w <= 0 || area.h <= 0 || ti < 0 || ti >= w.item_type_count {
+		return
+	}
+	cs: Clip_State
+	cr := clipped_renderer(&cs, r, clip)
+	if sp := world_item_type_sprite_of(w, ti); sp != nil {
+		if img := world_sprite_image(w, sp); img != nil {
+			canvas_draw_thumbnail(&cr, area, img, &w.palette, sp.transparent)
+			return
+		}
+	}
+	renderer_fill_rect(&cr, area.x, area.y, area.w, area.h, missing)
+}
+
 // Draws the characters the map itself holds (where the authors put them), over the terrain: each in
 // its cell, in the window and the clip. With `mark_player` the player's cell gets a small square in
 // its top-left corner.

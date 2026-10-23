@@ -4,8 +4,8 @@ import cm "../common"
 
 // The state of a game being played, kept apart from the world: where every character is now. It
 // starts as a copy of the authored placements (`play_init`) and a game changes only this, so the
-// loaded world stays exactly as the editors wrote it. About 100 KB: copy it freely, and `play_init`
-// it again to start over.
+// loaded world stays exactly as the editors wrote it. About 0.9 MB (the inventories' entries are most
+// of it): a global or `new()`, copy it only when you mean to, and `play_init` it again to start over.
 //
 // Characters are the world's table, by index (see `player`, `character_type`); a character is in
 // at most one cell, or on no map.
@@ -28,6 +28,14 @@ Play_State :: struct {
 	collision_head:    int,
 	collision_count:   int,
 	collisions_lost:   int, // events dropped because the queue was full (the oldest go first)
+	// Items (items.odin): the inventories as they are now, and the contacts `play_step` noticed.
+	inventories:       [cm.WORLD_MAX_INVENTORIES]Play_Inventory,
+	entry_count:       int,
+	entries:           [cm.WORLD_MAX_ENTRIES]Play_Entry,
+	contacts:          [MAX_COLLISIONS]Contact,
+	contact_head:      int,
+	contact_count:     int,
+	contacts_lost:     int,
 }
 
 MAX_COLLISIONS :: 64
@@ -57,6 +65,7 @@ play_init :: proc(ps: ^Play_State, w: ^World) {
 	ps^ = {}
 	ps.count = w.character_count
 	ps.feature_count = w.feature_count
+	play_init_items(ps, w)
 	for mi in 0 ..< w.map_count {
 		m := &w.maps[mi]
 		for y in 0 ..< m.height {
@@ -199,6 +208,9 @@ play_step :: proc(ps: ^Play_State, w: ^World, ci, dx, dy: int) -> Move_Result {
 	switch result {
 	case .Moved:
 		ps.positions[ci].x, ps.positions[ci].y = tx, ty
+		if mi := ps.positions[ci].map_index; play_cell_has_items(ps, mi, tx, ty) {
+			push_contact(ps, {ci, mi, tx, ty, dx, dy}) // never refuses: the game decides about picking up
+		}
 	case .Feature:
 		mi := ps.positions[ci].map_index
 		push_collision(ps, {ci, .Feature, play_feature_at(ps, mi, tx, ty), mi, tx, ty, dx, dy})

@@ -208,9 +208,11 @@ test_a_play_state_starts_as_the_authored_world_and_is_separate_from_it :: proc(t
 	_, x, y, _ := authored_location(w, hero)
 	testing.expect(t, x == 1 && y == 1)
 	// A copy is independent; play_init starts over.
-	copy := ps^
+	copy := new(Play_State)
+	defer free(copy)
+	copy^ = ps^
 	play_step(ps, w, hero, -1, 0)
-	testing.expect(t, play_position(&copy, hero).x == 2 && play_position(ps, hero).x == 1)
+	testing.expect(t, play_position(copy, hero).x == 2 && play_position(ps, hero).x == 1)
 	play_init(ps, w)
 	testing.expect(t, play_position(ps, hero) == Position{0, 1, 1, true} && play_position(ps, star).placed)
 }

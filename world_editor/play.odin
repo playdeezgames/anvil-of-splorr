@@ -80,6 +80,9 @@ step_player :: proc(e: ^Editor, dx, dy: int) {
 		rt.play_step(&e.play, &e.world, e.play_player, dx, dy)
 		e.play_steps += 1
 		e.note = ""
+		if _, touched := rt.play_take_contact(&e.play); touched {
+			e.note = items_here_text(e, tx, ty)
+		}
 	case .Solid:
 		e.note = "BLOCKED: SOLID"
 	case .Outside:
@@ -96,6 +99,24 @@ step_player :: proc(e: ^Editor, dx, dy: int) {
 	case .Not_Placed:
 		e.note = NOTE_PLAYER_OFF_MAP
 	}
+}
+
+// What lies in the cell the player just stepped onto: the first entry, and how many more there are.
+@(private = "file")
+items_here_text :: proc(e: ^Editor, x, y: int) -> string {
+	p := rt.play_position(&e.play, e.play_player)
+	o := rt.owner_cell(p.map_index, x, y)
+	first := rt.play_entry(&e.play, o, 0)
+	if first == nil {
+		return ""
+	}
+	it := rt.item_type(&e.world, first.item_type)
+	name := it != nil ? cm.name_str(&it.name) : ""
+	more := rt.play_entry_count(&e.play, o) - 1
+	if more > 0 {
+		return fmt.tprintf("HERE: %d %s AND %d MORE", first.count, name[:min(len(name), 14)], more)
+	}
+	return fmt.tprintf("HERE: %d %s", first.count, name[:min(len(name), 20)])
 }
 
 // Commands and the mouse in Play mode.
@@ -156,6 +177,7 @@ draw_play :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.renderer_clear(r, BG)
 	d := play_window(e)
 	rt.draw_terrain(r, &e.world, d)
+	rt.draw_inventories(r, &e.world, &e.play, d)
 	rt.draw_features(r, &e.world, &e.play, d)
 	rt.draw_characters(r, &e.world, &e.play, d)
 	// The top strip, drawn last so nothing from the map shows through it.
