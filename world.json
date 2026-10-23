@@ -19,7 +19,7 @@
     {"r": 255, "g": 255, "b": 85},
     {"r": 255, "g": 255, "b": 255}
   ],
-  "tags": ["solid"],
+  "tags": ["solid", "door"],
   "tilesets": [
     {"name": "tileset", "tileset": {
   "width": 16,
@@ -108,6 +108,69 @@
         0, 0, 116, 68, 68, 71, 0, 0,
         0, 0, 7, 119, 119, 112, 0, 0
       ]
+    },
+    {
+      "name": "tree",
+      "bytes": [
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 170, 162, 0, 0, 0,
+        0, 0, 170, 170, 42, 170, 0, 0,
+        0, 10, 170, 162, 170, 170, 32, 0,
+        0, 10, 170, 42, 170, 162, 160, 0,
+        0, 10, 162, 170, 170, 42, 160, 0,
+        0, 10, 42, 170, 162, 170, 160, 0,
+        0, 2, 170, 170, 42, 170, 160, 0,
+        0, 10, 170, 162, 170, 170, 32, 0,
+        0, 0, 170, 42, 170, 162, 0, 0,
+        0, 0, 0, 166, 106, 0, 0, 0,
+        0, 0, 0, 6, 96, 0, 0, 0,
+        0, 0, 0, 6, 96, 0, 0, 0,
+        0, 0, 0, 6, 96, 0, 0, 0,
+        0, 0, 0, 6, 96, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0
+      ]
+    },
+    {
+      "name": "door",
+      "bytes": [
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 8, 136, 136, 136, 136, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 230, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0,
+        0, 8, 102, 102, 102, 102, 128, 0
+      ]
+    },
+    {
+      "name": "rock",
+      "bytes": [
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 8, 128, 0, 0, 0,
+        0, 0, 136, 127, 119, 136, 0, 0,
+        0, 136, 119, 247, 119, 247, 136, 0,
+        8, 119, 127, 119, 127, 119, 127, 128,
+        8, 119, 247, 119, 247, 119, 247, 128,
+        8, 127, 119, 127, 119, 127, 119, 128,
+        8, 247, 119, 247, 119, 247, 119, 128,
+        8, 119, 127, 119, 127, 119, 127, 128,
+        8, 119, 247, 119, 247, 119, 247, 128,
+        0, 136, 119, 127, 119, 127, 136, 0,
+        0, 0, 136, 247, 119, 136, 0, 0,
+        0, 0, 0, 8, 128, 0, 0, 0
+      ]
     }
   ]
 }}
@@ -155,20 +218,33 @@
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
       ],
       "characters": [],
-      "features": [],
+      "features": [{"x": 2, "y": 2, "feature": "eaa27e74-0c9f-4b53-a132-451fbe9a822c"}, {"x": 8, "y": 3, "feature": "2fa93a98-5575-4f8e-994d-cc00160f4eb5"}, {"x": 7, "y": 5, "feature": "a6b08c36-8c48-48f3-893d-b13cddec7e65"}, {"x": 6, "y": 7, "feature": "f6de5b05-e026-43c2-bbdb-bbe03fa02186"}, {"x": 3, "y": 8, "feature": "3cab16c9-3a13-44c5-838a-c9419078e53e"}],
       "cell_tags": []}
   ],
   "sprite_sets": [
     {"name": "things", "sprites": [
       {"name": "coin", "tileset": "tileset", "image": "coin", "transparent": 0},
       {"name": "sword", "tileset": "tileset", "image": "sword", "transparent": 0},
-      {"name": "potion", "tileset": "tileset", "image": "potion", "transparent": 0}
+      {"name": "potion", "tileset": "tileset", "image": "potion", "transparent": 0},
+      {"name": "tree", "tileset": "tileset", "image": "tree", "transparent": 0},
+      {"name": "door", "tileset": "tileset", "image": "door", "transparent": 0},
+      {"name": "rock", "tileset": "tileset", "image": "rock", "transparent": 0}
     ]}
   ],
   "params": [],
   "sounds": [],
-  "feature_types": [],
-  "features": [],
+  "feature_types": [
+    {"name": "tree", "sprite_set": "things", "sprite": "tree", "tags": ["solid"]},
+    {"name": "door", "sprite_set": "things", "sprite": "door", "tags": ["solid", "door"]},
+    {"name": "rock", "sprite_set": "things", "sprite": "rock", "tags": ["solid"]}
+  ],
+  "features": [
+    {"uuid": "eaa27e74-0c9f-4b53-a132-451fbe9a822c", "name": "Old oak", "type": "tree", "tags": [], "tags_cleared": []},
+    {"uuid": "3cab16c9-3a13-44c5-838a-c9419078e53e", "name": "Young oak", "type": "tree", "tags": [], "tags_cleared": []},
+    {"uuid": "a6b08c36-8c48-48f3-893d-b13cddec7e65", "name": "Boulder", "type": "rock", "tags": [], "tags_cleared": []},
+    {"uuid": "f6de5b05-e026-43c2-bbdb-bbe03fa02186", "name": "Pebble", "type": "rock", "tags": [], "tags_cleared": []},
+    {"uuid": "2fa93a98-5575-4f8e-994d-cc00160f4eb5", "name": "Gate", "type": "door", "tags": [], "tags_cleared": []}
+  ],
   "item_types": [
     {"name": "gold", "sprite_set": "things", "sprite": "coin", "max_stack": 100, "tags": [], "props": []},
     {"name": "sword", "sprite_set": "things", "sprite": "sword", "max_stack": 1, "tags": [], "props": [{"name": "damage", "value": 5}, {"name": "durability", "value": 100}]},
