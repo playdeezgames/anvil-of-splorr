@@ -64,3 +64,24 @@ for c, ok in rt.play_take_collision(&ps); ok; c, ok = rt.play_take_collision(&ps
 ```
 
 A `Collision` has the mover (a character index), `kind`, `other`, the map and target cell, and the step (`dx`, `dy`). Only steps refused by a character or a feature queue one; walls and map edges do not. The queue holds 64 (oldest dropped, counted in `collisions_lost`) and `play_init` empties it.
+
+## Items and inventories
+
+Items live in inventories (see `WORLD.md`): a character, a feature or a map cell holds one, and an entry in it is a stack of an item type with a count and its own property values (a sword at durability 40 is a stack of one; gold is a stack of up to the type's max stack). Item types come from `anvil_runtime` as authored (`find_item_type`, `item_type_max_stack`, `item_prop_index`, `item_prop_default`, `item_type_sprite`/`item_type_image`); `play_init` copies the authored inventories into the `Play_State`, and everything a game does happens there:
+
+```odin
+hero := rt.owner_character(player)
+gold, _ := rt.find_item_type(w, "gold")
+rt.play_add_item(&ps, w, hero, gold, 10)                  // joins a stack that matches, else makes entries
+rt.play_step(&ps, w, player, dx, dy)                      // stepping onto items is never refused...
+for c, ok := rt.play_take_contact(&ps); ok; c, ok = rt.play_take_contact(&ps) {
+	rt.play_transfer_all(&ps, w, rt.owner_cell(c.map_index, c.x, c.y), hero) // ...the game picks them up
+}
+dur, _ := rt.item_prop_index(w, sword_type, "durability")
+if e := rt.play_entry(&ps, hero, 0); e != nil {
+	left := rt.play_entry_value(&ps, w, e, dur)           // its own value, else the type's default
+	rt.play_set_entry_value(&ps, w, hero, 0, dur, left - 1)
+}
+```
+
+A `Contact` has the mover, the map, the cell entered and the step; the queue holds 64 like collisions. Entries are numbered from 0 in the order the inventory holds them and the numbers change when entries come or go, so look again after a change. An inventory that runs empty is gone. Draw cell inventories with `draw_inventories` after `draw_terrain` and before `draw_features`. The `Play_State` is about 0.9 MB: keep it in a global or `new()` it.

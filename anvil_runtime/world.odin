@@ -15,7 +15,7 @@
 // that goes through the frontend's file buffer, which is 4 MiB unless built with `WEB_FILE_MIB=<n>`
 // (see FILE_CAP in frontends/web/web.odin). Embedding avoids that buffer entirely.
 //
-// A `World` is about 21 MB: make it a global or `new()` it, never copy or return one by value. The
+// A `World` is about 35 MB: make it a global or `new()` it, never copy or return one by value. The
 // package builds for native and `js_wasm32` and has no platform code. (The name is not `runtime`
 // because Odin reserves that for its own package.)
 package anvil_runtime

@@ -42,7 +42,7 @@ GAME_TAGS_FILE :: "game_tags.json"
 //   Text:  the keypad, for names. New and Duplicate ask for the name first, then open the item.
 //   File:  green saves world.json, yellow loads it, red or blue cancel.
 //   Palette, Tileset, Terrain, Map: the embedded editors; red in their top mode comes back here.
-// The mouse works everywhere. The world is a ~17 MB global: this Editor must be created with
+// The mouse works everywhere. The world is a ~35 MB global: this Editor must be created with
 // editor_init in place, never copied.
 Mode :: enum {
 	Hub,

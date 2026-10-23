@@ -32,7 +32,7 @@ Goal: another Claude session or agent authors a world (`world.json`) through MCP
 
 - New app `apps/anvil_mcp/` (native only, no frontend): `main` reads newline-delimited JSON-RPC 2.0 from stdin and writes responses to stdout (logs to stderr). Methods: `initialize`, `notifications/initialized`, `tools/list`, `tools/call`, `ping`. Protocol version `2025-06-18`; tools only (no resources/prompts at first).
 - Package `mcp_server/` holds everything testable: JSON-RPC framing, the tool table, one handler per tool. `apps/anvil_mcp` is a thin `main`. Tests call `handle_request(bytes) -> bytes` with no process.
-- It edits the **same model** the editors use (`common/world*.odin`, `World` is ~21 MB: a global, never by value), so every rule (unique names, reference protection, solid tag 0, player/placement rules, size limits) is enforced by the same code. Tools return the model's own refusal text as an MCP tool error (`isError: true`), never a crash.
+- It edits the **same model** the editors use (`common/world*.odin`, `World` is ~35 MB: a global, never by value), so every rule (unique names, reference protection, solid tag 0, player/placement rules, size limits) is enforced by the same code. Tools return the model's own refusal text as an MCP tool error (`isError: true`), never a crash.
 - One open world per server process. State is in memory; **nothing touches disk until `world_save`**, and `world_open` refuses to replace unsaved changes unless `discard: true`. Paths are relative to a working directory the server is started in (`--dir`), and `..` or absolute paths are refused. It never writes `input_map.json`, `default-font.json` or other user files; saving to an existing file needs `overwrite: true`.
 - Names, never indices, in the tool API (the file format is by name too), so an agent cannot desync from reordering.
 
@@ -46,6 +46,7 @@ Goal: another Claude session or agent authors a world (`world.json`) through MCP
 | Actors | `character_type_*`, `character_*` (create, set type, tags, player, place/unplace), `map_new/delete/resize/set_set`, `map_get` (rows of terrain-letter codes + legend), `map_paint_cells`, `map_fill_rect`, `map_flood_fill`, `map_set_cell_tags` |
 | Pictures | `render_map` (zoom, window), `render_tile`, `render_sprite`, `render_palette` → MCP image content (base64 PNG) |
 | Features | `feature_type_list/new/edit/delete`, `feature_list/new/edit/delete/place/unplace`; `map_get` lists a window's features, `render_map` draws them, `play_walk` reports `feature` |
+| Items | `item_type_list/new/edit/delete`, `item_prop_set/delete`, `inventory_list/get/add/remove/set/clear` (the owner is exactly one of `character`, `feature` or `map` with `x`,`y`; entries are numbered from 0); `map_get` lists a window's cell inventories, `map_list` and `world_summary` count them, `render_map` draws them (`items: false` leaves them out), `play_walk` reports `items_at` |
 | Play | `play_walk` (list of directions through `anvil_runtime` play; returns where the player ends and the refusal reasons), to test a layout |
 
 Bulk forms exist wherever an agent would otherwise make thousands of calls (map rows, image rows, `paint_cells` with a list).
