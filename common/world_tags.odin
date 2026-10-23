@@ -281,6 +281,14 @@ world_toggle_feature_type_tag :: proc(w: ^World, ft, tag: int) -> bool {
 	return true
 }
 
+world_toggle_item_type_tag :: proc(w: ^World, it, tag: int) -> bool {
+	if it < 0 || it >= w.item_type_count || tag < 0 || tag >= w.tag_count {
+		return false
+	}
+	w.item_types[it].tags ~= tag_bit(tag)
+	return true
+}
+
 // Whether a feature has the tag: its own setting if it has one, else its type's.
 world_feature_has_tag :: proc(w: ^World, fi, tag: int) -> bool {
 	if fi < 0 || fi >= w.feature_count || tag < 0 || tag >= WORLD_MAX_TAGS {

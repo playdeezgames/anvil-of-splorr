@@ -42,7 +42,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 		lines = {
 			fmt.tprintf("%s/%s: CHOOSE AN ACTION", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s/%s: CHANGE THE TYPE", l(e, .Left), l(e, .Right)),
-			fmt.tprintf("%s: RUN RENAME / NEW / DUP / DELETE / PLAYER / UNPLACE / TAGS", l(e, .Green)),
+			fmt.tprintf("%s: RUN RENAME / NEW / DUP / DEL / PLAYER / UNPLACE / TAGS / ITEMS", l(e, .Green)),
 			fmt.tprintf("%s: DONE", l(e, .Red)),
 		}
 		return lines, 4
@@ -89,7 +89,7 @@ Button :: struct {
 	row:  Maybe(Setup_Row),
 }
 
-buttons :: proc() -> [8]Button {
+buttons :: proc() -> [9]Button {
 	return {
 		{RENAME_BUTTON, "RENAME", .Rename},
 		{NEW_BUTTON, "NEW", .New},
@@ -98,6 +98,7 @@ buttons :: proc() -> [8]Button {
 		{PLAYER_BUTTON, "PLAYER", .Player},
 		{UNPLACE_BUTTON, "UNPLACE", .Unplace},
 		{TAGS_BUTTON, "TAGS", .Tags},
+		{ITEMS_BUTTON, "ITEMS", .Items},
 		{BACK_BUTTON, "BACK", nil},
 	}
 }

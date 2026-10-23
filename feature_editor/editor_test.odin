@@ -607,3 +607,22 @@ test_a_features_tags_inherit_then_set_then_clear :: proc(t: ^testing.T) {
 	editor_handle_event(e, cm.Mouse_Wheel{dy = 100})
 	testing.expect_value(t, e.tags.scroll, 0)
 }
+
+@(test)
+test_the_inventory_is_asked_for_by_each_input :: proc(t: ^testing.T) {
+	for m in ([]string{"commands", "mouse"}) {
+		e, world := new_editor()
+		testing.expect(t, !e.items_requested)
+		if m == "commands" {
+			run(e, .Items)
+		} else {
+			click_rect(e, ITEMS_BUTTON)
+		}
+		testing.expectf(t, e.items_requested && e.mode == .Setup, "%s", m)
+		free_both(e, world)
+	}
+	e, world := empty_editor()
+	defer free_both(e, world)
+	run(e, .Items)
+	testing.expect(t, !e.items_requested && e.note == NOTE_NO_FEATURES)
+}

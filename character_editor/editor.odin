@@ -33,6 +33,7 @@ Setup_Row :: enum {
 	Player,
 	Unplace,
 	Tags,
+	Items,
 }
 
 Editor :: struct {
@@ -44,6 +45,7 @@ Editor :: struct {
 	row:            Setup_Row,
 	dirty:          bool, // the characters changed since editor_begin
 	exit_requested: bool,
+	items_requested: bool, // the host should open the selected character's inventory
 	confirm_delete: bool,
 	tags:           cm.Tag_List, // Tags mode: the selected tag
 	note:           string,
@@ -329,6 +331,10 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 		unplace_character(e)
 	case .Tags:
 		begin_tags(e)
+	case .Items:
+		if need_character(e) {
+			e.items_requested = true
+		}
 	case .Type:
 		// A value, not an action: left/right change it.
 	}
@@ -451,6 +457,8 @@ click :: proc(e: ^Editor, x, y: int) {
 		action(e, .Player)
 	case rect_contains(UNPLACE_BUTTON, x, y):
 		action(e, .Unplace)
+	case rect_contains(ITEMS_BUTTON, x, y):
+		action(e, .Items)
 	case rect_contains(TAGS_BUTTON, x, y):
 		action(e, .Tags)
 	case rect_contains(BACK_BUTTON, x, y):

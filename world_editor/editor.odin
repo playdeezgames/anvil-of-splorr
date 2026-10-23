@@ -6,6 +6,8 @@ import cm "../common"
 import cte "../character_type_editor"
 import fe "../feature_editor"
 import fte "../feature_type_editor"
+import ite "../item_type_editor"
+import inv "../inventory_editor"
 import me "../map_editor"
 import pe "../palette_editor"
 import spe "../sprite_editor"
@@ -59,6 +61,8 @@ Mode :: enum {
 	Character,
 	Feature_Type,
 	Feature,
+	Item_Type,
+	Inventory, // one owner's inventory, opened from the character and feature editors
 	Map,
 }
 
@@ -86,6 +90,7 @@ Hub_Row :: enum {
 	Characters,
 	Feature_Types,
 	Features,
+	Item_Types,
 	Maps,
 }
 
@@ -96,7 +101,7 @@ HUB_ROWS :: len(Hub_Row)
 Hub_Section :: enum {
 	Look, // what things look like: palette, tile size, tilesets, terrain sets, sprite sets
 	Rules, // tags, game parameters and sounds
-	Actors, // character types, characters, feature types, features and maps
+	Actors, // character types, characters, feature types, features, item types and maps
 }
 
 HUB_SECTIONS :: len(Hub_Section)
@@ -111,7 +116,7 @@ LOOK_ROWS := [?]Hub_Row{.Palette, .Tile_Width, .Tile_Height, .Tilesets, .Terrain
 @(rodata)
 RULES_ROWS := [?]Hub_Row{.Tags, .Params, .Sounds}
 @(rodata)
-ACTORS_ROWS := [?]Hub_Row{.Character_Types, .Characters, .Feature_Types, .Features, .Maps}
+ACTORS_ROWS := [?]Hub_Row{.Character_Types, .Characters, .Feature_Types, .Features, .Item_Types, .Maps}
 
 // The rows of a section, in order.
 section_rows :: proc(s: Hub_Section) -> []Hub_Row {
@@ -133,7 +138,7 @@ hub_row_section :: proc(row: Hub_Row) -> Hub_Section {
 		return .Look
 	case .Tags, .Params, .Sounds:
 		return .Rules
-	case .Character_Types, .Characters, .Feature_Types, .Features, .Maps:
+	case .Character_Types, .Characters, .Feature_Types, .Features, .Item_Types, .Maps:
 		return .Actors
 	}
 	return .Look
@@ -197,6 +202,9 @@ Editor :: struct {
 	character_ed:   cce.Editor,
 	feature_type_ed: fte.Editor,
 	feature_ed:     fe.Editor,
+	item_type_ed:   ite.Editor,
+	inventory_ed:   inv.Editor,
+	inventory_back: Mode, // where the inventory screen returns to
 	map_ed:         me.Editor,
 	opened:         int, // the tileset being edited in Tileset mode
 	audio_ops:      [8]Audio_Op, // sound requests for the frontend (editor_take_audio)
@@ -259,6 +267,8 @@ set_sub_labels :: proc(e: ^Editor) {
 	cce.editor_set_labels(&e.character_ed, e.labels)
 	fte.editor_set_labels(&e.feature_type_ed, e.labels)
 	fe.editor_set_labels(&e.feature_ed, e.labels)
+	ite.editor_set_labels(&e.item_type_ed, e.labels)
+	inv.editor_set_labels(&e.inventory_ed, e.labels)
 	me.editor_set_labels(&e.map_ed, e.labels)
 }
 
@@ -492,7 +502,22 @@ sync_embedded :: proc(e: ^Editor) {
 			e.char_type_ed.exit_requested = false
 			e.mode = .Hub
 		}
+	case .Inventory:
+		if e.inventory_ed.dirty {
+			e.inventory_ed.dirty = false
+			touched(e)
+		}
+		if e.inventory_ed.exit_requested {
+			e.inventory_ed.exit_requested = false
+			e.mode = e.inventory_back
+		}
 	case .Character:
+		if e.character_ed.items_requested {
+			e.character_ed.items_requested = false
+			if e.character_ed.sel < e.world.character_count {
+				open_inventory(e, cm.owner_character(e.world.characters[e.character_ed.sel].uuid), .Character)
+			}
+		}
 		if e.character_ed.dirty {
 			e.character_ed.dirty = false
 			touched(e)
@@ -511,12 +536,27 @@ sync_embedded :: proc(e: ^Editor) {
 			e.mode = .Hub
 		}
 	case .Feature:
+		if e.feature_ed.items_requested {
+			e.feature_ed.items_requested = false
+			if e.feature_ed.sel < e.world.feature_count {
+				open_inventory(e, cm.owner_feature(e.world.features[e.feature_ed.sel].uuid), .Feature)
+			}
+		}
 		if e.feature_ed.dirty {
 			e.feature_ed.dirty = false
 			touched(e)
 		}
 		if e.feature_ed.exit_requested {
 			e.feature_ed.exit_requested = false
+			e.mode = .Hub
+		}
+	case .Item_Type:
+		if e.item_type_ed.dirty {
+			e.item_type_ed.dirty = false
+			touched(e)
+		}
+		if e.item_type_ed.exit_requested {
+			e.item_type_ed.exit_requested = false
 			e.mode = .Hub
 		}
 	case .Sprite:
@@ -916,6 +956,13 @@ step_hub_row :: proc(e: ^Editor, delta: int) {
 	e.hub = rows[((i + delta) % len(rows) + len(rows)) % len(rows)]
 }
 
+// Opens the inventory screen for an owner; leaving it returns to `back` (the editor it was opened from).
+open_inventory :: proc(e: ^Editor, owner: cm.Inventory_Owner, back: Mode) {
+	inv.editor_begin(&e.inventory_ed, &e.world, owner)
+	e.inventory_back = back
+	e.mode = .Inventory
+}
+
 @(private = "file")
 run_hub :: proc(e: ^Editor, row: Hub_Row) {
 	#partial switch row {
@@ -946,6 +993,9 @@ run_hub :: proc(e: ^Editor, row: Hub_Row) {
 	case .Features:
 		fe.editor_begin(&e.feature_ed, &e.world)
 		e.mode = .Feature
+	case .Item_Types:
+		ite.editor_begin(&e.item_type_ed, &e.world)
+		e.mode = .Item_Type
 	case .Maps:
 		open_list(e, .Maps)
 	}
@@ -1008,6 +1058,14 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		return
 	case .Feature:
 		fe.editor_handle_event(&e.feature_ed, ev)
+		sync_embedded(e)
+		return
+	case .Item_Type:
+		ite.editor_handle_event(&e.item_type_ed, ev)
+		sync_embedded(e)
+		return
+	case .Inventory:
+		inv.editor_handle_event(&e.inventory_ed, ev)
 		sync_embedded(e)
 		return
 	case .Map:
@@ -1131,7 +1189,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Red, .Blue:
 			e.mode = .Hub
 		}
-	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Feature_Type, .Feature, .Map:
+	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Feature_Type, .Feature, .Item_Type, .Inventory, .Map:
 		// Handled before this point: those modes own the input.
 	}
 }

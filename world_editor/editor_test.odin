@@ -2,7 +2,10 @@
 package world_editor
 
 import rt "../anvil_runtime"
+import cce "../character_editor"
 import cm "../common"
+import fe "../feature_editor"
+import ite "../item_type_editor"
 import spe "../sprite_editor"
 import "core:fmt"
 import "core:strings"
@@ -690,7 +693,7 @@ Input_Method :: enum {
 @(test)
 test_every_part_can_be_opened_by_each_input :: proc(t: ^testing.T) {
 	for m in Input_Method {
-		for row in ([]Hub_Row{.Palette, .Tags, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Character_Types, .Characters, .Feature_Types, .Features, .Maps}) {
+		for row in ([]Hub_Row{.Palette, .Tags, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Character_Types, .Characters, .Feature_Types, .Features, .Item_Types, .Maps}) {
 			e := with_content()
 			switch m {
 			case .Commands:
@@ -711,6 +714,8 @@ test_every_part_can_be_opened_by_each_input :: proc(t: ^testing.T) {
 				want = .Feature_Type
 			case .Features:
 				want = .Feature
+			case .Item_Types:
+				want = .Item_Type
 			case:
 				want = .List
 			}
@@ -1061,6 +1066,13 @@ test_every_screen_draws_on_screen_in_every_mode :: proc(t: ^testing.T) {
 				e.mode = .Hub
 				e.hub = .Features
 				press(e, .Green)
+			case .Item_Type:
+				e.mode = .Hub
+				e.hub = .Item_Types
+				press(e, .Green)
+			case .Inventory:
+				cm.world_add_item_type(&e.world)
+				open_inventory(e, cm.owner_cell(0, 0, 0), .Hub)
 			case .Map:
 				e.section = .Maps
 				e.mode = .List
@@ -2186,4 +2198,81 @@ test_the_player_walks_over_items_and_the_editor_says_what_lies_there :: proc(t: 
 	draw_play(e, &r)
 	testing.expect_value(t, log.out_of_bounds, 0)
 	testing.expect_value(t, log.presents, 1)
+}
+
+@(test)
+test_the_inventory_opens_from_the_character_and_feature_editors_and_comes_back :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	ci := add_player(e)
+	gold := cm.world_add_item_type(&e.world, "gold")
+	cm.world_set_item_type_max_stack(&e.world, gold, 50)
+	ft := cm.world_add_feature_type(&e.world)
+	fi := cm.world_add_feature(&e.world, ft)
+	hero := cm.owner_character(e.world.characters[ci].uuid)
+	chest := cm.owner_feature(e.world.features[fi].uuid)
+	// A character: ITEMS opens its inventory; adding gold there is the world's change; red comes back.
+	goto_hub(e, .Characters)
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Character)
+	e.dirty = false
+	click_rect(e, cce.ITEMS_BUTTON)
+	testing.expect(t, e.mode == .Inventory && e.inventory_ed.owner == hero)
+	press(e, .Green, .Green) // the NEW row, the first type
+	testing.expect(t, cm.world_owner_entry_count(&e.world, hero) == 1 && e.dirty)
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Character)
+	testing.expect_value(t, e.character_ed.sel, ci) // the character editor kept its place
+	press(e, .Red, .Red) // Actions, then the list: leaves
+	testing.expect_value(t, e.mode, Mode.Hub)
+	// The same with a feature, and with the commands.
+	goto_hub(e, .Features)
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Feature)
+	press(e, .Yellow)
+	for _ in 0 ..< 20 {
+		if e.feature_ed.row == .Items {
+			break
+		}
+		press(e, .Down)
+	}
+	testing.expect_value(t, e.feature_ed.row, fe.Setup_Row.Items)
+	press(e, .Green)
+	testing.expect(t, e.mode == .Inventory && e.inventory_ed.owner == chest)
+	press(e, .Green, .Green, .Right, .Right)
+	testing.expect_value(t, cm.world_owner_entry(&e.world, chest, 0).count, 3)
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Feature)
+	// The inventories are saved with the world and come back through a load.
+	text := cm.world_to_json(&e.world)
+	back := new_editor()
+	defer free(back)
+	testing.expect_value(t, cm.world_from_json(transmute([]u8)text, &back.world), "")
+	testing.expect_value(t, back.world.inventory_count, 2)
+	// Deleting the character takes its items with it.
+	cm.world_delete_character(&e.world, ci)
+	testing.expect_value(t, e.world.inventory_count, 1)
+}
+
+@(test)
+test_item_types_are_added_in_the_hosted_editor_and_mark_the_world_changed :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	goto_hub(e, .Item_Types)
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Item_Type)
+	e.dirty = false
+	before := e.world.item_type_count
+	press(e, .Yellow)
+	for _ in 0 ..< 30 {
+		if e.item_type_ed.row == .New {
+			break
+		}
+		press(e, .Down)
+	}
+	testing.expect_value(t, e.item_type_ed.row, ite.Setup_Row.New)
+	press(e, .Green) // New: names it right away
+	testing.expect(t, e.world.item_type_count == before + 1 && e.dirty)
 }
