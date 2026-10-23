@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status and commands
 
-Open work is tracked in `TASKS.md` (derived from the user's `FINDINGS.md`, which is theirs: do not edit it).
+All open work is tracked in coxswain (project `anvil`); there is no TASKS.md, USER_STORIES.md or BACKLOG.md. Other sessions file requests as coxswain tasks.
 
 A suite of editors behind one main menu, sharing two tool-agnostic frontends (native SDL2, web/wasm). Tools so far: `palette_editor`, `image_editor`, `tileset_editor`, `world_editor`, `glyph_editor`, `font_editor` and `gamepad_tester`.
 
@@ -35,7 +35,7 @@ Parity is enforced by tests (`test_every_*_by_each_input`): every swatch, channe
 
 **Game clock and games' own apps.** `Tool.update(data, dt_ms: f64)` is optional (editors leave it nil); both frontends call `cm.tool_update(&tool, elapsed_ms)` once a frame before `draw` (SDL2: `sdl.GetTicks` difference; web: `step`'s `dt` seconds x 1000), which clamps to 0..`MAX_FRAME_MS` (100) and forwards; the launcher forwards it to the running tool only. A game outside this repo builds with `APP_DIR=<folder with app.odin> [APP_NAME=] [OUT_DIR=] ./build.sh native|web|run|serve`: `build.sh` links the folder into `build/ext/<name>/app` as the `app` collection, always passes `-collection:anvil=<this repo>` (games `import "anvil:common"` / `"anvil:anvil_runtime"`), and for the web page uses the game's own `title.txt`/`input_map.json`/`game_tags.json` (in `APP_DIR` or its parent) when present. Recipe in `GAMES.md`; `./build.sh check` builds `testdata/external_app/` both ways and checks that its `input_map.json` is the one linked.
 
-`BACKLOG.md` lists deliberately deferred features; don't build them unasked.
+Deferred features are coxswain tasks (project `anvil`); don't build them unasked.
 
 ```bash
 ./build.sh check                 # odin check every package, and both frontends for every tool
@@ -101,7 +101,7 @@ Spec: `WORLD.md`. A world is one tile size, one palette, up to 16 named tilesets
 - Packages: `map_editor`, `terrain_editor` and `sprite_editor` (hosted only, edit the world in place, no files), `world_editor` (the tool: Hub, List, Setup (actions), Text, File, and the embedded Palette / Tileset / Terrain / Map modes). The palette editor and tileset editor got an *embedded* mode (`editor_begin_embedded`): no File mode, red leaves with no prompt, SAVE/LOAD hidden, MENU reads BACK; embedded tileset editor locks the tile size to the world's, refuses deleting an image a terrain uses and updates terrains when an image is renamed. The world editor copies a tileset in and back out (~1 MB) and edits the others in place.
 - New and Duplicate (in the tileset editor, and the world editor's lists) ask for the name with the keypad first, then open the item's editor.
 - The world editor Editor is ~20 MB (global in the apps). Web builds use `-o:minimal` (4 s instead of ~12 min); `WEB_OPT=speed ./build.sh web` restores the optimised build.
-- Size limits are still open (see `BACKLOG.md`).
+- Huge-world editing in the browser has no size cap beyond `FILE_CAP`; the game case is settled (see `FILE_CAP` in `frontends/web/web.odin`).
 
 ## Odin toolchain notes
 
