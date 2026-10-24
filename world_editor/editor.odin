@@ -7,6 +7,8 @@ import cte "../character_type_editor"
 import fe "../feature_editor"
 import fte "../feature_type_editor"
 import ite "../item_type_editor"
+import tge "../trigger_editor"
+import tgte "../trigger_type_editor"
 import inv "../inventory_editor"
 import me "../map_editor"
 import pe "../palette_editor"
@@ -62,6 +64,8 @@ Mode :: enum {
 	Feature_Type,
 	Feature,
 	Item_Type,
+	Trigger_Type,
+	Trigger,
 	Inventory, // one owner's inventory, opened from the character and feature editors
 	Map,
 }
@@ -90,6 +94,8 @@ Hub_Row :: enum {
 	Characters,
 	Feature_Types,
 	Features,
+	Trigger_Types,
+	Triggers,
 	Item_Types,
 	Maps,
 }
@@ -116,7 +122,7 @@ LOOK_ROWS := [?]Hub_Row{.Palette, .Tile_Width, .Tile_Height, .Tilesets, .Terrain
 @(rodata)
 RULES_ROWS := [?]Hub_Row{.Tags, .Params, .Sounds}
 @(rodata)
-ACTORS_ROWS := [?]Hub_Row{.Character_Types, .Characters, .Feature_Types, .Features, .Item_Types, .Maps}
+ACTORS_ROWS := [?]Hub_Row{.Character_Types, .Characters, .Feature_Types, .Features, .Trigger_Types, .Triggers, .Item_Types, .Maps}
 
 // The rows of a section, in order.
 section_rows :: proc(s: Hub_Section) -> []Hub_Row {
@@ -138,7 +144,7 @@ hub_row_section :: proc(row: Hub_Row) -> Hub_Section {
 		return .Look
 	case .Tags, .Params, .Sounds:
 		return .Rules
-	case .Character_Types, .Characters, .Feature_Types, .Features, .Item_Types, .Maps:
+	case .Character_Types, .Characters, .Feature_Types, .Features, .Trigger_Types, .Triggers, .Item_Types, .Maps:
 		return .Actors
 	}
 	return .Look
@@ -203,6 +209,8 @@ Editor :: struct {
 	feature_type_ed: fte.Editor,
 	feature_ed:     fe.Editor,
 	item_type_ed:   ite.Editor,
+	trigger_type_ed: tgte.Editor,
+	trigger_ed:     tge.Editor,
 	inventory_ed:   inv.Editor,
 	inventory_back: Mode, // where the inventory screen returns to
 	map_ed:         me.Editor,
@@ -268,6 +276,8 @@ set_sub_labels :: proc(e: ^Editor) {
 	fte.editor_set_labels(&e.feature_type_ed, e.labels)
 	fe.editor_set_labels(&e.feature_ed, e.labels)
 	ite.editor_set_labels(&e.item_type_ed, e.labels)
+	tgte.editor_set_labels(&e.trigger_type_ed, e.labels)
+	tge.editor_set_labels(&e.trigger_ed, e.labels)
 	inv.editor_set_labels(&e.inventory_ed, e.labels)
 	me.editor_set_labels(&e.map_ed, e.labels)
 }
@@ -548,6 +558,24 @@ sync_embedded :: proc(e: ^Editor) {
 		}
 		if e.feature_ed.exit_requested {
 			e.feature_ed.exit_requested = false
+			e.mode = .Hub
+		}
+	case .Trigger_Type:
+		if e.trigger_type_ed.dirty {
+			e.trigger_type_ed.dirty = false
+			touched(e)
+		}
+		if e.trigger_type_ed.exit_requested {
+			e.trigger_type_ed.exit_requested = false
+			e.mode = .Hub
+		}
+	case .Trigger:
+		if e.trigger_ed.dirty {
+			e.trigger_ed.dirty = false
+			touched(e)
+		}
+		if e.trigger_ed.exit_requested {
+			e.trigger_ed.exit_requested = false
 			e.mode = .Hub
 		}
 	case .Item_Type:
@@ -997,6 +1025,12 @@ run_hub :: proc(e: ^Editor, row: Hub_Row) {
 	case .Features:
 		fe.editor_begin(&e.feature_ed, &e.world)
 		e.mode = .Feature
+	case .Trigger_Types:
+		tgte.editor_begin(&e.trigger_type_ed, &e.world)
+		e.mode = .Trigger_Type
+	case .Triggers:
+		tge.editor_begin(&e.trigger_ed, &e.world)
+		e.mode = .Trigger
 	case .Item_Types:
 		ite.editor_begin(&e.item_type_ed, &e.world)
 		e.mode = .Item_Type
@@ -1062,6 +1096,14 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 		return
 	case .Feature:
 		fe.editor_handle_event(&e.feature_ed, ev)
+		sync_embedded(e)
+		return
+	case .Trigger_Type:
+		tgte.editor_handle_event(&e.trigger_type_ed, ev)
+		sync_embedded(e)
+		return
+	case .Trigger:
+		tge.editor_handle_event(&e.trigger_ed, ev)
 		sync_embedded(e)
 		return
 	case .Item_Type:
@@ -1193,7 +1235,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Red, .Blue:
 			e.mode = .Hub
 		}
-	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Feature_Type, .Feature, .Item_Type, .Inventory, .Map:
+	case .Text, .Value, .Sound, .Play, .Palette, .Tileset, .Terrain, .Sprite, .Char_Type, .Character, .Feature_Type, .Feature, .Trigger_Type, .Trigger, .Item_Type, .Inventory, .Map:
 		// Handled before this point: those modes own the input.
 	}
 }

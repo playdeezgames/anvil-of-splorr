@@ -43,6 +43,7 @@ TAGS_BUTTON :: Rect{214, 131, BUTTON_W, BUTTON_H}
 PROPS_BUTTON :: Rect{266, 131, BUTTON_W, BUTTON_H} // the feature's values of its type's properties
 BACK_BUTTON :: Rect{266, 142, BUTTON_W, BUTTON_H}
 TAGS_Y :: 90 // "2 TAGS" under the type's name
+TRIGGERS_X :: PANEL_X + 46 // "3 TRIG": how many triggers are on the feature, right of the tag count
 
 HELP_Y :: 152
 MAX_HELP_LINES :: 4

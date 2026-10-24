@@ -16,12 +16,12 @@ INFO_Y :: 19
 HUB_X :: 24
 HUB_VALUE_X :: 130
 HUB_Y :: 32
-HUB_PITCH :: 14
+HUB_PITCH :: 12
 HUB_MARKER_X :: 12
-WIDTH_MINUS :: Rect{230, 46, 12, 10} // the tile width row (row 1 of LOOK)
-WIDTH_PLUS :: Rect{244, 46, 12, 10}
-HEIGHT_MINUS :: Rect{230, 60, 12, 10} // the tile height row (row 2 of LOOK)
-HEIGHT_PLUS :: Rect{244, 60, 12, 10}
+WIDTH_MINUS :: Rect{230, 44, 12, 10} // the tile width row (row 1 of LOOK)
+WIDTH_PLUS :: Rect{244, 44, 12, 10}
+HEIGHT_MINUS :: Rect{230, 56, 12, 10} // the tile height row (row 2 of LOOK)
+HEIGHT_PLUS :: Rect{244, 56, 12, 10}
 
 // The three file buttons under the hub rows.
 SAVE_BUTTON :: Rect{24, 130, 40, 10}

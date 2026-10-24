@@ -78,7 +78,7 @@ build_web() {
 
 case "$target" in
 	check)
-		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor feature_type_editor feature_editor item_type_editor inventory_editor controls_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime mcp_server; do odin check "$pkg" -no-entry-point; done
+		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor feature_type_editor feature_editor item_type_editor inventory_editor controls_editor trigger_type_editor trigger_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime mcp_server; do odin check "$pkg" -no-entry-point; done
 		odin check anvil_runtime -no-entry-point -target:js_wasm32
 		odin check anvil_mcp
 		for t in apps/*/; do
@@ -93,7 +93,7 @@ case "$target" in
 		# ... and the page uses the game's own input_map.json, not the Anvil's
 		[ "$(readlink build/ext-check/web/external_check/input_map.json)" = "$PWD/testdata/external_app/input_map.json" ] || { echo "the external app's input_map.json was not used" >&2; exit 1; } ;;
 	test)
-		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor feature_type_editor feature_editor item_type_editor inventory_editor controls_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime mcp_server; do odin test "$pkg"; done ;;
+		for pkg in common palette_editor image_editor tileset_editor map_editor terrain_editor sprite_editor character_type_editor character_editor feature_type_editor feature_editor item_type_editor inventory_editor controls_editor trigger_type_editor trigger_editor world_editor glyph_editor font_editor gamepad_tester launcher anvil_runtime mcp_server; do odin test "$pkg"; done ;;
 	install-mcp)
 		# A stable "prod" copy of the MCP server, so development can go on (and rebuild build/anvil_mcp)
 		# while other sessions use this one. The new file replaces the old by rename, so a running

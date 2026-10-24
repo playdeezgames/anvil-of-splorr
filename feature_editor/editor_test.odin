@@ -752,3 +752,29 @@ test_the_props_screen_draws_on_screen_and_its_texts_fit :: proc(t: ^testing.T) {
 		testing.expectf(t, cm.text_width(b.text) <= b.rc.w - 2, "%s", b.text)
 	}
 }
+
+@(test)
+test_the_number_of_triggers_on_a_feature_is_shown_and_fits :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	tt := cm.world_add_trigger_type(world, "lock")
+	log: Draw_Log
+	r := logging_renderer(&log)
+	editor_draw(e, &r)
+	without := log.rects
+	for _ in 0 ..< 3 {
+		ti := cm.world_add_trigger(world, tt)
+		cm.world_attach_trigger(world, world.triggers[ti].uuid, world.features[0].uuid)
+	}
+	log = {}
+	editor_draw(e, &r)
+	testing.expect(t, log.rects > without && log.out_of_bounds == 0)
+	testing.expect(t, TRIGGERS_X + cm.text_width("2048 TRIG") <= cm.SCREEN_W && TRIGGERS_X > PANEL_X + cm.text_width("WWWWWWW"))
+	testing.expect(t, cm.text_is_drawable("2048 TRIG"))
+	// Triggers in cells (and on other features) do not count.
+	log = {}
+	world.triggers[0].place = .None
+	editor_draw(e, &r)
+	testing.expect(t, log.out_of_bounds == 0)
+}

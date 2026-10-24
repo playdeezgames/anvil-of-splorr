@@ -169,6 +169,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.draw_text(r, PANEL_X, TYPE_LABEL_Y, "TYPE", e.mode == .Setup && e.row == .Type ? HILITE : TEXT)
 		cm.draw_text(r, PANEL_X, TYPE_NAME_Y, shown(type_name), TEXT)
 		cm.draw_text(r, PANEL_X, TAGS_Y, cm.tag_count_text(w, tag_view(e)), DIM)
+		if n := len(cm.world_triggers_on_feature(w, current(e).uuid)); n > 0 {
+			cm.draw_text(r, TRIGGERS_X, TAGS_Y, fmt.tprintf("%d TRIG", n), HILITE)
+		}
 		if e.mode == .Setup && e.row == .Type {
 			cm.draw_text(r, PANEL_X - 6, TYPE_LABEL_Y, ">", HILITE)
 		}

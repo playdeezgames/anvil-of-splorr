@@ -1,0 +1,827 @@
+#+build !js
+package trigger_editor
+
+import cm "../common"
+import "core:strings"
+import "core:testing"
+
+// A world with a sprite ("slime" and "bat" in set "creatures"), trigger types "slime" and "bat",
+// a map "m" (3 x 2) and triggers Goo (slime, at 1,0 of m), Flap (bat, off the map), Pip (slime, off
+// the map).
+make_world :: proc() -> ^cm.World {
+	w := new(cm.World)
+	cm.world_reset(w)
+	cm.world_seed_uuids(w, 9)
+	cm.world_set_tile_size(w, 4, 4)
+	a := cm.world_add_tileset(w, "a")
+	cm.tileset_insert_blank(&w.tilesets[a], 0, "a0")
+	ts := cm.world_add_terrain_set(w, "land")
+	cm.name_assign(&w.sets[ts].terrains[0].name, "grass")
+	creatures := cm.world_add_sprite_set(w, "creatures")
+	for name in ([]string{"slime", "bat"}) {
+		n := cm.world_add_sprite(w, creatures)
+		cm.name_assign(&w.sprite_sets[creatures].sprites[n].name, name)
+	}
+	slime := cm.world_add_trigger_type(w, "slime")
+	bat := cm.world_add_trigger_type(w, "bat")
+	cm.name_assign(&w.trigger_types[bat].sprite, "bat")
+	for spec in ([][2]string{{"Goo", "slime"}, {"Flap", "bat"}, {"Pip", "slime"}}) {
+		n := cm.world_add_trigger(w, spec[1] == "bat" ? bat : slime)
+		cm.name_assign(&w.triggers[n].name, spec[0])
+	}
+	m := cm.world_add_map(w, ts, "m")
+	cm.world_map_set_size(w, m, 3, 2)
+	cm.world_place_trigger(w, w.triggers[0].uuid, m, 1, 0)
+	return w
+}
+
+new_editor :: proc() -> (e: ^Editor, world: ^cm.World) {
+	world = make_world()
+	e = new(Editor)
+	editor_begin(e, world)
+	return
+}
+
+// A world with types but no triggers.
+empty_editor :: proc() -> (e: ^Editor, world: ^cm.World) {
+	world = make_world()
+	world.trigger_count = 0
+	e = new(Editor)
+	editor_begin(e, world)
+	return
+}
+
+free_both :: proc(e: ^Editor, world: ^cm.World) {
+	free(e)
+	free(world)
+}
+
+press :: proc(e: ^Editor, actions: ..cm.Action) {
+	for a in actions {
+		editor_handle_event(e, cm.Command{action = a})
+	}
+}
+
+click_at :: proc(e: ^Editor, x, y: int) {
+	editor_handle_event(e, cm.Mouse_Button_Event{button = .Left, x = x, y = y, down = true})
+	editor_handle_event(e, cm.Mouse_Button_Event{button = .Left, x = x, y = y, down = false})
+}
+
+click_rect :: proc(e: ^Editor, rc: Rect) {
+	click_at(e, rc.x + rc.w / 2, rc.y + rc.h / 2)
+}
+
+click_item :: proc(e: ^Editor, index: int) {
+	rc := list_row_rect(index - e.scroll)
+	click_at(e, rc.x + 4, rc.y + 3)
+}
+
+goto_row :: proc(e: ^Editor, row: Setup_Row) {
+	e.mode = .Setup
+	for e.row != row {
+		press(e, .Down)
+	}
+}
+
+run :: proc(e: ^Editor, row: Setup_Row) {
+	goto_row(e, row)
+	press(e, .Green)
+}
+
+type_with_commands :: proc(e: ^Editor, text: string) {
+	for i in 0 ..< len(text) {
+		ch := text[i]
+		if e.entry.row == cm.TEXT_ENTRY_ROWS - 1 {
+			press(e, .Up)
+		}
+		tcol, trow := -1, -1
+		for r in 0 ..< cm.TEXT_ENTRY_CHAR_ROWS {
+			for c in 0 ..< cm.TEXT_ENTRY_COLS {
+				if g, ok := cm.text_entry_char_at(c, r); ok && g == ch {
+					tcol, trow = c, r
+				}
+			}
+		}
+		rights := (tcol - e.entry.col + cm.TEXT_ENTRY_COLS) % cm.TEXT_ENTRY_COLS
+		downs := (trow - e.entry.row + cm.TEXT_ENTRY_ROWS) % cm.TEXT_ENTRY_ROWS
+		for _ in 0 ..< rights {
+			press(e, .Right)
+		}
+		for _ in 0 ..< downs {
+			press(e, .Down)
+		}
+		press(e, .Green)
+	}
+}
+
+press_keypad_action :: proc(e: ^Editor, a: cm.Text_Entry_Action) {
+	for e.entry.row != cm.TEXT_ENTRY_ROWS - 1 {
+		press(e, .Down)
+	}
+	for cm.text_entry_action_at(e.entry.col) != a {
+		press(e, .Right)
+	}
+	press(e, .Green)
+}
+
+name_typed :: proc(e: ^Editor, name: string) {
+	press_keypad_action(e, .Clear)
+	type_with_commands(e, name)
+	press_keypad_action(e, .Done)
+}
+
+@(test)
+test_the_list_starts_on_the_first_trigger :: proc(t: ^testing.T) {
+	e, world := new_editor()
+	defer free_both(e, world)
+	testing.expect(t, e.mode == .List && e.sel == 0 && !e.dirty && !e.exit_requested)
+	press(e, .Up)
+	testing.expect_value(t, e.sel, 0)
+	press(e, .Down, .Down, .Down, .Down)
+	testing.expect_value(t, e.sel, 2)
+	press(e, .Red)
+	testing.expect(t, e.exit_requested)
+}
+
+@(test)
+test_an_empty_table_says_so_instead_of_doing_things :: proc(t: ^testing.T) {
+	e, world := empty_editor()
+	defer free_both(e, world)
+	press(e, .Green, .Up, .Down)
+	testing.expect(t, e.mode == .List && e.note == "" || e.note == NOTE_NO_TRIGGERS)
+	for row in ([]Setup_Row{.Rename, .Duplicate, .Delete, .Unplace}) {
+		e.note = ""
+		e.mode = .List
+		run(e, row)
+		testing.expectf(t, e.note == NOTE_NO_TRIGGERS && !e.dirty, "%v with no triggers", row)
+	}
+	e.note = ""
+	goto_row(e, .Type)
+	press(e, .Right)
+	testing.expect_value(t, e.note, NOTE_NO_TRIGGERS)
+}
+
+@(test)
+test_new_needs_a_type_and_names_the_trigger_straight_away :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	e.sel = 1 // Flap, a bat: the new trigger gets that type
+	run(e, .New)
+	testing.expect(t, e.mode == .Text && world.trigger_count == 4 && e.sel == 3)
+	testing.expect(t, cm.name_str(&current(e).type) == "bat" && trigger_name(e, 3) == "trigger" && e.dirty)
+	name_typed(e, "Zed")
+	testing.expect(t, e.mode == .Setup && trigger_name(e, 3) == "Zed")
+	testing.expect(t, !cm.uuid_is_none(current(e).uuid))
+	testing.expect_value(t, place_text(e, 3), "NO PLACE")
+	// Names are labels: a name already used is fine; empty is not.
+	run(e, .Rename)
+	name_typed(e, "Goo")
+	testing.expect(t, e.mode == .Setup && trigger_name(e, 3) == "Goo")
+	run(e, .Rename)
+	name_typed(e, "")
+	testing.expect_value(t, e.mode, Mode.Text)
+	press_keypad_action(e, .Cancel)
+	// In a world with no types there is nothing to be.
+	e2, w2 := new_editor()
+	defer free_both(e2, w2)
+	w2.trigger_count = 0
+	w2.trigger_type_count = 0
+	run(e2, .New)
+	testing.expect(t, e2.note == NOTE_NEED_TYPE && e2.mode == .Setup && w2.trigger_count == 0)
+	// An empty table with types: the first type.
+	e3, w3 := empty_editor()
+	defer free_both(e3, w3)
+	run(e3, .New)
+	press_keypad_action(e3, .Done)
+	testing.expect(t, w3.trigger_count == 1 && cm.name_str(&w3.triggers[0].type) == "slime")
+}
+
+@(test)
+test_green_in_the_list_renames :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Text)
+	name_typed(e, "Gloop")
+	testing.expect(t, e.mode == .List && trigger_name(e, 0) == "Gloop" && e.dirty)
+	press(e, .Green)
+	press_keypad_action(e, .Cancel)
+	testing.expect(t, e.mode == .List && trigger_name(e, 0) == "Gloop")
+}
+
+@(test)
+test_duplicate_makes_a_new_uuid_off_the_map :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	run(e, .Duplicate)
+	testing.expect(t, e.mode == .Text && world.trigger_count == 4 && trigger_name(e, 3) == "Goo_copy")
+	testing.expect(t, world.triggers[3].uuid != world.triggers[0].uuid && place_text(e, 3) == "NO PLACE" && place_text(e, 0) == "AT 1,0")
+	press_keypad_action(e, .Done)
+	testing.expect(t, e.mode == .Setup && e.sel == 3)
+}
+
+@(test)
+test_the_type_steps_through_the_worlds_types :: proc(t: ^testing.T) {
+	e, world := new_editor()
+	defer free_both(e, world)
+	goto_row(e, .Type)
+	press(e, .Right)
+	testing.expect(t, cm.name_str(&current(e).type) == "bat" && e.dirty)
+	press(e, .Right)
+	testing.expect_value(t, cm.name_str(&current(e).type), "slime") // wraps
+	press(e, .Left)
+	testing.expect_value(t, cm.name_str(&current(e).type), "bat")
+	click_rect(e, TYPE_PLUS)
+	testing.expect_value(t, cm.name_str(&current(e).type), "slime")
+	click_rect(e, TYPE_MINUS)
+	testing.expect_value(t, cm.name_str(&current(e).type), "bat")
+	world.trigger_type_count = 0
+	e.note = ""
+	press(e, .Right)
+	// With the types gone the trigger's type name has nothing to step to.
+	testing.expect_value(t, e.note, NOTE_NEED_TYPE)
+}
+
+@(test)
+test_unplace_takes_a_trigger_off_its_map :: proc(t: ^testing.T) {
+	e, world := new_editor()
+	defer free_both(e, world)
+	// Unplace.
+	e.sel = 0
+	e.dirty = false
+	run(e, .Unplace)
+	testing.expect(t, e.dirty && place_text(e, 0) == "NO PLACE" && len(cm.world_triggers_in_cell(world, 0, 1, 0)) == 0)
+	e.note = ""
+	run(e, .Unplace)
+	testing.expect_value(t, e.note, NOTE_NOT_PLACED)
+}
+
+@(test)
+test_delete_takes_a_trigger_off_the_map :: proc(t: ^testing.T) {
+	e, world := new_editor()
+	defer free_both(e, world)
+	run(e, .Delete)
+	testing.expect(t, e.confirm_delete && world.trigger_count == 3)
+	press(e, .Up) // anything else cancels
+	testing.expect(t, !e.confirm_delete)
+	e.row = .Delete
+	press(e, .Green, .Green)
+	testing.expect(t, world.trigger_count == 2 && len(cm.world_triggers_in_cell(world, 0, 1, 0)) == 0 && e.dirty)
+	testing.expect_value(t, trigger_name(e, 0), "Flap")
+	for _ in 0 ..< 2 {
+		run(e, .Delete)
+		press(e, .Green)
+	}
+	testing.expect_value(t, world.trigger_count, 0)
+}
+
+@(test)
+test_full_table_refuses_more :: proc(t: ^testing.T) {
+	e, world := new_editor()
+	defer free_both(e, world)
+	for world.trigger_count < cm.WORLD_MAX_TRIGGERS {
+		cm.world_add_trigger(world, 0)
+	}
+	run(e, .New)
+	testing.expect(t, e.note == NOTE_FULL && e.mode == .Setup)
+	run(e, .Duplicate)
+	testing.expect_value(t, e.note, NOTE_FULL)
+}
+
+@(test)
+test_the_list_scrolls_with_the_selection_and_the_wheel :: proc(t: ^testing.T) {
+	e, world := new_editor()
+	defer free_both(e, world)
+	for world.trigger_count < 100 {
+		cm.world_add_trigger(world, 0)
+	}
+	for _ in 0 ..< 60 {
+		press(e, .Down)
+	}
+	testing.expect(t, e.sel == 60 && e.scroll == 60 - LIST_ROWS + 1)
+	press(e, .Up)
+	testing.expect_value(t, e.scroll, 60 - LIST_ROWS + 1)
+	for _ in 0 ..< 70 {
+		press(e, .Up)
+	}
+	testing.expect(t, e.sel == 0 && e.scroll == 0)
+	editor_handle_event(e, cm.Mouse_Wheel{dy = -3})
+	testing.expect_value(t, e.scroll, 3)
+	for _ in 0 ..< 100 {
+		editor_handle_event(e, cm.Mouse_Wheel{dy = -3})
+	}
+	testing.expect_value(t, e.scroll, 100 - LIST_ROWS)
+	e.scroll = 45
+	click_item(e, 50)
+	testing.expect_value(t, e.sel, 50)
+}
+
+Input_Method :: enum {
+	Commands,
+	Mouse,
+}
+
+@(test)
+test_every_function_is_reachable_by_each_input :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	for m in Input_Method {
+		e, world := new_editor()
+		// Select the third trigger.
+		switch m {
+		case .Commands:
+			press(e, .Down, .Down)
+		case .Mouse:
+			click_item(e, 2)
+		}
+		testing.expectf(t, e.sel == 2, "%v select", m)
+		// Type, unplace (Goo is the one on the map)
+		switch m {
+		case .Commands:
+			goto_row(e, .Type)
+			press(e, .Right)
+		case .Mouse:
+			click_rect(e, TYPE_PLUS)
+		}
+		testing.expectf(t, cm.name_str(&current(e).type) == "bat", "%v type", m)
+		e.sel = 0
+		switch m {
+		case .Commands:
+			run(e, .Unplace)
+		case .Mouse:
+			click_rect(e, UNPLACE_BUTTON)
+		}
+		testing.expectf(t, len(cm.world_triggers_in_cell(world, 0, 1, 0)) == 0, "%v unplace", m)
+		// New, Duplicate (keypad cancelled), Delete, Rename
+		switch m {
+		case .Commands:
+			run(e, .New)
+		case .Mouse:
+			click_rect(e, NEW_BUTTON)
+		}
+		press_keypad_action(e, .Cancel)
+		testing.expectf(t, world.trigger_count == 4, "%v new", m)
+		switch m {
+		case .Commands:
+			run(e, .Duplicate)
+		case .Mouse:
+			click_rect(e, DUPLICATE_BUTTON)
+		}
+		press_keypad_action(e, .Cancel)
+		testing.expectf(t, world.trigger_count == 5, "%v duplicate", m)
+		switch m {
+		case .Commands:
+			run(e, .Delete)
+			press(e, .Green)
+		case .Mouse:
+			click_rect(e, DELETE_BUTTON)
+			click_rect(e, DELETE_BUTTON)
+		}
+		testing.expectf(t, world.trigger_count == 4, "%v delete", m)
+		switch m {
+		case .Commands:
+			run(e, .Rename)
+		case .Mouse:
+			click_rect(e, RENAME_BUTTON)
+		}
+		testing.expectf(t, e.mode == .Text, "%v rename", m)
+		press_keypad_action(e, .Cancel)
+		switch m {
+		case .Commands:
+			e.mode = .List
+			press(e, .Red)
+		case .Mouse:
+			click_rect(e, BACK_BUTTON)
+		}
+		testing.expectf(t, e.exit_requested, "%v leave", m)
+		free_both(e, world)
+	}
+}
+
+@(test)
+test_layout_fits_the_screen_and_does_not_overlap :: proc(t: ^testing.T) {
+	rects := make([dynamic]Rect, context.temp_allocator)
+	append(&rects, BANNER, Rect{LIST_X, LIST_Y, LIST_W, LIST_ROWS * LIST_PITCH}, PREVIEW_FRAME, TYPE_MINUS, TYPE_PLUS)
+	for b in buttons() {
+		append(&rects, b.rc)
+		testing.expectf(t, cm.text_width(b.text) <= b.rc.w - 2 && cm.GLYPH_H <= b.rc.h && cm.text_is_drawable(b.text), "label %s", b.text)
+	}
+	for a, i in rects {
+		testing.expectf(t, a.x >= 0 && a.y >= 0 && a.x + a.w <= cm.SCREEN_W && a.y + a.h <= cm.SCREEN_H, "rect %d off screen", i)
+		for b, j in rects {
+			if i < j {
+				overlap := a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+				testing.expectf(t, !overlap, "rects %d and %d overlap", i, j)
+			}
+		}
+	}
+	// A 32 trigger name and the place fit one list line; the id, the status and the type fit the panel.
+	testing.expect(t, 9 + cm.text_width("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW") + cm.text_width("AT 63,63") + 6 <= LIST_W)
+	testing.expect(t, ID_X + cm.text_width("ID 3F2A9C1E") <= cm.SCREEN_W)
+	testing.expect(t, PANEL_X + cm.text_width("WWWWWWWWWWWWWWWWWWWWWW") <= cm.SCREEN_W - 2 && PANEL_X + cm.text_width("TYPE") < TYPE_MINUS.x)
+	testing.expect(t, LIST_X + LIST_W < PANEL_X && LIST_Y + LIST_ROWS * LIST_PITCH <= HELP_Y)
+	testing.expect(t, HELP_Y >= BACK_BUTTON.y + BACK_BUTTON.h && HELP_Y + MAX_HELP_LINES * cm.LINE_ADVANCE <= cm.SCREEN_H)
+	testing.expect(t, TYPE_NAME_Y + cm.GLYPH_H <= RENAME_BUTTON.y && PREVIEW_FRAME.y + PREVIEW_FRAME.h <= TYPE_MINUS.y)
+}
+
+@(test)
+test_list_geometry_round_trips :: proc(t: ^testing.T) {
+	for row in 0 ..< LIST_ROWS {
+		rc := list_row_rect(row)
+		for p in ([][2]int{{0, 0}, {LIST_W - 1, LIST_PITCH - 1}}) {
+			got, ok := list_row_at(rc.x + p.x, rc.y + p.y)
+			testing.expectf(t, ok && got == row, "row %d", row)
+		}
+	}
+	_, ok := list_row_at(LIST_X - 1, LIST_Y)
+	testing.expect(t, !ok)
+	_, ok = list_row_at(LIST_X, LIST_Y + LIST_ROWS * LIST_PITCH)
+	testing.expect(t, !ok)
+}
+
+@(test)
+test_all_on_screen_text_is_in_the_font_and_fits :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	m := cm.default_input_map()
+	editor_set_labels(e, &m)
+	for round in 0 ..< 2 {
+		if round == 1 {
+			for a in cm.Action {
+				cm.set_key_name(&m.labels[a], "WWWWWWWWWWWW")
+			}
+		}
+		for mode in ([]Mode{.List, .Setup, .Tags}) {
+			for confirm in 0 ..< 2 {
+				e.mode = mode
+				e.confirm_delete = confirm == 1
+				text := banner_text(e)
+				if round == 0 {
+					testing.expectf(t, cm.text_is_drawable(text), "banner: %s", text)
+				}
+				testing.expectf(t, cm.text_width(text) + 8 <= BANNER.w, "banner too wide: %s", text)
+			}
+			lines, n := help_lines(e)
+			for line in lines[:n] {
+				if round == 0 {
+					testing.expectf(t, cm.text_is_drawable(line), "help: %s", line)
+				}
+				testing.expectf(t, 8 + cm.text_width(line) <= cm.SCREEN_W - 8, "help line too wide: %s", line)
+			}
+		}
+	}
+	// The longest info line: a long map name at the end of a full table.
+	cm.name_assign(&world.maps[0].name, "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW")
+	e.sel = 0
+	e.dirty = true
+	info := info_text(e)
+	testing.expect(t, cm.text_is_drawable(info) && INFO_X + cm.text_width(info) <= cm.SCREEN_W - 4)
+	testing.expect(t, cm.text_is_drawable("1024 OF 1024  MAP  *"))
+	for note in ([]string{NOTE_NO_TRIGGERS, NOTE_NEED_TYPE, NOTE_FULL, NOTE_NOT_PLACED, NOTE_NAME_EMPTY, NOTE_NAME_BAD, "NO TRIGGERS YET *"}) {
+		testing.expectf(t, cm.text_is_drawable(note) && INFO_X + cm.text_width(note) <= cm.SCREEN_W - 2, "note: %s", note)
+	}
+	for word in ([]string{"NO PLACE", "AT 63,63", "TYPE", "ID 3F2A9C1E"}) {
+		testing.expect(t, cm.text_is_drawable(word))
+	}
+	testing.expect_value(t, upper("3f2a9c1e"), "3F2A9C1E")
+}
+
+Draw_Log :: struct {
+	rects, out_of_bounds, presents: int,
+}
+
+logging_renderer :: proc(l: ^Draw_Log) -> cm.Renderer {
+	return cm.Renderer {
+		data = l,
+		clear = proc(d: rawptr, c: cm.Color) {},
+		fill_rect = proc(d: rawptr, x, y, w, h: int, c: cm.Color) {
+			k := (^Draw_Log)(d)
+			k.rects += 1
+			if x < 0 || y < 0 || x + w > cm.SCREEN_W || y + h > cm.SCREEN_H {
+				k.out_of_bounds += 1
+			}
+		},
+		present = proc(d: rawptr) {(^Draw_Log)(d).presents += 1},
+	}
+}
+
+@(test)
+test_every_screen_draws_on_screen :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	log: Draw_Log
+	r := logging_renderer(&log)
+	for size in ([]int{1, 16, 64}) {
+		e, world := new_editor()
+		cm.world_set_tile_size(world, size, size)
+		for d in 0 ..< size {
+			cm.image4_set(&world.tilesets[0].images[0], d, (d * 3) % size, d % 16)
+		}
+		for world.trigger_count < cm.WORLD_MAX_TRIGGERS {
+			cm.world_add_trigger(world, world.trigger_count % 2)
+		}
+		for world.tag_count < cm.WORLD_MAX_TAGS {
+			cm.world_add_tag(world, "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW")
+		}
+		for mode in ([]Mode{.List, .Setup, .Text, .Tags}) {
+			for sel in ([]int{0, 500, 1023}) {
+				e.sel = sel
+				fix_selection(e)
+				e.mode = mode
+				if mode == .Text {
+					cm.text_entry_begin(&e.entry, "RENAME TRIGGER", trigger_name(e, e.sel), cm.NAME_MAX)
+				}
+				log = {}
+				editor_draw(e, &r)
+				testing.expectf(t, log.out_of_bounds == 0, "%d %v: %d rects off screen", size, mode, log.out_of_bounds)
+				testing.expect_value(t, log.presents, 1)
+				testing.expectf(t, log.rects < 5000, "%d %v: %d rects is too many", size, mode, log.rects)
+			}
+		}
+		free_both(e, world)
+	}
+	e, world := empty_editor()
+	defer free_both(e, world)
+	for mode in ([]Mode{.List, .Setup, .Tags}) {
+		e.mode = mode
+		log = {}
+		editor_draw(e, &r)
+		testing.expect_value(t, log.out_of_bounds, 0)
+	}
+}
+
+@(test)
+test_a_triggers_tags_inherit_then_set_then_clear :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	cm.world_add_tag(world, "water")
+	cm.world_add_tag(world, "hostile")
+	cm.world_toggle_trigger_type_tag(world, 0, 1) // slimes are "water"
+	run(e, .Tags) // Goo, a slime
+	testing.expect_value(t, e.mode, Mode.Tags)
+	testing.expect_value(t, cm.tag_names_text(world, tag_view(e)), "WATER") // from its type
+	testing.expect_value(t, cm.tag_source_text(tag_view(e), 1), "TYPE ON")
+	press(e, .Down, .Green) // water: inherit -> set
+	testing.expect_value(t, cm.tag_source_text(tag_view(e), 1), "OWN ON")
+	press(e, .Green) // set -> cleared
+	testing.expect_value(t, cm.tag_source_text(tag_view(e), 1), "OWN OFF")
+	testing.expect_value(t, cm.tag_names_text(world, tag_view(e)), "NONE")
+	testing.expect(t, e.dirty && !cm.world_trigger_has_tag(world, 0, 1))
+	press(e, .Green) // cleared -> inherit again
+	testing.expect(t, world.triggers[0].tags_set == 0 && world.triggers[0].tags_cleared == 0 && cm.world_trigger_has_tag(world, 0, 1))
+	// A tag its type lacks can be set on this trigger only.
+	press(e, .Down, .Green)
+	testing.expect(t, cm.world_trigger_has_tag(world, 0, 2) && !cm.world_trigger_has_tag(world, 2, 2)) // Pip, another slime
+	press(e, .Up, .Up, .Up)
+	testing.expect_value(t, e.tags.sel, 0)
+	// Solid by its own setting, against a type that lacks it; red goes back.
+	press(e, .Green)
+	testing.expect(t, cm.world_trigger_has_tag(world, 0, cm.TAG_SOLID))
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	// The mouse: a click cycles a row, BACK leaves; the TAGS button opens the list.
+	click_rect(e, TAGS_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Tags)
+	rc := cm.tag_list_rect(2)
+	click_at(e, rc.x + 5, rc.y + 3)
+	testing.expect_value(t, cm.tag_source_text(tag_view(e), 2), "OWN OFF")
+	click_rect(e, BACK_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	// With no triggers there is nothing to tag.
+	e2, w2 := empty_editor()
+	defer free_both(e2, w2)
+	run(e2, .Tags)
+	testing.expect(t, e2.mode == .Setup && e2.note == NOTE_NO_TRIGGERS)
+	// Many tags scroll in the list.
+	for world.tag_count < 40 {
+		cm.world_add_tag(world)
+	}
+	e.mode = .Tags
+	for _ in 0 ..< 50 {
+		press(e, .Down)
+	}
+	testing.expect(t, e.tags.sel == 39 && e.tags.scroll == 40 - cm.TAG_LIST_ROWS)
+	editor_handle_event(e, cm.Mouse_Wheel{dy = 100})
+	testing.expect_value(t, e.tags.scroll, 0)
+}
+
+@(test)
+test_a_trigger_is_put_on_a_feature_by_each_input_and_only_when_there_is_one :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	for by_mouse in ([]bool{false, true}) {
+		e, world := new_editor()
+		ft := cm.world_add_feature_type(world, "tree")
+		oak := cm.world_add_feature(world, ft, "Oak")
+		boulder := cm.world_add_feature(world, ft, "Boulder")
+		_ = oak
+		// Goo (trigger 0) is in the cell 1,0: attaching takes it out of the cell.
+		if by_mouse {
+			click_rect(e, ATTACH_BUTTON)
+		} else {
+			run(e, .Attach)
+		}
+		testing.expectf(t, e.mode == .Attach && e.attach_sel == 0, "mouse %v: opens", by_mouse)
+		if by_mouse {
+			rc := list_row_rect(1)
+			click_at(e, rc.x + 5, rc.y + 3) // selects the Boulder
+			click_at(e, rc.x + 5, rc.y + 3) // again: use it
+		} else {
+			press(e, .Down, .Green)
+		}
+		testing.expectf(t, e.mode == .Setup && e.dirty, "mouse %v: attached", by_mouse)
+		testing.expect(t, world.triggers[0].place == .Feature && world.triggers[0].feature == world.features[boulder].uuid)
+		testing.expect(t, len(cm.world_triggers_in_cell(world, 0, 1, 0)) == 0 && place_text(e, 0) == "ON Boulder" && location_text(e, 0) == "ON Boulder")
+		// Opening it again starts on the feature it is on; red or BACK cancels.
+		run(e, .Attach)
+		testing.expect_value(t, e.attach_sel, 1)
+		if by_mouse {
+			click_rect(e, BACK_BUTTON)
+		} else {
+			press(e, .Red)
+		}
+		testing.expect(t, e.mode == .Setup && world.triggers[0].place == .Feature)
+		// The wheel and the keys scroll a long list; nothing past its ends.
+		for _ in 0 ..< 20 {
+			cm.world_add_feature(world, ft, "Extra")
+		}
+		run(e, .Attach)
+		for _ in 0 ..< 30 {
+			press(e, .Down)
+		}
+		testing.expect_value(t, e.attach_sel, world.feature_count - 1)
+		testing.expect_value(t, e.attach_scroll, world.feature_count - LIST_ROWS)
+		for _ in 0 ..< 40 {
+			press(e, .Up)
+		}
+		testing.expect(t, e.attach_sel == 0 && e.attach_scroll == 0)
+		editor_handle_event(e, cm.Mouse_Wheel{dy = -3})
+		testing.expect_value(t, e.attach_scroll, 3)
+		press(e, .Red)
+		// UNPLACE takes it off the feature too.
+		run(e, .Unplace)
+		testing.expect(t, world.triggers[0].place == .None && place_text(e, 0) == "NO PLACE")
+		free_both(e, world)
+	}
+	// Nothing to attach to in a world without features; nothing to attach without triggers.
+	e, world := new_editor()
+	defer free_both(e, world)
+	run(e, .Attach)
+	testing.expect(t, e.mode == .Setup && e.note == NOTE_NO_FEATURES)
+	e2, w2 := empty_editor()
+	defer free_both(e2, w2)
+	run(e2, .Attach)
+	testing.expect(t, e2.mode == .Setup && e2.note == NOTE_NO_TRIGGERS)
+	// The attach screen and its texts stay on the surface.
+	cm.world_add_feature(world, cm.world_add_feature_type(world, "tree"), "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW")
+	run(e, .Attach)
+	log: Draw_Log
+	r := logging_renderer(&log)
+	editor_draw(e, &r)
+	testing.expect_value(t, log.out_of_bounds, 0)
+	testing.expect_value(t, log.presents, 1)
+	lines, n := help_lines(e)
+	for line in lines[:n] {
+		testing.expectf(t, cm.text_is_drawable(line) && cm.text_width(line) <= cm.SCREEN_W - 16, "%s", line)
+	}
+	testing.expect(t, cm.text_is_drawable(banner_text(e)) && BANNER.x + 4 + cm.text_width(banner_text(e)) <= BANNER.x + BANNER.w)
+	testing.expect(t, cm.text_is_drawable(NOTE_NO_FEATURES) && cm.text_is_drawable("ON WWWWWWWWWWWWWW") && cm.text_is_drawable("2048 TRIG"))
+	// The screen lists the features, not the triggers: more rects when there are more rows to draw.
+	log = {}
+	editor_draw(e, &r)
+	with_one := log.rects
+	for _ in 0 ..< 5 {
+		cm.world_add_feature(world, 0, "Extra")
+	}
+	log = {}
+	editor_draw(e, &r)
+	testing.expect(t, log.rects > with_one)
+}
+
+// Replaces the keypad's text with `text` and presses DONE.
+typed :: proc(e: ^Editor, text: string) {
+	if e.mode != .Text {
+		return // (never loop on a missing keypad: the test's own expectations say what went wrong)
+	}
+	for e.entry.len > 0 {
+		press_keypad_action(e, .Backspace)
+	}
+	type_with_commands(e, text)
+	press_keypad_action(e, .Done)
+}
+
+@(test)
+test_values_of_the_types_properties_are_changed_typed_and_reset_by_each_input :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	for by_mouse in ([]bool{false, true}) {
+		e, world := new_editor()
+		// No properties yet: nothing to open.
+		if by_mouse {
+			click_rect(e, PROPS_BUTTON)
+		} else {
+			run(e, .Props)
+		}
+		testing.expectf(t, e.mode == .Setup && e.note == NOTE_NO_PROPS, "mouse %v: no properties", by_mouse)
+		cm.world_trigger_type_add_prop(world, 0, "health", 10)
+		cm.world_trigger_type_add_prop(world, 0, "speed", 3)
+		if by_mouse {
+			click_rect(e, PROPS_BUTTON)
+		} else {
+			run(e, .Props)
+		}
+		testing.expectf(t, e.mode == .Props && props_count(e) == 2, "mouse %v: opens", by_mouse)
+		// +1, -1, the override is dropped when it equals the default again.
+		if by_mouse {
+			click_rect(e, PROP_PLUS)
+			click_rect(e, PROP_PLUS)
+		} else {
+			press(e, .Right, .Right)
+		}
+		testing.expect_value(t, prop_value(e, 0), 12)
+		testing.expect(t, e.dirty && current(e).overrides.mask == 1)
+		if by_mouse {
+			click_rect(e, PROP_MINUS)
+			click_rect(e, PROP_MINUS)
+		} else {
+			press(e, .Left, .Left)
+		}
+		testing.expect(t, prop_value(e, 0) == 10 && current(e).overrides.mask == 0)
+		// Type a value on the second property.
+		if by_mouse {
+			rc := prop_row_rect(1)
+			click_at(e, rc.x + 3, rc.y + 3) // selects
+			click_rect(e, PROP_VALUE_BUTTON)
+		} else {
+			press(e, .Down, .Green)
+		}
+		testing.expectf(t, e.mode == .Text && e.prop_sel == 1, "mouse %v: keypad", by_mouse)
+		typed(e, "-40")
+		testing.expect(t, e.mode == .Props && prop_value(e, 1) == -40 && current(e).overrides.mask == 2)
+		if by_mouse {
+			click_rect(e, PROP_VALUE_BUTTON)
+		} else {
+			press(e, .Green)
+		}
+		typed(e, "abc")
+		testing.expect(t, e.mode == .Text)
+		typed(e, "99999999999")
+		testing.expect(t, e.mode == .Text)
+		press_keypad_action(e, .Cancel)
+		testing.expect_value(t, prop_value(e, 1), -40)
+		// Back to the type's default.
+		if by_mouse {
+			click_rect(e, PROP_DEFAULT_BUTTON)
+		} else {
+			press(e, .Yellow)
+		}
+		testing.expect(t, prop_value(e, 1) == 3 && current(e).overrides.mask == 0)
+		// Leave.
+		if by_mouse {
+			click_rect(e, BACK_BUTTON)
+		} else {
+			press(e, .Red)
+		}
+		testing.expectf(t, e.mode == .Setup, "mouse %v: back", by_mouse)
+		free_both(e, world)
+	}
+}
+
+@(test)
+test_the_props_screen_draws_on_screen_and_its_texts_fit :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	for world.trigger_types[0].props.count < cm.PROP_MAX {
+		cm.world_trigger_type_add_prop(world, 0, "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", 2147483647)
+	}
+	world.triggers[0].overrides.mask = 0xFFFF
+	for i in 0 ..< cm.PROP_MAX {
+		world.triggers[0].overrides.values[i] = -2147483648
+	}
+	run(e, .Props)
+	testing.expect_value(t, e.mode, Mode.Props)
+	log: Draw_Log
+	r := logging_renderer(&log)
+	for sel in ([]int{0, 7, 15}) {
+		e.prop_sel = sel
+		log = {}
+		editor_draw(e, &r)
+		testing.expectf(t, log.out_of_bounds == 0 && log.presents == 1, "row %d: %d off screen", sel, log.out_of_bounds)
+	}
+	lines, n := help_lines(e)
+	for line in lines[:n] {
+		testing.expectf(t, cm.text_is_drawable(line) && cm.text_width(line) <= cm.SCREEN_W - 16, "%s", line)
+	}
+	for text in ([]string{banner_text(e), "PROPERTIES   GREEN: VALUE", NOTE_NO_PROPS, NOTE_NOT_NUMBER, NOTE_VALUE_RANGE, "CHANGED", "DEFAULT", "PROPS"}) {
+		testing.expectf(t, cm.text_is_drawable(text), "%s", text)
+	}
+	testing.expect(t, PROP_LIST_Y + cm.PROP_MAX * PROP_ROW_H <= HELP_Y && PROP_INFO_X >= PROP_LIST_X + PROP_LIST_W)
+	testing.expect(t, PROP_INFO_X + cm.text_width("CHARACTER WWWWWWWWWWWW") <= cm.SCREEN_W && PROP_INFO_Y > PROP_MINUS.y + PROP_MINUS.h)
+	testing.expect(t, PROP_LIST_X + PROP_VALUE_X + 56 + cm.text_width("CHANGED") <= PROP_LIST_X + PROP_LIST_W + 8 && PROP_LIST_X + PROP_LIST_W < PROP_VALUE_BUTTON.x)
+	testing.expect(t, PROP_LIST_X + PROP_VALUE_X + cm.text_width("-2147483648") <= PROP_LIST_X + PROP_VALUE_X + 56)
+	for b in buttons() {
+		testing.expectf(t, cm.text_width(b.text) <= b.rc.w - 2, "%s", b.text)
+	}
+}

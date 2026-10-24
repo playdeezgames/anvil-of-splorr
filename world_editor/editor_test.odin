@@ -694,7 +694,7 @@ Input_Method :: enum {
 @(test)
 test_every_part_can_be_opened_by_each_input :: proc(t: ^testing.T) {
 	for m in Input_Method {
-		for row in ([]Hub_Row{.Palette, .Tags, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Character_Types, .Characters, .Feature_Types, .Features, .Item_Types, .Maps}) {
+		for row in ([]Hub_Row{.Palette, .Tags, .Tilesets, .Terrain_Sets, .Sprite_Sets, .Character_Types, .Characters, .Feature_Types, .Features, .Trigger_Types, .Triggers, .Item_Types, .Maps}) {
 			e := with_content()
 			switch m {
 			case .Commands:
@@ -715,6 +715,10 @@ test_every_part_can_be_opened_by_each_input :: proc(t: ^testing.T) {
 				want = .Feature_Type
 			case .Features:
 				want = .Feature
+			case .Trigger_Types:
+				want = .Trigger_Type
+			case .Triggers:
+				want = .Trigger
 			case .Item_Types:
 				want = .Item_Type
 			case:
@@ -1066,6 +1070,14 @@ test_every_screen_draws_on_screen_in_every_mode :: proc(t: ^testing.T) {
 			case .Feature:
 				e.mode = .Hub
 				e.hub = .Features
+				press(e, .Green)
+			case .Trigger_Type:
+				e.mode = .Hub
+				e.hub = .Trigger_Types
+				press(e, .Green)
+			case .Trigger:
+				e.mode = .Hub
+				e.hub = .Triggers
 				press(e, .Green)
 			case .Item_Type:
 				e.mode = .Hub
@@ -2379,4 +2391,63 @@ test_playing_over_a_trigger_names_it_and_a_refused_step_keeps_its_note :: proc(t
 	testing.expect_value(t, log.out_of_bounds, 0)
 	press(e, .Red)
 	testing.expect_value(t, cm.world_to_json(&e.world), before)
+}
+
+@(test)
+test_triggers_are_made_and_put_on_features_in_the_hosted_editors :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content()
+	defer free(e)
+	ft := cm.world_add_feature_type(&e.world, "door")
+	cm.world_add_feature(&e.world, ft, "Gate")
+	// A trigger type, from the hub.
+	goto_hub(e, .Trigger_Types)
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Trigger_Type)
+	e.dirty = false
+	press(e, .Yellow)
+	for _ in 0 ..< 30 {
+		if e.trigger_type_ed.row == .New {
+			break
+		}
+		press(e, .Down)
+	}
+	press(e, .Green) // New: names it right away
+	testing.expect(t, e.world.trigger_type_count == 1 && e.dirty)
+	press(e, .Red, .Red, .Red) // keypad, Setup, then the editor
+	for e.mode != .Hub {
+		press(e, .Red)
+	}
+	// A trigger, and putting it on the feature (the Attach screen), from the hub.
+	goto_hub(e, .Triggers)
+	press(e, .Green)
+	testing.expect_value(t, e.mode, Mode.Trigger)
+	e.dirty = false
+	press(e, .Yellow)
+	for _ in 0 ..< 30 {
+		if e.trigger_ed.row == .New {
+			break
+		}
+		press(e, .Down)
+	}
+	press(e, .Green)
+	testing.expect(t, e.world.trigger_count == 1 && e.dirty)
+	for e.trigger_ed.mode == .Text {
+		press(e, .Red)
+	}
+	e.trigger_ed.mode = .Setup
+	for _ in 0 ..< 30 {
+		if e.trigger_ed.row == .Attach {
+			break
+		}
+		press(e, .Down)
+	}
+	press(e, .Green, .Green) // the Attach screen, then the only feature
+	testing.expect(t, e.world.triggers[0].place == .Feature && e.world.triggers[0].feature == e.world.features[0].uuid)
+	// It is saved with the world and comes back.
+	text := cm.world_to_json(&e.world)
+	back := new_editor()
+	defer free(back)
+	testing.expect_value(t, cm.world_from_json(transmute([]u8)text, &back.world), "")
+	testing.expect_value(t, back.world.triggers[0].place, cm.Trigger_Place.Feature)
 }
