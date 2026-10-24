@@ -10,7 +10,7 @@ import "core:strings"
 
 feature_tools :: proc() -> []Tool {
 	@(static) table := [?]Tool {
-		{"feature_type_list", "List the feature types: name, sprite, tags.", `{"type":"object","properties":{}}`, tool_feature_type_list},
+		{"feature_type_list", "List the feature types: name, sprite, tags and numeric properties with their defaults.", `{"type":"object","properties":{}}`, tool_feature_type_list},
 		{
 			"feature_type_new",
 			"Add a feature type (up to 64). sprite_set and sprite name the picture (both or neither); tags lists the tags every feature of the type has.",
@@ -25,21 +25,33 @@ feature_tools :: proc() -> []Tool {
 		},
 		{"feature_type_delete", "Delete a feature type unless a feature has it.", NAME_ARG, tool_feature_type_delete},
 		{
+			"feature_type_prop_set",
+			"Give a feature type a numeric property (up to 16, whole numbers that fit in 32 bits) or change its default value; new_name renames it. Features without their own value follow the default.",
+			`{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"value":{"type":"integer"},"new_name":{"type":"string"}},"required":["type","name"]}`,
+			tool_feature_type_prop_set,
+		},
+		{
+			"feature_type_prop_delete",
+			"Remove a property from a feature type; its features lose their value for it.",
+			`{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"}},"required":["type","name"]}`,
+			tool_feature_type_prop_delete,
+		},
+		{
 			"feature_list",
-			"List features (all, or those standing on map): id, name, type, where, and its own tag settings. A feature always blocks: no character can share its cell.",
+			"List features (all, or those standing on map): id, name, type, where, its own tag settings and its values of its type's properties. A feature always blocks: no character can share its cell.",
 			`{"type":"object","properties":{"map":{"type":"string"}}}`,
 			tool_feature_list,
 		},
 		{
 			"feature_new",
-			"Add a feature of a type (up to 2048), standing nowhere. Returns its id. tags_set / tags_cleared are its own tag settings.",
-			`{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["name","type"]}`,
+			"Add a feature of a type (up to 2048), standing nowhere. Returns its id. tags_set / tags_cleared are its own tag settings; props is an object of property name (of the type) to its value for this feature.",
+			`{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}},"props":{"type":"object"}},"required":["name","type"]}`,
 			tool_feature_new,
 		},
 		{
 			"feature_edit",
-			"Change a feature by id; only the fields given change (name, type, tags_set, tags_cleared).",
-			`{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["id"]}`,
+			"Change a feature by id; only the fields given change (name, type, tags_set, tags_cleared, props). A new type makes it forget its property values; props sets values of its (new) type's properties.",
+			`{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}},"props":{"type":"object"}},"required":["id"]}`,
 			tool_feature_edit,
 		},
 		{"feature_delete", "Delete a feature; it leaves its map and what it held is gone.", `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`, tool_feature_delete},
@@ -110,6 +122,8 @@ tool_feature_type_list :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 		ft := &w.feature_types[i]
 		fmt.sbprintf(&b, `{{"name":%s,"sprite_set":%s,"sprite":%s,"tags":`, quote(cm.name_str(&ft.name)), quote(cm.name_str(&ft.sprite_set)), quote(cm.name_str(&ft.sprite)))
 		write_strings(&b, tag_names_in(w, ft.tags))
+		strings.write_string(&b, `,"props":`)
+		write_prop_defaults(&b, &ft.props)
 		strings.write_string(&b, "}")
 	}
 	strings.write_string(&b, "]}")
@@ -216,6 +230,37 @@ tool_feature_type_delete :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 	return changed(s, "deleted the feature type")
 }
 
+tool_feature_type_prop_set :: proc(s: ^Server, args: json.Object) -> Tool_Result {
+	if res, ok := need_world(s); !ok {
+		return res
+	}
+	ft, r, ok := find_feature_type(s, args, "type")
+	if !ok {
+		return r
+	}
+	return set_prop_tool(s, args, &s.world.feature_types[ft].props, "a feature type")
+}
+
+tool_feature_type_prop_delete :: proc(s: ^Server, args: json.Object) -> Tool_Result {
+	if res, ok := need_world(s); !ok {
+		return res
+	}
+	ft, r, ok := find_feature_type(s, args, "type")
+	if !ok {
+		return r
+	}
+	name, r2, ok2 := need_string(args, "name")
+	if !ok2 {
+		return r2
+	}
+	p := cm.prop_set_find(&s.world.feature_types[ft].props, name)
+	if p < 0 {
+		return fail(fmt.tprintf("the feature type has no property named %s", name))
+	}
+	cm.world_feature_type_delete_prop(s.world, ft, p)
+	return changed(s, "deleted the property")
+}
+
 // --- Features ----------------------------------------------------------------------------------
 
 write_feature :: proc(b: ^strings.Builder, w: ^cm.World, fi: int) {
@@ -228,6 +273,10 @@ write_feature :: proc(b: ^strings.Builder, w: ^cm.World, fi: int) {
 	write_strings(b, tag_names_in(w, f.tags_set))
 	strings.write_string(b, `,"tags_cleared":`)
 	write_strings(b, tag_names_in(w, f.tags_cleared))
+	if ti := cm.world_find_feature_type(w, cm.name_str(&f.type)); ti >= 0 && w.feature_types[ti].props.count > 0 {
+		strings.write_string(b, `,"props":`)
+		write_prop_values(b, &w.feature_types[ti].props, &f.overrides)
+	}
 	strings.write_string(b, "}")
 }
 
@@ -281,11 +330,18 @@ tool_feature_new :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 	if !ok3 {
 		return r3
 	}
+	values, _, pmsg := parse_props_arg(args, &w.feature_types[ft].props)
+	if pmsg != "" {
+		return fail(pmsg)
+	}
 	fi := cm.world_add_feature(w, ft, name)
 	if fi < 0 {
 		return fail("the world already has 2048 features")
 	}
 	w.features[fi].tags_set, w.features[fi].tags_cleared = set, cleared
+	for v in values {
+		cm.world_feature_set_value(w, fi, v.index, v.value)
+	}
 	return changed(s, fmt.tprintf(`{{"id":%s}}`, quote(cm.uuid_to_string(w.features[fi].uuid))))
 }
 
@@ -317,13 +373,25 @@ tool_feature_edit :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 	if !ok2 {
 		return r2
 	}
+	target_type := ft >= 0 ? ft : cm.world_find_feature_type(w, cm.name_str(&f.type))
+	values: []Prop_Arg
+	if target_type >= 0 {
+		pmsg: string
+		values, _, pmsg = parse_props_arg(args, &w.feature_types[target_type].props)
+		if pmsg != "" {
+			return fail(pmsg)
+		}
+	}
 	if has_name {
 		cm.world_rename_feature(w, fi, name)
 	}
 	if ft >= 0 {
-		cm.world_set_feature_type(w, fi, ft)
+		cm.world_set_feature_type(w, fi, ft) // (its values belonged to the old type)
 	}
 	f.tags_set, f.tags_cleared = set, cleared
+	for v in values {
+		cm.world_feature_set_value(w, fi, v.index, v.value)
+	}
 	return changed(s, "feature updated")
 }
 

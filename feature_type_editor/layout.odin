@@ -49,6 +49,7 @@ DUPLICATE_BUTTON :: Rect{234, 119, BUTTON_W, BUTTON_H}
 DELETE_BUTTON :: Rect{274, 119, BUTTON_W, BUTTON_H}
 PICK_BUTTON :: Rect{154, 130, BUTTON_W, BUTTON_H} // choose the sprite from a grid
 TAGS_BUTTON :: Rect{194, 130, BUTTON_W, BUTTON_H}
+PROPS_BUTTON :: Rect{234, 130, BUTTON_W, BUTTON_H} // the numeric properties
 BACK_BUTTON :: Rect{274, 141, BUTTON_W, BUTTON_H}
 
 HELP_Y :: 152
@@ -70,4 +71,30 @@ grid_cell_at :: proc(x, y: int) -> (col, row: int, ok: bool) {
 
 grid_total_rows :: proc(count: int) -> int {
 	return (count + GRID_COLS - 1) / GRID_COLS
+}
+
+// The Props screen: the type's properties as a list (and a NEW row after them), a button for each
+// command beside it.
+PROP_LIST_X :: 8
+PROP_LIST_Y :: 22
+PROP_ROW_H :: 8
+PROP_LIST_W :: 138
+PROP_VALUE_X :: 92 // where a value starts, inside a row
+PROP_VALUE_BUTTON :: Rect{154, 28, BUTTON_W, BUTTON_H}
+PROP_NAME_BUTTON :: Rect{194, 28, BUTTON_W, BUTTON_H}
+PROP_DELETE_BUTTON :: Rect{234, 28, BUTTON_W, BUTTON_H}
+PROP_NEW_BUTTON :: Rect{154, 39, BUTTON_W, BUTTON_H}
+PROP_MINUS :: Rect{194, 39, 12, 10}
+PROP_PLUS :: Rect{208, 39, 12, 10}
+
+prop_row_rect :: proc(i: int) -> Rect {
+	return Rect{PROP_LIST_X, PROP_LIST_Y + i * PROP_ROW_H, PROP_LIST_W, PROP_ROW_H}
+}
+
+// The row of the property list under a point, or -1.
+prop_row_at :: proc(x, y: int) -> int {
+	if x < PROP_LIST_X || x >= PROP_LIST_X + PROP_LIST_W || y < PROP_LIST_Y {
+		return -1
+	}
+	return (y - PROP_LIST_Y) / PROP_ROW_H
 }

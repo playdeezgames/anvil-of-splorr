@@ -355,16 +355,20 @@ tool_item_prop_set :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 	if res, ok := need_world(s); !ok {
 		return res
 	}
-	w := s.world
 	ti, r1, ok1 := find_item_type_arg(s, args, "type")
 	if !ok1 {
 		return r1
 	}
+	return set_prop_tool(s, args, &s.world.item_types[ti].props, "an item type")
+}
+
+// Adds a property to a type's Prop_Set, or changes its default or its name (the "name", "value" and
+// "new_name" arguments); `what` words the refusal when the set is full.
+set_prop_tool :: proc(s: ^Server, args: json.Object, ps: ^cm.Prop_Set, what: string) -> Tool_Result {
 	name, r2, ok2 := need_string(args, "name")
 	if !ok2 {
 		return r2
 	}
-	ps := &w.item_types[ti].props
 	value, has_value := i32(0), false
 	if _, has := args["value"]; has {
 		n, good := arg_int(args, "value")
@@ -383,7 +387,7 @@ tool_item_prop_set :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 			return fail(problem_text(pr))
 		}
 		if cm.prop_set_add(ps, name, value) < 0 {
-			return fail("an item type has at most 16 properties")
+			return fail(fmt.tprintf("%s has at most 16 properties", what))
 		}
 		return changed(s, fmt.tprintf("added property %s", name))
 	}
@@ -396,6 +400,56 @@ tool_item_prop_set :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 		ps.values[p] = value
 	}
 	return changed(s, "property updated")
+}
+
+// One validated entry of a "props" argument: property position and value.
+Prop_Arg :: struct {
+	index: int,
+	value: i32,
+}
+
+// The "props" argument of a character or feature call, checked against its type's properties
+// (name -> whole number); nothing is applied. present is false when the argument was not given.
+parse_props_arg :: proc(args: json.Object, set: ^cm.Prop_Set) -> (list: []Prop_Arg, present: bool, msg: string) {
+	v, has := args["props"]
+	if !has {
+		return nil, false, ""
+	}
+	obj, is_obj := v.(json.Object)
+	if !is_obj {
+		return nil, true, "props must be an object of property name to whole number"
+	}
+	out := make([dynamic]Prop_Arg, context.temp_allocator)
+	for key, val in obj {
+		i := cm.prop_set_find(set, key)
+		if i < 0 {
+			return nil, true, fmt.tprintf("its type has no property named %s", key)
+		}
+		n, is_int := whole_number(val)
+		if !is_int || n < i64(min(i32)) || n > i64(max(i32)) {
+			return nil, true, fmt.tprintf("property %s must be a whole number that fits in 32 bits", key)
+		}
+		append(&out, Prop_Arg{i, i32(n)})
+	}
+	return out[:], true, ""
+}
+
+// `name: value` for every property of the set, as the values of one character or feature.
+write_prop_values :: proc(b: ^strings.Builder, set: ^cm.Prop_Set, o: ^cm.Prop_Overrides) {
+	strings.write_string(b, "{")
+	for p in 0 ..< set.count {
+		fmt.sbprintf(b, `%s%s:%d`, p > 0 ? "," : "", quote(cm.name_str(&set.names[p])), cm.prop_value(set, o, p))
+	}
+	strings.write_string(b, "}")
+}
+
+// A type's properties as [{name, value}] (the defaults).
+write_prop_defaults :: proc(b: ^strings.Builder, set: ^cm.Prop_Set) {
+	strings.write_string(b, "[")
+	for p in 0 ..< set.count {
+		fmt.sbprintf(b, `%s{{"name":%s,"value":%d}}`, p > 0 ? "," : "", quote(cm.name_str(&set.names[p])), set.values[p])
+	}
+	strings.write_string(b, "]")
 }
 
 tool_item_prop_delete :: proc(s: ^Server, args: json.Object) -> Tool_Result {

@@ -20,6 +20,7 @@ Feature_Type :: struct {
 	sprite_set: Name, // empty = not set
 	sprite:     Name, // the sprite's name within that set; empty = not set
 	tags:       Tag_Mask, // the tags every feature of this type has (unless its own settings say otherwise)
+	props:      Prop_Set, // the numeric properties every feature of the type has, with their defaults
 }
 
 Feature :: struct {
@@ -28,6 +29,7 @@ Feature :: struct {
 	type: Name, // the feature type, by name
 	tags_set, tags_cleared: Tag_Mask, // its own tag settings; a tag in neither is inherited from the type
 	inventory: Uuid, // the inventory it holds, or none (world_items.odin)
+	overrides: Prop_Overrides, // its own values of its type's properties (the others are the defaults)
 }
 
 // --- Feature types -----------------------------------------------------------------------------
@@ -269,6 +271,9 @@ world_set_feature_type :: proc(w: ^World, i, type_index: int) -> bool {
 	if i < 0 || i >= w.feature_count || type_index < 0 || type_index >= w.feature_type_count {
 		return false
 	}
+	if w.features[i].type != w.feature_types[type_index].name {
+		w.features[i].overrides = {} // the values belonged to the old type's properties
+	}
 	w.features[i].type = w.feature_types[type_index].name
 	return true
 }
@@ -393,6 +398,10 @@ write_features :: proc(b: ^strings.Builder, w: ^World) {
 			escape_name(name_str(&ft.sprite)),
 		)
 		write_tag_list(b, w, ft.tags)
+		if ft.props.count > 0 {
+			strings.write_string(b, ", \"props\": ")
+			write_prop_set(b, &ft.props)
+		}
 		strings.write_string(b, "}")
 	}
 	strings.write_string(b, w.feature_type_count == 0 ? "],\n" : "\n  ],\n")
@@ -404,6 +413,10 @@ write_features :: proc(b: ^strings.Builder, w: ^World) {
 		write_tag_list(b, w, f.tags_set)
 		strings.write_string(b, ", \"tags_cleared\": ")
 		write_tag_list(b, w, f.tags_cleared)
+		if ti := world_find_feature_type(w, name_str(&f.type)); ti >= 0 && f.overrides.mask != 0 {
+			strings.write_string(b, ", \"props\": ")
+			write_prop_overrides(b, &w.feature_types[ti].props, &f.overrides)
+		}
 		strings.write_string(b, "}")
 	}
 	strings.write_string(b, w.feature_count == 0 ? "],\n" : "\n  ],\n")
@@ -471,6 +484,9 @@ read_features :: proc(root: json.Object, tmp: ^World) -> (err: string) {
 				return mask_err
 			}
 			ft.tags = mask
+			if msg := read_prop_set(obj, &ft.props, fmt.tprintf(`feature type "%s"`, name)); msg != "" {
+				return msg
+			}
 			tmp.feature_type_count += 1
 		}
 	}
@@ -519,6 +535,9 @@ read_features :: proc(root: json.Object, tmp: ^World) -> (err: string) {
 			}
 			tmp.features[i].uuid = u
 			tmp.features[i].tags_set, tmp.features[i].tags_cleared = set_mask, cleared_mask
+			if msg := read_prop_overrides(obj, &tmp.feature_types[world_find_feature_type(tmp, type_name)].props, &tmp.features[i].overrides, what); msg != "" {
+				return msg
+			}
 			name_assign(&tmp.features[i].name, name)
 			name_assign(&tmp.features[i].type, type_name)
 			tmp.feature_count += 1

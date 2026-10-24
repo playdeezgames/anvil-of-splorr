@@ -234,16 +234,16 @@
   "params": [],
   "sounds": [],
   "feature_types": [
-    {"name": "tree", "sprite_set": "things", "sprite": "tree", "tags": ["solid"]},
-    {"name": "door", "sprite_set": "things", "sprite": "door", "tags": ["solid", "door"]},
-    {"name": "rock", "sprite_set": "things", "sprite": "rock", "tags": ["solid"]}
+    {"name": "tree", "sprite_set": "things", "sprite": "tree", "tags": ["solid"], "props": [{"name": "hardness", "value": 3}]},
+    {"name": "door", "sprite_set": "things", "sprite": "door", "tags": ["solid", "door"], "props": [{"name": "locked", "value": 1}]},
+    {"name": "rock", "sprite_set": "things", "sprite": "rock", "tags": ["solid"], "props": [{"name": "weight", "value": 40}]}
   ],
   "features": [
-    {"uuid": "eaa27e74-0c9f-4b53-a132-451fbe9a822c", "name": "Old oak", "type": "tree", "tags": [], "tags_cleared": []},
+    {"uuid": "eaa27e74-0c9f-4b53-a132-451fbe9a822c", "name": "Old oak", "type": "tree", "tags": [], "tags_cleared": [], "props": {"hardness": 5}},
     {"uuid": "3cab16c9-3a13-44c5-838a-c9419078e53e", "name": "Young oak", "type": "tree", "tags": [], "tags_cleared": []},
-    {"uuid": "a6b08c36-8c48-48f3-893d-b13cddec7e65", "name": "Boulder", "type": "rock", "tags": [], "tags_cleared": []},
+    {"uuid": "a6b08c36-8c48-48f3-893d-b13cddec7e65", "name": "Boulder", "type": "rock", "tags": [], "tags_cleared": [], "props": {"weight": 120}},
     {"uuid": "f6de5b05-e026-43c2-bbdb-bbe03fa02186", "name": "Pebble", "type": "rock", "tags": [], "tags_cleared": []},
-    {"uuid": "2fa93a98-5575-4f8e-994d-cc00160f4eb5", "name": "Gate", "type": "door", "tags": [], "tags_cleared": []}
+    {"uuid": "2fa93a98-5575-4f8e-994d-cc00160f4eb5", "name": "Gate", "type": "door", "tags": [], "tags_cleared": [], "props": {"locked": 0}}
   ],
   "item_types": [
     {"name": "gold", "sprite_set": "things", "sprite": "coin", "max_stack": 100, "tags": [], "props": []},

@@ -118,6 +118,7 @@ Character_Type :: struct {
 	sprite_set: Name, // empty = not set
 	sprite:     Name, // the sprite's name within that set; empty = not set
 	tags:       Tag_Mask, // the tags every character of this type has (unless its own settings say otherwise)
+	props:      Prop_Set, // the numeric properties every character of the type has, with their defaults
 }
 
 Character :: struct {
@@ -126,6 +127,7 @@ Character :: struct {
 	type: Name, // the character type, by name
 	tags_set, tags_cleared: Tag_Mask, // its own tag settings; a tag in neither is inherited from the type
 	inventory: Uuid, // the inventory it carries, or none (world_items.odin)
+	overrides: Prop_Overrides, // its own values of its type's properties (the others are the defaults)
 }
 
 world_find_char_type :: proc(w: ^World, name: string, except := -1) -> int {
@@ -370,6 +372,9 @@ world_set_character_type :: proc(w: ^World, i, type_index: int) -> bool {
 	if i < 0 || i >= w.character_count || type_index < 0 || type_index >= w.char_type_count {
 		return false
 	}
+	if w.characters[i].type != w.char_types[type_index].name {
+		w.characters[i].overrides = {} // the values belonged to the old type's properties
+	}
 	w.characters[i].type = w.char_types[type_index].name
 	return true
 }
@@ -511,6 +516,10 @@ write_characters :: proc(b: ^strings.Builder, w: ^World) {
 			escape_name(name_str(&ct.sprite)),
 		)
 		write_tag_list(b, w, ct.tags)
+		if ct.props.count > 0 {
+			strings.write_string(b, ", \"props\": ")
+			write_prop_set(b, &ct.props)
+		}
 		strings.write_string(b, "}")
 	}
 	strings.write_string(b, w.char_type_count == 0 ? "],\n" : "\n  ],\n")
@@ -522,6 +531,10 @@ write_characters :: proc(b: ^strings.Builder, w: ^World) {
 		write_tag_list(b, w, c.tags_set)
 		strings.write_string(b, ", \"tags_cleared\": ")
 		write_tag_list(b, w, c.tags_cleared)
+		if ti := world_find_char_type(w, name_str(&c.type)); ti >= 0 && c.overrides.mask != 0 {
+			strings.write_string(b, ", \"props\": ")
+			write_prop_overrides(b, &w.char_types[ti].props, &c.overrides)
+		}
 		strings.write_string(b, "}")
 	}
 	strings.write_string(b, w.character_count == 0 ? "],\n" : "\n  ],\n")
@@ -580,6 +593,9 @@ read_characters :: proc(root: json.Object, tmp: ^World) -> (err: string) {
 				return mask_err
 			}
 			ct.tags = mask
+			if msg := read_prop_set(obj, &ct.props, fmt.tprintf(`character type "%s"`, name)); msg != "" {
+				return msg
+			}
 			tmp.char_type_count += 1
 		}
 	}
@@ -627,6 +643,10 @@ read_characters :: proc(root: json.Object, tmp: ^World) -> (err: string) {
 			}
 			tmp.characters[i].uuid = u
 			tmp.characters[i].tags_set, tmp.characters[i].tags_cleared = set_mask, cleared_mask
+			ti := world_find_char_type(tmp, type_name)
+			if msg := read_prop_overrides(obj, &tmp.char_types[ti].props, &tmp.characters[i].overrides, what); msg != "" {
+				return msg
+			}
 			name_assign(&tmp.characters[i].name, name)
 			name_assign(&tmp.characters[i].type, type_name)
 			tmp.character_count += 1

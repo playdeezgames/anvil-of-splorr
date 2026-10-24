@@ -76,7 +76,7 @@ actor_tools :: proc() -> []Tool {
 			`{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["name","x","y"]}`,
 			tool_map_cell_tags,
 		},
-		{"char_type_list", "List the character types: name, sprite, tags.", `{"type":"object","properties":{}}`, tool_char_type_list},
+		{"char_type_list", "List the character types: name, sprite, tags and numeric properties with their defaults.", `{"type":"object","properties":{}}`, tool_char_type_list},
 		{
 			"char_type_new",
 			"Add a character type (up to 64). sprite_set and sprite name the picture (both or neither); tags lists the tags every character of the type has.",
@@ -91,21 +91,33 @@ actor_tools :: proc() -> []Tool {
 		},
 		{"char_type_delete", "Delete a character type unless a character has it.", NAME_ARG, tool_char_type_delete},
 		{
+			"char_type_prop_set",
+			"Give a character type a numeric property (up to 16, whole numbers that fit in 32 bits) or change its default value; new_name renames it. Characters without their own value follow the default.",
+			`{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"value":{"type":"integer"},"new_name":{"type":"string"}},"required":["type","name"]}`,
+			tool_char_type_prop_set,
+		},
+		{
+			"char_type_prop_delete",
+			"Remove a property from a character type; its characters lose their value for it.",
+			`{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"}},"required":["type","name"]}`,
+			tool_char_type_prop_delete,
+		},
+		{
 			"character_list",
-			"List characters (all, or those standing on map): id, name, type, where, whether it is the player, and its own tag settings. Ids are uuids; the first 8 hex digits identify one in later calls if unique.",
+			"List characters (all, or those standing on map): id, name, type, where, whether it is the player, its own tag settings and its values of its type's properties. Ids are uuids; the first 8 hex digits identify one in later calls if unique.",
 			`{"type":"object","properties":{"map":{"type":"string"}}}`,
 			tool_character_list,
 		},
 		{
 			"character_new",
-			"Add a character of a type (up to 1024), standing nowhere. Returns its id. tags_set / tags_cleared are its own tag settings.",
-			`{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["name","type"]}`,
+			"Add a character of a type (up to 1024), standing nowhere. Returns its id. tags_set / tags_cleared are its own tag settings; props is an object of property name (of the type) to its value for this character.",
+			`{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}},"props":{"type":"object"}},"required":["name","type"]}`,
 			tool_character_new,
 		},
 		{
 			"character_edit",
-			"Change a character by id; only the fields given change (name, type, tags_set, tags_cleared).",
-			`{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["id"]}`,
+			"Change a character by id; only the fields given change (name, type, tags_set, tags_cleared, props). A new type makes it forget its property values; props sets values of its (new) type's properties.",
+			`{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}},"props":{"type":"object"}},"required":["id"]}`,
 			tool_character_edit,
 		},
 		{"character_delete", "Delete a character; it leaves its map, the player becomes nobody if it was the player, and what it carried is gone.", `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`, tool_character_delete},
@@ -673,10 +685,43 @@ tool_char_type_list :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 		ct := &w.char_types[i]
 		fmt.sbprintf(&b, `{{"name":%s,"sprite_set":%s,"sprite":%s,"tags":`, quote(cm.name_str(&ct.name)), quote(cm.name_str(&ct.sprite_set)), quote(cm.name_str(&ct.sprite)))
 		write_strings(&b, tag_names_in(w, ct.tags))
+		strings.write_string(&b, `,"props":`)
+		write_prop_defaults(&b, &ct.props)
 		strings.write_string(&b, "}")
 	}
 	strings.write_string(&b, "]}")
 	return ok_result(strings.to_string(b))
+}
+
+tool_char_type_prop_set :: proc(s: ^Server, args: json.Object) -> Tool_Result {
+	if res, ok := need_world(s); !ok {
+		return res
+	}
+	ct, r, ok := find_char_type(s, args, "type")
+	if !ok {
+		return r
+	}
+	return set_prop_tool(s, args, &s.world.char_types[ct].props, "a character type")
+}
+
+tool_char_type_prop_delete :: proc(s: ^Server, args: json.Object) -> Tool_Result {
+	if res, ok := need_world(s); !ok {
+		return res
+	}
+	ct, r, ok := find_char_type(s, args, "type")
+	if !ok {
+		return r
+	}
+	name, r2, ok2 := need_string(args, "name")
+	if !ok2 {
+		return r2
+	}
+	p := cm.prop_set_find(&s.world.char_types[ct].props, name)
+	if p < 0 {
+		return fail(fmt.tprintf("the character type has no property named %s", name))
+	}
+	cm.world_char_type_delete_prop(s.world, ct, p)
+	return changed(s, "deleted the property")
 }
 
 // The sprite_set / sprite arguments, over `current`.
@@ -805,6 +850,10 @@ write_character :: proc(b: ^strings.Builder, w: ^cm.World, ci: int) {
 	write_strings(b, tag_names_in(w, c.tags_set))
 	strings.write_string(b, `,"tags_cleared":`)
 	write_strings(b, tag_names_in(w, c.tags_cleared))
+	if ti := cm.world_find_char_type(w, cm.name_str(&c.type)); ti >= 0 && w.char_types[ti].props.count > 0 {
+		strings.write_string(b, `,"props":`)
+		write_prop_values(b, &w.char_types[ti].props, &c.overrides)
+	}
 	strings.write_string(b, "}")
 }
 
@@ -858,11 +907,18 @@ tool_character_new :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 	if !ok3 {
 		return r3
 	}
+	values, _, pmsg := parse_props_arg(args, &w.char_types[ct].props)
+	if pmsg != "" {
+		return fail(pmsg)
+	}
 	ci := cm.world_add_character(w, ct, name)
 	if ci < 0 {
 		return fail("the world already has 1024 characters")
 	}
 	w.characters[ci].tags_set, w.characters[ci].tags_cleared = set, cleared
+	for v in values {
+		cm.world_character_set_value(w, ci, v.index, v.value)
+	}
 	return changed(s, fmt.tprintf(`{{"id":%s}}`, quote(cm.uuid_to_string(w.characters[ci].uuid))))
 }
 
@@ -894,13 +950,25 @@ tool_character_edit :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 	if !ok2 {
 		return r2
 	}
+	target_type := ct >= 0 ? ct : cm.world_find_char_type(w, cm.name_str(&c.type))
+	values: []Prop_Arg
+	if target_type >= 0 {
+		pmsg: string
+		values, _, pmsg = parse_props_arg(args, &w.char_types[target_type].props)
+		if pmsg != "" {
+			return fail(pmsg)
+		}
+	}
 	if has_name {
 		cm.world_rename_character(w, ci, name)
 	}
 	if ct >= 0 {
-		cm.world_set_character_type(w, ci, ct)
+		cm.world_set_character_type(w, ci, ct) // (its values belonged to the old type)
 	}
 	c.tags_set, c.tags_cleared = set, cleared
+	for v in values {
+		cm.world_character_set_value(w, ci, v.index, v.value)
+	}
 	return changed(s, "character updated")
 }
 

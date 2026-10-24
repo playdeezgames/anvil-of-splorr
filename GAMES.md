@@ -85,3 +85,17 @@ if e := rt.play_entry(&ps, hero, 0); e != nil {
 ```
 
 A `Contact` has the mover, the map, the cell entered and the step; the queue holds 64 like collisions. Entries are numbered from 0 in the order the inventory holds them and the numbers change when entries come or go, so look again after a change. An inventory that runs empty is gone. Draw cell inventories with `draw_inventories` after `draw_terrain` and before `draw_features`. The `Play_State` is about 0.9 MB: keep it in a global or `new()` it.
+
+## Numeric properties of characters and features
+
+Character types and feature types can have named whole-number properties (health, speed, locked) with defaults, and a single character or feature can have its own value (see `WORLD.md`). A game looks the property up by name once and keeps its position:
+
+```odin
+health, _ := rt.character_prop_index(w, hero, "health")
+max_health := rt.character_prop_default(w, hero, health)    // the type's default
+rt.play_init(&ps, w)                                        // copies what the authors set
+left := rt.play_character_value(&ps, w, hero, health)      // the value now
+rt.play_set_character_value(&ps, w, hero, health, left - 3) // changes the play state only, never the world
+```
+
+`character_value`/`feature_value` give what the authors set. A value equal to the type's default is stored as no value, so setting it back to the default is the same as never having changed it. The same procs with `feature` in the name work for features.

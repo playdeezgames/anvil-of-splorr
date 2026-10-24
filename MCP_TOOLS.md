@@ -340,7 +340,7 @@ Input schema: `{"type":"object","properties":{"name":{"type":"string"},"x":{"typ
 
 ## `char_type_list`
 
-List the character types: name, sprite, tags.
+List the character types: name, sprite, tags and numeric properties with their defaults.
 
 Input schema: `{"type":"object","properties":{}}`
 
@@ -362,23 +362,35 @@ Delete a character type unless a character has it.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`
 
+## `char_type_prop_set`
+
+Give a character type a numeric property (up to 16, whole numbers that fit in 32 bits) or change its default value; new_name renames it. Characters without their own value follow the default.
+
+Input schema: `{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"value":{"type":"integer"},"new_name":{"type":"string"}},"required":["type","name"]}`
+
+## `char_type_prop_delete`
+
+Remove a property from a character type; its characters lose their value for it.
+
+Input schema: `{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"}},"required":["type","name"]}`
+
 ## `character_list`
 
-List characters (all, or those standing on map): id, name, type, where, whether it is the player, and its own tag settings. Ids are uuids; the first 8 hex digits identify one in later calls if unique.
+List characters (all, or those standing on map): id, name, type, where, whether it is the player, its own tag settings and its values of its type's properties. Ids are uuids; the first 8 hex digits identify one in later calls if unique.
 
 Input schema: `{"type":"object","properties":{"map":{"type":"string"}}}`
 
 ## `character_new`
 
-Add a character of a type (up to 1024), standing nowhere. Returns its id. tags_set / tags_cleared are its own tag settings.
+Add a character of a type (up to 1024), standing nowhere. Returns its id. tags_set / tags_cleared are its own tag settings; props is an object of property name (of the type) to its value for this character.
 
-Input schema: `{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["name","type"]}`
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}},"props":{"type":"object"}},"required":["name","type"]}`
 
 ## `character_edit`
 
-Change a character by id; only the fields given change (name, type, tags_set, tags_cleared).
+Change a character by id; only the fields given change (name, type, tags_set, tags_cleared, props). A new type makes it forget its property values; props sets values of its (new) type's properties.
 
-Input schema: `{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["id"]}`
+Input schema: `{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}},"props":{"type":"object"}},"required":["id"]}`
 
 ## `character_delete`
 
@@ -412,7 +424,7 @@ Input schema: `{"type":"object","properties":{"moves":{"type":["string","array"]
 
 ## `feature_type_list`
 
-List the feature types: name, sprite, tags.
+List the feature types: name, sprite, tags and numeric properties with their defaults.
 
 Input schema: `{"type":"object","properties":{}}`
 
@@ -434,23 +446,35 @@ Delete a feature type unless a feature has it.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`
 
+## `feature_type_prop_set`
+
+Give a feature type a numeric property (up to 16, whole numbers that fit in 32 bits) or change its default value; new_name renames it. Features without their own value follow the default.
+
+Input schema: `{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"value":{"type":"integer"},"new_name":{"type":"string"}},"required":["type","name"]}`
+
+## `feature_type_prop_delete`
+
+Remove a property from a feature type; its features lose their value for it.
+
+Input schema: `{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"}},"required":["type","name"]}`
+
 ## `feature_list`
 
-List features (all, or those standing on map): id, name, type, where, and its own tag settings. A feature always blocks: no character can share its cell.
+List features (all, or those standing on map): id, name, type, where, its own tag settings and its values of its type's properties. A feature always blocks: no character can share its cell.
 
 Input schema: `{"type":"object","properties":{"map":{"type":"string"}}}`
 
 ## `feature_new`
 
-Add a feature of a type (up to 2048), standing nowhere. Returns its id. tags_set / tags_cleared are its own tag settings.
+Add a feature of a type (up to 2048), standing nowhere. Returns its id. tags_set / tags_cleared are its own tag settings; props is an object of property name (of the type) to its value for this feature.
 
-Input schema: `{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["name","type"]}`
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}},"props":{"type":"object"}},"required":["name","type"]}`
 
 ## `feature_edit`
 
-Change a feature by id; only the fields given change (name, type, tags_set, tags_cleared).
+Change a feature by id; only the fields given change (name, type, tags_set, tags_cleared, props). A new type makes it forget its property values; props sets values of its (new) type's properties.
 
-Input schema: `{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}}},"required":["id"]}`
+Input schema: `{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}},"props":{"type":"object"}},"required":["id"]}`
 
 ## `feature_delete`
 

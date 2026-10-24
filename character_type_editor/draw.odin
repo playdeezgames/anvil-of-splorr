@@ -23,6 +23,9 @@ banner_text :: proc(e: ^Editor) -> string {
 	if e.confirm_delete {
 		return fmt.tprintf("DELETE TYPE?  %s: CONFIRM", label(e, .Green))
 	}
+	if e.mode == .Props && e.confirm_prop {
+		return fmt.tprintf("DELETE PROPERTY?  %s: CONFIRM", label(e, .Green))
+	}
 	switch e.mode {
 	case .Pick:
 		return fmt.tprintf("TYPES   %s: SPRITE", label(e, .Green))
@@ -32,6 +35,8 @@ banner_text :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("SPRITE   %s: USE", label(e, .Green))
 	case .Tags:
 		return fmt.tprintf("TAGS   %s: SET / CLEAR", label(e, .Green))
+	case .Props:
+		return fmt.tprintf("PROPERTIES   %s: VALUE", label(e, .Green))
 	case .Text:
 	}
 	return ""
@@ -44,7 +49,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 		lines = {
 			fmt.tprintf("%s/%s: CHOOSE SETTING OR ACTION", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s/%s: CHANGE THE VALUE", l(e, .Left), l(e, .Right)),
-			fmt.tprintf("%s: RUN RENAME / NEW / DUP / DELETE / PICK / TAGS", l(e, .Green)),
+			fmt.tprintf("%s: RUN RENAME / NEW / DUP / DEL / PICK / TAGS / PROPS", l(e, .Green)),
 			fmt.tprintf("%s: DONE", l(e, .Red)),
 		}
 		return lines, 4
@@ -62,6 +67,14 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 			fmt.tprintf("%s: SET OR CLEAR IT FOR THIS TYPE", l(e, .Green)),
 			fmt.tprintf("%s: BACK", l(e, .Red)),
 			"MOUSE: CLICK A TAG; WHEEL SCROLLS",
+		}
+		return lines, 4
+	case .Props:
+		lines = {
+			fmt.tprintf("%s/%s: CHOOSE  %s/%s: VALUE -1 / +1", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
+			fmt.tprintf("%s: TYPE THE VALUE, OR ADD ON THE NEW ROW", l(e, .Green)),
+			fmt.tprintf("%s: RENAME  %s: DELETE (%s CONFIRMS)", l(e, .Yellow), l(e, .Blue), l(e, .Green)),
+			fmt.tprintf("%s: BACK", l(e, .Red)),
 		}
 		return lines, 4
 	case .Pick, .Text:
@@ -116,7 +129,7 @@ Button :: struct {
 	row:  Maybe(Setup_Row),
 }
 
-buttons :: proc() -> [7]Button {
+buttons :: proc() -> [8]Button {
 	return {
 		{RENAME_BUTTON, "RENAME", .Rename},
 		{NEW_BUTTON, "NEW", .New},
@@ -124,6 +137,7 @@ buttons :: proc() -> [7]Button {
 		{DELETE_BUTTON, "DEL", .Delete},
 		{PICK_BUTTON, "PICK SPR", .Choose},
 		{TAGS_BUTTON, "TAGS", .Tags},
+		{PROPS_BUTTON, "PROPS", .Props},
 		{BACK_BUTTON, "BACK", nil},
 	}
 }
@@ -144,6 +158,10 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.renderer_clear(r, BG)
 	if e.mode == .Tags {
 		draw_tags_screen(e, r)
+		return
+	}
+	if e.mode == .Props {
+		draw_props_screen(e, r)
 		return
 	}
 
@@ -290,6 +308,48 @@ draw_tags_screen :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.draw_text(r, 214, 68, cm.tag_count_text(e.world, tag_view(e)), TEXT)
 	fill(r, BACK_BUTTON, PANEL)
 	cm.draw_text(r, BACK_BUTTON.x + (BACK_BUTTON.w - cm.text_width("BACK")) / 2, BACK_BUTTON.y + (BACK_BUTTON.h - cm.GLYPH_H) / 2, "BACK", TEXT)
+	lines, n := help_lines(e)
+	for line, i in lines[:n] {
+		cm.draw_text(r, 8, HELP_Y + i * cm.LINE_ADVANCE, line, TEXT)
+	}
+	cm.renderer_present(r)
+}
+
+// The Props screen: the type's properties with their default values, then a NEW row; the type's
+// picture sits beside the list.
+draw_props_screen :: proc(e: ^Editor, r: ^cm.Renderer) {
+	warning := e.confirm_prop
+	fill(r, BANNER, warning ? WARN : HILITE)
+	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, banner_text(e), BG)
+	ps := &current_type(e).props
+	for i in 0 ..< props_rows(e) {
+		rc := prop_row_rect(i)
+		lit := i == e.prop_sel
+		fill(r, rc, lit ? PANEL : BG)
+		y := rc.y + (rc.h - cm.GLYPH_H) / 2
+		if i < ps.count {
+			name := cm.name_str(&ps.names[i])
+			cm.draw_text(r, rc.x + 2, y, name[:min(len(name), 14)], lit ? HILITE : TEXT)
+			cm.draw_text(r, rc.x + PROP_VALUE_X, y, fmt.tprintf("%d", ps.values[i]), lit ? HILITE : TEXT)
+		} else {
+			cm.draw_text(r, rc.x + 2, y, "NEW PROPERTY", lit ? HILITE : DIM)
+		}
+	}
+	name := type_name(e, e.sel)
+	cm.draw_text(r, INFO_X, INFO_Y, e.note != "" ? e.note : fmt.tprintf("TYPE %s  %d OF %d", name[:min(len(name), 10)], ps.count, cm.PROP_MAX), e.note != "" ? WARN : TEXT)
+	on_property := e.prop_sel < ps.count
+	buttons := [?]struct {
+		rc:      Rect,
+		text:    string,
+		enabled: bool,
+	}{{PROP_VALUE_BUTTON, "VALUE", true}, {PROP_NAME_BUTTON, "NAME", on_property}, {PROP_DELETE_BUTTON, "DEL", on_property}, {PROP_NEW_BUTTON, "NEW", ps.count < cm.PROP_MAX}, {PROP_MINUS, "-", on_property}, {PROP_PLUS, "+", on_property}, {BACK_BUTTON, "BACK", true}}
+	for b in buttons {
+		fill(r, b.rc, PANEL)
+		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.text)) / 2, b.rc.y + (b.rc.h - cm.GLYPH_H) / 2, b.text, b.enabled ? TEXT : DIM)
+	}
+	fill(r, PREVIEW_FRAME, PANEL)
+	fill(r, PREVIEW_INNER, EMPTY_SLOT)
+	draw_type(e, r, PREVIEW_INNER, current_type(e))
 	lines, n := help_lines(e)
 	for line, i in lines[:n] {
 		cm.draw_text(r, 8, HELP_Y + i * cm.LINE_ADVANCE, line, TEXT)

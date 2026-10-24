@@ -22,6 +22,7 @@ Mode :: enum {
 	Setup,
 	Text,
 	Tags, // the world's tags: inherit, set or clear on this character
+	Props, // its values of its type's numeric properties
 }
 
 Setup_Row :: enum {
@@ -34,6 +35,7 @@ Setup_Row :: enum {
 	Unplace,
 	Tags,
 	Items,
+	Props,
 }
 
 Editor :: struct {
@@ -48,6 +50,9 @@ Editor :: struct {
 	items_requested: bool, // the host should open the selected character's inventory
 	confirm_delete: bool,
 	tags:           cm.Tag_List, // Tags mode: the selected tag
+	prop_sel:       int, // Props mode: the selected property
+	text_value:     bool, // the keypad is typing a property value (not a name)
+	props_back:     Mode, // where Props mode returns to
 	note:           string,
 	entry:          cm.Text_Entry,
 	labels:         ^cm.Input_Map,
@@ -57,6 +62,9 @@ NOTE_NO_CHARACTERS :: "NO CHARACTERS YET: USE NEW"
 NOTE_NEED_TYPE :: "ADD A CHARACTER TYPE FIRST"
 NOTE_FULL :: "THE WORLD HAS 1024 CHARACTERS"
 NOTE_NOT_PLACED :: "NOT ON ANY MAP"
+NOTE_NO_PROPS :: "ITS TYPE HAS NO PROPERTIES"
+NOTE_NOT_NUMBER :: "TYPE A WHOLE NUMBER"
+NOTE_VALUE_RANGE :: "TOO BIG FOR 32 BITS"
 NOTE_NAME_EMPTY :: "A NAME CANNOT BE EMPTY"
 NOTE_NAME_BAD :: "UNUSABLE CHARACTER IN NAME"
 
@@ -195,6 +203,7 @@ begin_rename :: proc(e: ^Editor) {
 	if !need_character(e) {
 		return
 	}
+	e.text_value = false
 	cm.text_entry_begin(&e.entry, "RENAME CHARACTER", character_name(e, e.sel), cm.NAME_MAX)
 	e.back = e.mode == .Text ? e.back : e.mode
 	e.mode = .Text
@@ -296,6 +305,15 @@ unplace_character :: proc(e: ^Editor) {
 
 @(private = "file")
 handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
+	if e.text_value {
+		handle_value_text(e, ev)
+		return
+	}
+	handle_name_text(e, ev)
+}
+
+@(private = "file")
+handle_name_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 	switch cm.text_entry_handle(&e.entry, ev) {
 	case .Editing:
 	case .Cancelled:
@@ -310,6 +328,164 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 			cm.text_entry_resume(&e.entry, NOTE_NAME_EMPTY)
 		case .Too_Long, .Bad_Character, .In_Use:
 			cm.text_entry_resume(&e.entry, NOTE_NAME_BAD)
+		}
+	}
+}
+
+// --- Properties ---
+
+// The properties of the selected character's type, or nil.
+type_props :: proc(e: ^Editor) -> ^cm.Prop_Set {
+	if !has_characters(e) {
+		return nil
+	}
+	ti := cm.world_find_char_type(e.world, cm.name_str(&current(e).type))
+	return ti >= 0 ? &e.world.char_types[ti].props : nil
+}
+
+props_count :: proc(e: ^Editor) -> int {
+	if ps := type_props(e); ps != nil {
+		return ps.count
+	}
+	return 0
+}
+
+@(private = "file")
+begin_props :: proc(e: ^Editor) {
+	if !need_character(e) {
+		return
+	}
+	if props_count(e) == 0 {
+		e.note = NOTE_NO_PROPS
+		return
+	}
+	e.props_back = e.mode
+	e.mode = .Props
+	e.prop_sel = clamp(e.prop_sel, 0, props_count(e) - 1)
+}
+
+// The selected property's value for the selected character.
+prop_value :: proc(e: ^Editor, p: int) -> i32 {
+	return cm.world_character_value(e.world, e.sel, p)
+}
+
+@(private = "file")
+set_prop :: proc(e: ^Editor, value: i32) {
+	if prop_value(e, e.prop_sel) != value && cm.world_character_set_value(e.world, e.sel, e.prop_sel, value) {
+		e.dirty = true
+	}
+}
+
+@(private = "file")
+step_prop :: proc(e: ^Editor, delta: int) {
+	v := clamp(i64(prop_value(e, e.prop_sel)) + i64(delta), i64(min(i32)), i64(max(i32)))
+	set_prop(e, i32(v))
+}
+
+// Yellow: the type's default again.
+@(private = "file")
+reset_prop :: proc(e: ^Editor) {
+	if ps := type_props(e); ps != nil && e.prop_sel < ps.count {
+		set_prop(e, ps.values[e.prop_sel])
+	}
+}
+
+// A whole number typed as text: digits with an optional leading minus.
+@(private = "file")
+parse_whole :: proc(text: string) -> (n: i64, ok: bool) {
+	if len(text) == 0 || len(text) > 12 {
+		return 0, false
+	}
+	start := text[0] == '-' ? 1 : 0
+	if start == len(text) {
+		return 0, false
+	}
+	for i in start ..< len(text) {
+		if text[i] < '0' || text[i] > '9' {
+			return 0, false
+		}
+		n = n * 10 + i64(text[i] - '0')
+	}
+	return start == 1 ? -n : n, true
+}
+
+@(private = "file")
+begin_value :: proc(e: ^Editor) {
+	e.text_value = true
+	cm.text_entry_begin(&e.entry, "VALUE", fmt.tprintf("%d", prop_value(e, e.prop_sel)), 11)
+	e.back = e.mode == .Text ? e.back : e.mode
+	e.mode = .Text
+}
+
+@(private = "file")
+handle_value_text :: proc(e: ^Editor, ev: cm.Input_Event) {
+	switch cm.text_entry_handle(&e.entry, ev) {
+	case .Editing:
+	case .Cancelled:
+		e.mode = e.back
+	case .Done:
+		n, ok := parse_whole(cm.text_entry_text(&e.entry))
+		switch {
+		case !ok:
+			cm.text_entry_resume(&e.entry, NOTE_NOT_NUMBER)
+		case n < i64(min(i32)) || n > i64(max(i32)):
+			cm.text_entry_resume(&e.entry, NOTE_VALUE_RANGE)
+		case:
+			set_prop(e, i32(n))
+			e.mode = e.back
+		}
+	}
+}
+
+// Props mode: up and down choose a property, left and right change this character's value by 1, green types
+// it, yellow puts back the type's default, red goes back. The mouse clicks a row (again to type its
+// value) or a button.
+@(private = "file")
+handle_props :: proc(e: ^Editor, ev: cm.Input_Event) {
+	n := props_count(e)
+	#partial switch v in ev {
+	case cm.Command:
+		e.note = ""
+		#partial switch v.action {
+		case .Up:
+			e.prop_sel = max(e.prop_sel - 1, 0)
+		case .Down:
+			e.prop_sel = min(e.prop_sel + 1, n - 1)
+		case .Left:
+			step_prop(e, -1)
+		case .Right:
+			step_prop(e, 1)
+		case .Green:
+			begin_value(e)
+		case .Yellow:
+			reset_prop(e)
+		case .Red:
+			e.mode = e.props_back
+		}
+	case cm.Mouse_Button_Event:
+		if v.button != .Left || !v.down {
+			return
+		}
+		e.note = ""
+		if row := prop_row_at(v.x, v.y); row >= 0 && row < n {
+			if row == e.prop_sel {
+				begin_value(e) // again: type the value
+			} else {
+				e.prop_sel = row
+			}
+			return
+		}
+		switch {
+		case rect_contains(PROP_VALUE_BUTTON, v.x, v.y):
+			begin_value(e)
+		case rect_contains(PROP_DEFAULT_BUTTON, v.x, v.y):
+			reset_prop(e)
+		case rect_contains(PROP_MINUS, v.x, v.y):
+			step_prop(e, -1)
+		case rect_contains(PROP_PLUS, v.x, v.y):
+			step_prop(e, 1)
+		case rect_contains(BACK_BUTTON, v.x, v.y):
+			e.mode = e.props_back
 		}
 	}
 }
@@ -331,6 +507,8 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 		unplace_character(e)
 	case .Tags:
 		begin_tags(e)
+	case .Props:
+		begin_props(e)
 	case .Items:
 		if need_character(e) {
 			e.items_requested = true
@@ -349,6 +527,10 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 	}
 	if e.mode == .Tags {
 		handle_tags(e, ev)
+		return
+	}
+	if e.mode == .Props {
+		handle_props(e, ev)
 		return
 	}
 	#partial switch v in ev {
@@ -413,7 +595,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 		case .Red:
 			e.mode = .List
 		}
-	case .Text, .Tags:
+	case .Text, .Tags, .Props:
 	}
 }
 
@@ -457,6 +639,8 @@ click :: proc(e: ^Editor, x, y: int) {
 		action(e, .Player)
 	case rect_contains(UNPLACE_BUTTON, x, y):
 		action(e, .Unplace)
+	case rect_contains(PROPS_BUTTON, x, y):
+		action(e, .Props)
 	case rect_contains(ITEMS_BUTTON, x, y):
 		action(e, .Items)
 	case rect_contains(TAGS_BUTTON, x, y):

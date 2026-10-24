@@ -30,6 +30,8 @@ banner_text :: proc(e: ^Editor) -> string {
 		return fmt.tprintf("ACTIONS   %s: DONE", label(e, .Red))
 	case .Tags:
 		return fmt.tprintf("TAGS   %s: CYCLE", label(e, .Green))
+	case .Props:
+		return fmt.tprintf("PROPERTIES   %s: VALUE", label(e, .Green))
 	case .Text:
 	}
 	return ""
@@ -42,7 +44,7 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 		lines = {
 			fmt.tprintf("%s/%s: CHOOSE AN ACTION", l(e, .Up), l(e, .Down)),
 			fmt.tprintf("%s/%s: CHANGE THE TYPE", l(e, .Left), l(e, .Right)),
-			fmt.tprintf("%s: RUN RENAME / NEW / DUP / DEL / UNPLACE / TAGS / ITEMS", l(e, .Green)),
+			fmt.tprintf("%s: RUN THE ACTION", l(e, .Green)),
 			fmt.tprintf("%s: DONE", l(e, .Red)),
 		}
 		return lines, 4
@@ -52,6 +54,14 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 			fmt.tprintf("%s: INHERIT, THEN SET, THEN CLEAR", l(e, .Green)),
 			fmt.tprintf("%s: BACK", l(e, .Red)),
 			"MOUSE: CLICK A TAG; WHEEL SCROLLS",
+		}
+		return lines, 4
+	case .Props:
+		lines = {
+			fmt.tprintf("%s/%s: CHOOSE  %s/%s: VALUE -1 / +1", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
+			fmt.tprintf("%s: TYPE THE VALUE", l(e, .Green)),
+			fmt.tprintf("%s: BACK TO THE TYPE'S DEFAULT", l(e, .Yellow)),
+			fmt.tprintf("%s: BACK", l(e, .Red)),
 		}
 		return lines, 4
 	case .List, .Text:
@@ -89,7 +99,7 @@ Button :: struct {
 	row:  Maybe(Setup_Row),
 }
 
-buttons :: proc() -> [8]Button {
+buttons :: proc() -> [9]Button {
 	return {
 		{RENAME_BUTTON, "RENAME", .Rename},
 		{NEW_BUTTON, "NEW", .New},
@@ -97,6 +107,7 @@ buttons :: proc() -> [8]Button {
 		{DELETE_BUTTON, "DEL", .Delete},
 		{UNPLACE_BUTTON, "UNPLACE", .Unplace},
 		{TAGS_BUTTON, "TAGS", .Tags},
+		{PROPS_BUTTON, "PROPS", .Props},
 		{ITEMS_BUTTON, "ITEMS", .Items},
 		{BACK_BUTTON, "BACK", nil},
 	}
@@ -111,6 +122,10 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.renderer_clear(r, BG)
 	if e.mode == .Tags {
 		draw_tags_screen(e, r)
+		return
+	}
+	if e.mode == .Props {
+		draw_props_screen(e, r)
 		return
 	}
 	warning := e.confirm_delete
@@ -226,6 +241,42 @@ draw_tags_screen :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.draw_text(r, 214, 68, cm.tag_count_text(w, tag_view(e)), TEXT)
 	fill(r, BACK_BUTTON, PANEL)
 	cm.draw_text(r, BACK_BUTTON.x + (BACK_BUTTON.w - cm.text_width("BACK")) / 2, BACK_BUTTON.y + (BACK_BUTTON.h - cm.GLYPH_H) / 2, "BACK", TEXT)
+	lines, n := help_lines(e)
+	for line, i in lines[:n] {
+		cm.draw_text(r, 8, HELP_Y + i * cm.LINE_ADVANCE, line, TEXT)
+	}
+	cm.renderer_present(r)
+}
+
+// The Props screen: the type's properties with this feature's values; a value that differs from the
+// default says so.
+draw_props_screen :: proc(e: ^Editor, r: ^cm.Renderer) {
+	fill(r, BANNER, HILITE)
+	cm.draw_text(r, BANNER.x + 4, BANNER.y + 3, banner_text(e), BG)
+	name := feature_name(e, e.sel)
+	ps := type_props(e)
+	cm.draw_text(r, PROP_INFO_X, PROP_INFO_Y, e.note != "" ? e.note : fmt.tprintf("FEATURE %s", name[:min(len(name), 12)]), e.note != "" ? WARN : TEXT)
+	if ps != nil {
+		for i in 0 ..< ps.count {
+			rc := prop_row_rect(i)
+			lit := i == e.prop_sel
+			fill(r, rc, lit ? PANEL : BG)
+			y := rc.y + (rc.h - cm.GLYPH_H) / 2
+			changed := current(e).overrides.mask & (1 << uint(i)) != 0
+			pname := cm.name_str(&ps.names[i])
+			cm.draw_text(r, rc.x + 2, y, pname[:min(len(pname), 14)], lit ? HILITE : TEXT)
+			cm.draw_text(r, rc.x + PROP_VALUE_X, y, fmt.tprintf("%d", prop_value(e, i)), lit ? HILITE : TEXT)
+			cm.draw_text(r, rc.x + PROP_VALUE_X + 56, y, changed ? "CHANGED" : "DEFAULT", changed ? HILITE : DIM)
+		}
+	}
+	buttons := [?]struct {
+		rc:   Rect,
+		text: string,
+	}{{PROP_VALUE_BUTTON, "VALUE"}, {PROP_DEFAULT_BUTTON, "DEFAULT"}, {PROP_MINUS, "-"}, {PROP_PLUS, "+"}, {BACK_BUTTON, "BACK"}}
+	for b in buttons {
+		fill(r, b.rc, PANEL)
+		cm.draw_text(r, b.rc.x + (b.rc.w - cm.text_width(b.text)) / 2, b.rc.y + (b.rc.h - cm.GLYPH_H) / 2, b.text, TEXT)
+	}
 	lines, n := help_lines(e)
 	for line, i in lines[:n] {
 		cm.draw_text(r, 8, HELP_Y + i * cm.LINE_ADVANCE, line, TEXT)

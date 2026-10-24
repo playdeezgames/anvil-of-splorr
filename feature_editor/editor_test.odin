@@ -626,3 +626,129 @@ test_the_inventory_is_asked_for_by_each_input :: proc(t: ^testing.T) {
 	run(e, .Items)
 	testing.expect(t, !e.items_requested && e.note == NOTE_NO_FEATURES)
 }
+
+// Replaces the keypad's text with `text` and presses DONE.
+typed :: proc(e: ^Editor, text: string) {
+	if e.mode != .Text {
+		return // (never loop on a missing keypad: the test's own expectations say what went wrong)
+	}
+	for e.entry.len > 0 {
+		press_keypad_action(e, .Backspace)
+	}
+	type_with_commands(e, text)
+	press_keypad_action(e, .Done)
+}
+
+@(test)
+test_values_of_the_types_properties_are_changed_typed_and_reset_by_each_input :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	for by_mouse in ([]bool{false, true}) {
+		e, world := new_editor()
+		// No properties yet: nothing to open.
+		if by_mouse {
+			click_rect(e, PROPS_BUTTON)
+		} else {
+			run(e, .Props)
+		}
+		testing.expectf(t, e.mode == .Setup && e.note == NOTE_NO_PROPS, "mouse %v: no properties", by_mouse)
+		cm.world_feature_type_add_prop(world, 0, "health", 10)
+		cm.world_feature_type_add_prop(world, 0, "speed", 3)
+		if by_mouse {
+			click_rect(e, PROPS_BUTTON)
+		} else {
+			run(e, .Props)
+		}
+		testing.expectf(t, e.mode == .Props && props_count(e) == 2, "mouse %v: opens", by_mouse)
+		// +1, -1, the override is dropped when it equals the default again.
+		if by_mouse {
+			click_rect(e, PROP_PLUS)
+			click_rect(e, PROP_PLUS)
+		} else {
+			press(e, .Right, .Right)
+		}
+		testing.expect_value(t, prop_value(e, 0), 12)
+		testing.expect(t, e.dirty && current(e).overrides.mask == 1)
+		if by_mouse {
+			click_rect(e, PROP_MINUS)
+			click_rect(e, PROP_MINUS)
+		} else {
+			press(e, .Left, .Left)
+		}
+		testing.expect(t, prop_value(e, 0) == 10 && current(e).overrides.mask == 0)
+		// Type a value on the second property.
+		if by_mouse {
+			rc := prop_row_rect(1)
+			click_at(e, rc.x + 3, rc.y + 3) // selects
+			click_rect(e, PROP_VALUE_BUTTON)
+		} else {
+			press(e, .Down, .Green)
+		}
+		testing.expectf(t, e.mode == .Text && e.prop_sel == 1, "mouse %v: keypad", by_mouse)
+		typed(e, "-40")
+		testing.expect(t, e.mode == .Props && prop_value(e, 1) == -40 && current(e).overrides.mask == 2)
+		if by_mouse {
+			click_rect(e, PROP_VALUE_BUTTON)
+		} else {
+			press(e, .Green)
+		}
+		typed(e, "abc")
+		testing.expect(t, e.mode == .Text)
+		typed(e, "99999999999")
+		testing.expect(t, e.mode == .Text)
+		press_keypad_action(e, .Cancel)
+		testing.expect_value(t, prop_value(e, 1), -40)
+		// Back to the type's default.
+		if by_mouse {
+			click_rect(e, PROP_DEFAULT_BUTTON)
+		} else {
+			press(e, .Yellow)
+		}
+		testing.expect(t, prop_value(e, 1) == 3 && current(e).overrides.mask == 0)
+		// Leave.
+		if by_mouse {
+			click_rect(e, BACK_BUTTON)
+		} else {
+			press(e, .Red)
+		}
+		testing.expectf(t, e.mode == .Setup, "mouse %v: back", by_mouse)
+		free_both(e, world)
+	}
+}
+
+@(test)
+test_the_props_screen_draws_on_screen_and_its_texts_fit :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	for world.feature_types[0].props.count < cm.PROP_MAX {
+		cm.world_feature_type_add_prop(world, 0, "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", 2147483647)
+	}
+	world.features[0].overrides.mask = 0xFFFF
+	for i in 0 ..< cm.PROP_MAX {
+		world.features[0].overrides.values[i] = -2147483648
+	}
+	run(e, .Props)
+	testing.expect_value(t, e.mode, Mode.Props)
+	log: Draw_Log
+	r := logging_renderer(&log)
+	for sel in ([]int{0, 7, 15}) {
+		e.prop_sel = sel
+		log = {}
+		editor_draw(e, &r)
+		testing.expectf(t, log.out_of_bounds == 0 && log.presents == 1, "row %d: %d off screen", sel, log.out_of_bounds)
+	}
+	lines, n := help_lines(e)
+	for line in lines[:n] {
+		testing.expectf(t, cm.text_is_drawable(line) && cm.text_width(line) <= cm.SCREEN_W - 16, "%s", line)
+	}
+	for text in ([]string{banner_text(e), "PROPERTIES   GREEN: VALUE", NOTE_NO_PROPS, NOTE_NOT_NUMBER, NOTE_VALUE_RANGE, "CHANGED", "DEFAULT", "PROPS"}) {
+		testing.expectf(t, cm.text_is_drawable(text), "%s", text)
+	}
+	testing.expect(t, PROP_LIST_Y + cm.PROP_MAX * PROP_ROW_H <= HELP_Y && PROP_INFO_X >= PROP_LIST_X + PROP_LIST_W)
+	testing.expect(t, PROP_INFO_X + cm.text_width("CHARACTER WWWWWWWWWWWW") <= cm.SCREEN_W && PROP_INFO_Y > PROP_MINUS.y + PROP_MINUS.h)
+	testing.expect(t, PROP_LIST_X + PROP_VALUE_X + 56 + cm.text_width("CHANGED") <= PROP_LIST_X + PROP_LIST_W + 8 && PROP_LIST_X + PROP_LIST_W < PROP_VALUE_BUTTON.x)
+	testing.expect(t, PROP_LIST_X + PROP_VALUE_X + cm.text_width("-2147483648") <= PROP_LIST_X + PROP_VALUE_X + 56)
+	for b in buttons() {
+		testing.expectf(t, cm.text_width(b.text) <= b.rc.w - 2, "%s", b.text)
+	}
+}

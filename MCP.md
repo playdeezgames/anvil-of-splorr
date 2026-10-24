@@ -46,6 +46,7 @@ Goal: another Claude session or agent authors a world (`world.json`) through MCP
 | Actors | `character_type_*`, `character_*` (create, set type, tags, player, place/unplace), `map_new/delete/resize/set_set`, `map_get` (rows of terrain-letter codes + legend), `map_paint_cells`, `map_fill_rect`, `map_flood_fill`, `map_set_cell_tags` |
 | Pictures | `render_map` (zoom, window), `render_tile`, `render_sprite`, `render_palette` → MCP image content (base64 PNG) |
 | Features | `feature_type_list/new/edit/delete`, `feature_list/new/edit/delete/place/unplace`; `map_get` lists a window's features, `render_map` draws them, `play_walk` reports `feature` |
+| Properties | `char_type_prop_set/delete`, `feature_type_prop_set/delete` (like `item_prop_set/delete`); `character_new/edit` and `feature_new/edit` take `props` (property name to value); the type and instance lists show the properties and values |
 | Items | `item_type_list/new/edit/delete`, `item_prop_set/delete`, `inventory_list/get/add/remove/set/clear` (the owner is exactly one of `character`, `feature` or `map` with `x`,`y`; entries are numbered from 0); `map_get` lists a window's cell inventories, `map_list` and `world_summary` count them, `render_map` draws them (`items: false` leaves them out), `play_walk` reports `items_at` |
 | Play | `play_walk` (list of directions through `anvil_runtime` play; returns where the player ends and the refusal reasons), to test a layout |
 

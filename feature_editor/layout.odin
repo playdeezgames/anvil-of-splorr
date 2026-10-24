@@ -35,12 +35,13 @@ BUTTON_W :: 48
 BUTTON_H :: 10
 RENAME_BUTTON :: Rect{214, 98, BUTTON_W, BUTTON_H}
 NEW_BUTTON :: Rect{266, 98, BUTTON_W, BUTTON_H}
-DUPLICATE_BUTTON :: Rect{214, 110, BUTTON_W, BUTTON_H}
-DELETE_BUTTON :: Rect{266, 110, BUTTON_W, BUTTON_H}
-UNPLACE_BUTTON :: Rect{214, 122, BUTTON_W, BUTTON_H}
-ITEMS_BUTTON :: Rect{266, 122, BUTTON_W, BUTTON_H} // the feature's inventory (opened by the host)
-TAGS_BUTTON :: Rect{214, 138, BUTTON_W, BUTTON_H}
-BACK_BUTTON :: Rect{266, 138, BUTTON_W, BUTTON_H}
+DUPLICATE_BUTTON :: Rect{214, 109, BUTTON_W, BUTTON_H}
+DELETE_BUTTON :: Rect{266, 109, BUTTON_W, BUTTON_H}
+UNPLACE_BUTTON :: Rect{214, 120, BUTTON_W, BUTTON_H}
+ITEMS_BUTTON :: Rect{266, 120, BUTTON_W, BUTTON_H} // the feature's inventory (opened by the host)
+TAGS_BUTTON :: Rect{214, 131, BUTTON_W, BUTTON_H}
+PROPS_BUTTON :: Rect{266, 131, BUTTON_W, BUTTON_H} // the feature's values of its type's properties
+BACK_BUTTON :: Rect{266, 142, BUTTON_W, BUTTON_H}
 TAGS_Y :: 90 // "2 TAGS" under the type's name
 
 HELP_Y :: 152
@@ -57,4 +58,29 @@ list_row_at :: proc(x, y: int) -> (row: int, ok: bool) {
 	}
 	row = (y - LIST_Y) / LIST_PITCH
 	return row, row < LIST_ROWS
+}
+
+// The Props screen: the selected feature's type's properties with its values, buttons beside them.
+PROP_LIST_X :: 8
+PROP_LIST_Y :: 22
+PROP_ROW_H :: 8
+PROP_LIST_W :: 196
+PROP_VALUE_X :: 100 // where a value starts, inside a row
+PROP_INFO_X :: 214 // whose properties these are: right of the list (the info line would overprint its first rows)
+PROP_INFO_Y :: 56
+PROP_VALUE_BUTTON :: Rect{214, 28, BUTTON_W, BUTTON_H}
+PROP_DEFAULT_BUTTON :: Rect{266, 28, BUTTON_W, BUTTON_H}
+PROP_MINUS :: Rect{214, 40, 22, BUTTON_H}
+PROP_PLUS :: Rect{238, 40, 22, BUTTON_H}
+
+prop_row_rect :: proc(i: int) -> Rect {
+	return Rect{PROP_LIST_X, PROP_LIST_Y + i * PROP_ROW_H, PROP_LIST_W, PROP_ROW_H}
+}
+
+// The row of the property list under a point, or -1.
+prop_row_at :: proc(x, y: int) -> int {
+	if x < PROP_LIST_X || x >= PROP_LIST_X + PROP_LIST_W || y < PROP_LIST_Y {
+		return -1
+	}
+	return (y - PROP_LIST_Y) / PROP_ROW_H
 }

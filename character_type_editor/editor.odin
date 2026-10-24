@@ -26,6 +26,14 @@ Mode :: enum {
 	Sprite,
 	Text,
 	Tags, // the world's tags, set or cleared on this character type
+	Props, // the type's numeric properties
+}
+
+// What the keypad is typing.
+Text_Target :: enum {
+	Name, // this type's name
+	Prop_Value, // the default value of the selected property
+	Prop_Name, // the name of the selected property
 }
 
 Setup_Row :: enum {
@@ -37,6 +45,7 @@ Setup_Row :: enum {
 	Sprite,
 	Choose,
 	Tags,
+	Props,
 	Bg_Set,
 	Bg_Terrain,
 }
@@ -54,6 +63,10 @@ Editor :: struct {
 	exit_requested: bool,
 	confirm_delete: bool,
 	tags:           cm.Tag_List, // Tags mode: the selected tag
+	text_target:    Text_Target,
+	prop_sel:       int, // Props mode: the selected row (the property list, then a NEW row)
+	confirm_prop:   bool, // the next green deletes the selected property
+	props_back:     Mode, // where Props mode returns to (the keypad has its own `back`)
 	note:           string,
 	pick_sel:       int, // Sprite mode: the highlighted sprite
 	pick_scroll:    int,
@@ -68,6 +81,9 @@ NOTE_FULL :: "THE WORLD HAS 64 TYPES"
 NOTE_NO_SET :: "CHOOSE A SPRITE SET FIRST"
 NOTE_NO_SPRITES :: "NO SPRITE SET HAS SPRITES YET"
 NOTE_NO_BG_SET :: "CHOOSE A BACKGROUND SET FIRST"
+NOTE_PROPS_FULL :: "A TYPE HAS 16 PROPERTIES AT MOST"
+NOTE_NOT_NUMBER :: "TYPE A WHOLE NUMBER"
+NOTE_VALUE_RANGE :: "TOO BIG FOR 32 BITS"
 NOTE_NAME_EMPTY :: "A NAME CANNOT BE EMPTY"
 NOTE_NAME_USED :: "NAME ALREADY IN USE"
 NOTE_NAME_BAD :: "UNUSABLE CHARACTER IN NAME"
@@ -340,9 +356,35 @@ begin_rename :: proc(e: ^Editor) {
 	if !need_type(e) {
 		return
 	}
-	cm.text_entry_begin(&e.entry, "RENAME TYPE", type_name(e, e.sel), cm.NAME_MAX)
+	begin_text(e, .Name, "RENAME TYPE", type_name(e, e.sel), cm.NAME_MAX)
+}
+
+// Opens the keypad for `target`; leaving it returns to where it was opened.
+@(private = "file")
+begin_text :: proc(e: ^Editor, target: Text_Target, prompt, initial: string, max_len: int) {
+	cm.text_entry_begin(&e.entry, prompt, initial, max_len)
+	e.text_target = target
 	e.back = e.mode == .Text ? e.back : e.mode
 	e.mode = .Text
+}
+
+// A whole number typed as text: digits with an optional leading minus.
+@(private = "file")
+parse_whole :: proc(text: string) -> (n: i64, ok: bool) {
+	if len(text) == 0 || len(text) > 12 {
+		return 0, false
+	}
+	start := text[0] == '-' ? 1 : 0
+	if start == len(text) {
+		return 0, false
+	}
+	for i in start ..< len(text) {
+		if text[i] < '0' || text[i] > '9' {
+			return 0, false
+		}
+		n = n * 10 + i64(text[i] - '0')
+	}
+	return start == 1 ? -n : n, true
 }
 
 @(private = "file")
@@ -399,20 +441,212 @@ handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 	case .Cancelled:
 		e.mode = e.back
 	case .Done:
-		name := cm.text_entry_text(&e.entry)
-		switch cm.world_check_char_type_name(e.world, e.sel, name) {
-		case .None:
-			if name != type_name(e, e.sel) {
-				cm.world_rename_char_type(e.world, e.sel, name) // its characters follow
-				e.dirty = true
+		text := cm.text_entry_text(&e.entry)
+		switch e.text_target {
+		case .Name:
+			finish_name(e, text)
+		case .Prop_Value:
+			n, ok := parse_whole(text)
+			switch {
+			case !ok:
+				cm.text_entry_resume(&e.entry, NOTE_NOT_NUMBER)
+			case n < i64(min(i32)) || n > i64(max(i32)):
+				cm.text_entry_resume(&e.entry, NOTE_VALUE_RANGE)
+			case:
+				set_prop_value(e, i32(n))
+				e.mode = e.back
 			}
-			e.mode = e.back
-		case .Empty:
-			cm.text_entry_resume(&e.entry, NOTE_NAME_EMPTY)
-		case .In_Use:
-			cm.text_entry_resume(&e.entry, NOTE_NAME_USED)
-		case .Too_Long, .Bad_Character:
-			cm.text_entry_resume(&e.entry, NOTE_NAME_BAD)
+		case .Prop_Name:
+			switch cm.prop_set_rename(&current_type(e).props, e.prop_sel, text) {
+			case .None:
+				e.dirty = true
+				e.mode = e.back
+			case .Empty:
+				cm.text_entry_resume(&e.entry, NOTE_NAME_EMPTY)
+			case .In_Use:
+				cm.text_entry_resume(&e.entry, NOTE_NAME_USED)
+			case .Too_Long, .Bad_Character:
+				cm.text_entry_resume(&e.entry, NOTE_NAME_BAD)
+			}
+		}
+	}
+}
+
+@(private = "file")
+finish_name :: proc(e: ^Editor, name: string) {
+	switch cm.world_check_char_type_name(e.world, e.sel, name) {
+	case .None:
+		if name != type_name(e, e.sel) {
+			cm.world_rename_char_type(e.world, e.sel, name) // its characters follow
+			e.dirty = true
+		}
+		e.mode = e.back
+	case .Empty:
+		cm.text_entry_resume(&e.entry, NOTE_NAME_EMPTY)
+	case .In_Use:
+		cm.text_entry_resume(&e.entry, NOTE_NAME_USED)
+	case .Too_Long, .Bad_Character:
+		cm.text_entry_resume(&e.entry, NOTE_NAME_BAD)
+	}
+}
+
+// --- Properties ---
+
+// How many rows the Props list has: the properties, and a NEW row while there is room.
+props_rows :: proc(e: ^Editor) -> int {
+	n := current_type(e).props.count
+	return n < cm.PROP_MAX ? n + 1 : n
+}
+
+@(private = "file")
+on_property :: proc(e: ^Editor) -> bool {
+	return has_types(e) && e.prop_sel >= 0 && e.prop_sel < current_type(e).props.count
+}
+
+@(private = "file")
+begin_props :: proc(e: ^Editor) {
+	if !need_type(e) {
+		return
+	}
+	e.props_back = e.mode
+	e.mode = .Props
+	e.confirm_prop = false
+	e.prop_sel = clamp(e.prop_sel, 0, props_rows(e) - 1)
+}
+
+@(private = "file")
+set_prop_value :: proc(e: ^Editor, value: i32) {
+	if on_property(e) && current_type(e).props.values[e.prop_sel] != value {
+		current_type(e).props.values[e.prop_sel] = value
+		e.dirty = true
+	}
+}
+
+@(private = "file")
+step_prop_value :: proc(e: ^Editor, delta: int) {
+	if on_property(e) {
+		v := clamp(i64(current_type(e).props.values[e.prop_sel]) + i64(delta), i64(min(i32)), i64(max(i32)))
+		set_prop_value(e, i32(v))
+	}
+}
+
+// Green on the NEW row: adds a property and asks for its name.
+@(private = "file")
+new_prop :: proc(e: ^Editor) {
+	if cm.world_char_type_add_prop(e.world, e.sel) >= 0 {
+		e.prop_sel = current_type(e).props.count - 1
+		e.dirty = true
+		begin_text(e, .Prop_Name, "NAME PROPERTY", cm.name_str(&current_type(e).props.names[e.prop_sel]), cm.NAME_MAX)
+	} else {
+		e.note = NOTE_PROPS_FULL
+	}
+}
+
+@(private = "file")
+delete_prop :: proc(e: ^Editor) {
+	if on_property(e) {
+		cm.world_char_type_delete_prop(e.world, e.sel, e.prop_sel)
+		e.dirty = true
+		e.prop_sel = clamp(e.prop_sel, 0, props_rows(e) - 1)
+	}
+}
+
+// Green on a row: edit a property's default, or add a new property.
+@(private = "file")
+props_green :: proc(e: ^Editor) {
+	if on_property(e) {
+		begin_text(e, .Prop_Value, "DEFAULT VALUE", fmt.tprintf("%d", current_type(e).props.values[e.prop_sel]), 11)
+	} else {
+		new_prop(e)
+	}
+}
+
+@(private = "file")
+props_rename :: proc(e: ^Editor) {
+	if on_property(e) {
+		begin_text(e, .Prop_Name, "RENAME PROPERTY", cm.name_str(&current_type(e).props.names[e.prop_sel]), cm.NAME_MAX)
+	}
+}
+
+// Blue arms the deletion of the selected property; the next green carries it out and anything else cancels.
+@(private = "file")
+props_delete :: proc(e: ^Editor) {
+	if on_property(e) {
+		e.confirm_prop = true
+	}
+}
+
+// Props mode: up and down choose a row, left and right change the default by 1, green types it (or
+// adds a property on the NEW row), yellow renames, blue deletes (green confirms), red goes back. The
+// mouse clicks a row (again to type its value) or a button.
+@(private = "file")
+handle_props :: proc(e: ^Editor, ev: cm.Input_Event) {
+	#partial switch v in ev { 	// only a command or a left press can confirm or cancel a deletion
+	case cm.Mouse_Move, cm.Mouse_Wheel:
+		return
+	case cm.Mouse_Button_Event:
+		if v.button != .Left || !v.down {
+			return
+		}
+	}
+	armed := e.confirm_prop
+	e.confirm_prop = false
+	#partial switch v in ev {
+	case cm.Command:
+		e.note = ""
+		if armed && v.action == .Green {
+			delete_prop(e)
+			return
+		}
+		rows := props_rows(e)
+		#partial switch v.action {
+		case .Up:
+			e.prop_sel = max(e.prop_sel - 1, 0)
+		case .Down:
+			e.prop_sel = min(e.prop_sel + 1, rows - 1)
+		case .Left:
+			step_prop_value(e, -1)
+		case .Right:
+			step_prop_value(e, 1)
+		case .Green:
+			props_green(e)
+		case .Yellow:
+			props_rename(e)
+		case .Blue:
+			props_delete(e)
+		case .Red:
+			e.mode = e.props_back
+		}
+	case cm.Mouse_Button_Event:
+		e.note = ""
+		if row := prop_row_at(v.x, v.y); row >= 0 && row < props_rows(e) {
+			if row == e.prop_sel || row >= current_type(e).props.count {
+				e.prop_sel = row
+				props_green(e) // again: type the value; the NEW row adds
+			} else {
+				e.prop_sel = row
+			}
+			return
+		}
+		switch {
+		case rect_contains(PROP_VALUE_BUTTON, v.x, v.y):
+			props_green(e)
+		case rect_contains(PROP_NAME_BUTTON, v.x, v.y):
+			props_rename(e)
+		case rect_contains(PROP_DELETE_BUTTON, v.x, v.y):
+			if armed {
+				delete_prop(e) // a second click confirms
+			} else {
+				props_delete(e)
+			}
+		case rect_contains(PROP_NEW_BUTTON, v.x, v.y):
+			new_prop(e)
+		case rect_contains(PROP_MINUS, v.x, v.y):
+			step_prop_value(e, -1)
+		case rect_contains(PROP_PLUS, v.x, v.y):
+			step_prop_value(e, 1)
+		case rect_contains(BACK_BUTTON, v.x, v.y):
+			e.mode = e.props_back
 		}
 	}
 }
@@ -432,6 +666,8 @@ run_row :: proc(e: ^Editor, row: Setup_Row) {
 		begin_sprite(e)
 	case .Tags:
 		begin_tags(e)
+	case .Props:
+		begin_props(e)
 	case .Set, .Sprite, .Bg_Set, .Bg_Terrain:
 		// Values, not actions: left/right change them.
 	}
@@ -460,6 +696,10 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 	}
 	if e.mode == .Tags {
 		handle_tags(e, ev)
+		return
+	}
+	if e.mode == .Props {
+		handle_props(e, ev)
 		return
 	}
 	#partial switch v in ev {
@@ -554,7 +794,7 @@ editor_apply_action :: proc(e: ^Editor, a: cm.Action) {
 			e.mode = e.back
 		}
 		e.pick_scroll = scroll_to(e.pick_scroll, e.pick_sel / GRID_COLS, grid_total_rows(n))
-	case .Text, .Tags:
+	case .Text, .Tags, .Props:
 	}
 }
 
@@ -637,6 +877,8 @@ click :: proc(e: ^Editor, x, y: int) {
 		action(e, .Delete) // a second click confirms
 	case rect_contains(PICK_BUTTON, x, y):
 		action(e, .Choose)
+	case rect_contains(PROPS_BUTTON, x, y):
+		action(e, .Props)
 	case rect_contains(TAGS_BUTTON, x, y):
 		action(e, .Tags)
 	case rect_contains(BACK_BUTTON, x, y):

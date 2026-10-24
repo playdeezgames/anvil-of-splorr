@@ -686,3 +686,127 @@ test_the_tag_list_sets_and_clears_tags_on_a_type_and_its_features_inherit :: pro
 	}
 	testing.expect(t, e.tags.sel == 39 && e.tags.scroll == 40 - cm.TAG_LIST_ROWS)
 }
+
+// Replaces the keypad's text with `text` and presses DONE.
+typed :: proc(e: ^Editor, text: string) {
+	if e.mode != .Text {
+		return // (never loop on a missing keypad: the test's own expectations say what went wrong)
+	}
+	for e.entry.len > 0 {
+		press_keypad_action(e, .Backspace)
+	}
+	type_with_commands(e, text)
+	press_keypad_action(e, .Done)
+}
+
+@(test)
+test_properties_are_added_valued_renamed_and_deleted :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	ps := &world.feature_types[0].props
+	run(e, .Props)
+	testing.expect_value(t, e.mode, Mode.Props)
+	testing.expect_value(t, props_rows(e), 1) // only the NEW row
+	press(e, .Right, .Left, .Yellow, .Blue)
+	testing.expect(t, e.mode == .Props && ps.count == 0 && !e.confirm_prop) // nothing to change or delete
+	press(e, .Green) // NEW: asks for the name
+	testing.expect(t, e.mode == .Text && ps.count == 1 && e.dirty)
+	typed(e, "health")
+	testing.expect(t, e.mode == .Props && cm.name_str(&ps.names[0]) == "health")
+	press(e, .Right, .Right, .Right, .Left)
+	testing.expect_value(t, ps.values[0], 2)
+	press(e, .Green) // type the default
+	typed(e, "-15")
+	testing.expect(t, e.mode == .Props && ps.values[0] == -15)
+	press(e, .Green)
+	typed(e, "abc")
+	testing.expect(t, e.mode == .Text)
+	typed(e, "99999999999")
+	testing.expect(t, e.mode == .Text)
+	press_keypad_action(e, .Cancel)
+	testing.expect_value(t, ps.values[0], -15)
+	press(e, .Down, .Green) // a second property
+	typed(e, "health") // taken
+	testing.expect(t, e.mode == .Text && ps.count == 2)
+	typed(e, "speed")
+	testing.expect(t, e.mode == .Props && cm.name_str(&ps.names[1]) == "speed")
+	press(e, .Yellow)
+	typed(e, "pace")
+	testing.expect_value(t, cm.name_str(&ps.names[1]), "pace")
+	press(e, .Blue)
+	testing.expect(t, e.confirm_prop && banner_text(e) == "DELETE PROPERTY?  GREEN: CONFIRM")
+	press(e, .Up)
+	testing.expect(t, !e.confirm_prop && ps.count == 2)
+	press(e, .Blue, .Green)
+	testing.expect(t, ps.count == 1 && cm.name_str(&ps.names[0]) == "pace")
+	for ps.count < cm.PROP_MAX {
+		cm.world_feature_type_add_prop(world, 0)
+	}
+	testing.expect_value(t, props_rows(e), cm.PROP_MAX)
+	press(e, .Red)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	// With no types there is nothing to give properties.
+	e2, w2 := empty_editor()
+	defer free_both(e2, w2)
+	run(e2, .Props)
+	testing.expect(t, e2.mode == .Setup && e2.note == NOTE_NO_TYPES)
+}
+
+@(test)
+test_properties_by_mouse_and_the_screen_stays_on_screen :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e, world := new_editor()
+	defer free_both(e, world)
+	ps := &world.feature_types[0].props
+	click_rect(e, PROPS_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Props)
+	click_rect(e, PROP_NEW_BUTTON)
+	press_keypad_action(e, .Cancel) // keep the default name
+	testing.expect(t, e.mode == .Props && ps.count == 1)
+	click_rect(e, PROP_PLUS)
+	click_rect(e, PROP_PLUS)
+	click_rect(e, PROP_MINUS)
+	testing.expect_value(t, ps.values[0], 1)
+	click_rect(e, PROP_VALUE_BUTTON)
+	typed(e, "7")
+	testing.expect_value(t, ps.values[0], 7)
+	click_rect(e, PROP_NAME_BUTTON)
+	typed(e, "weight")
+	testing.expect_value(t, cm.name_str(&ps.names[0]), "weight")
+	rc := prop_row_rect(1) // the NEW row
+	click_at(e, rc.x + 3, rc.y + 3)
+	press_keypad_action(e, .Cancel)
+	testing.expect(t, ps.count == 2 && e.mode == .Props)
+	rc = prop_row_rect(0)
+	click_at(e, rc.x + 3, rc.y + 3) // selects
+	click_at(e, rc.x + 3, rc.y + 3) // again: the value
+	testing.expect_value(t, e.mode, Mode.Text)
+	press_keypad_action(e, .Cancel)
+	click_rect(e, PROP_DELETE_BUTTON)
+	testing.expect(t, e.confirm_prop && ps.count == 2)
+	click_rect(e, PROP_DELETE_BUTTON) // a second click confirms
+	testing.expect_value(t, ps.count, 1)
+	click_rect(e, BACK_BUTTON)
+	testing.expect_value(t, e.mode, Mode.Setup)
+	// Sixteen properties, the delete question up: everything draws inside the surface and the texts are in the font.
+	for ps.count < cm.PROP_MAX {
+		cm.world_feature_type_add_prop(world, 0)
+	}
+	e.mode = .Props
+	e.confirm_prop = true
+	log: Draw_Log
+	r := logging_renderer(&log)
+	editor_draw(e, &r)
+	testing.expect_value(t, log.out_of_bounds, 0)
+	testing.expect_value(t, log.presents, 1)
+	for line in ([]string{"DELETE PROPERTY?  GREEN: CONFIRM", "PROPERTIES   GREEN: VALUE", "NEW PROPERTY", "PROPS", NOTE_PROPS_FULL, NOTE_NOT_NUMBER, NOTE_VALUE_RANGE}) {
+		testing.expectf(t, cm.text_is_drawable(line), "%s", line)
+	}
+	lines, n := help_lines(e)
+	for line in lines[:n] {
+		testing.expectf(t, cm.text_is_drawable(line) && cm.text_width(line) <= cm.SCREEN_W - 16, "%s", line)
+	}
+	testing.expect(t, PROP_LIST_Y + cm.PROP_MAX * PROP_ROW_H <= HELP_Y && PROP_LIST_X + PROP_LIST_W < PROP_VALUE_BUTTON.x)
+	testing.expect(t, PROP_LIST_X + PROP_VALUE_X + cm.text_width("-2147483648") <= PROP_LIST_X + PROP_LIST_W)
+}

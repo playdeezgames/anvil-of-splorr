@@ -4,7 +4,7 @@ import cm "../common"
 
 // The state of a game being played, kept apart from the world: where every character is now. It
 // starts as a copy of the authored placements (`play_init`) and a game changes only this, so the
-// loaded world stays exactly as the editors wrote it. About 0.9 MB (the inventories' entries are most
+// loaded world stays exactly as the editors wrote it. About 1.1 MB (the inventories' entries and the property values are most
 // of it): a global or `new()`, copy it only when you mean to, and `play_init` it again to start over.
 //
 // Characters are the world's table, by index (see `player`, `character_type`); a character is in
@@ -36,6 +36,9 @@ Play_State :: struct {
 	contact_head:      int,
 	contact_count:     int,
 	contacts_lost:     int,
+	// Numeric properties (props.odin): each character's and feature's own values, as the game has changed them.
+	character_values:  [cm.WORLD_MAX_CHARACTERS]Prop_Overrides,
+	feature_values:    [cm.WORLD_MAX_FEATURES]Prop_Overrides,
 }
 
 MAX_COLLISIONS :: 64
@@ -66,6 +69,7 @@ play_init :: proc(ps: ^Play_State, w: ^World) {
 	ps.count = w.character_count
 	ps.feature_count = w.feature_count
 	play_init_items(ps, w)
+	play_init_values(ps, w)
 	for mi in 0 ..< w.map_count {
 		m := &w.maps[mi]
 		for y in 0 ..< m.height {
