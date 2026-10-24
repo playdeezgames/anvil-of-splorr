@@ -13,7 +13,7 @@ symbols: string = TERRAIN_SYMBOLS // (a variable, so it can be indexed)
 
 actor_tools :: proc() -> []Tool {
 	@(static) table := [?]Tool {
-		{"map_list", "List the maps: name, terrain set, size, characters, features and cell inventories on it.", `{"type":"object","properties":{}}`, tool_map_list},
+		{"map_list", "List the maps: name, terrain set, size, characters, features, cell inventories and triggers on it.", `{"type":"object","properties":{}}`, tool_map_list},
 		{
 			"map_new",
 			"Add a map (up to 64) using a terrain set; every cell takes the set's default terrain. width and height default to 32 (1..64).",
@@ -21,10 +21,10 @@ actor_tools :: proc() -> []Tool {
 			tool_map_new,
 		},
 		{"map_rename", "Rename a map.", RENAME_ARG, tool_map_rename},
-		{"map_delete", "Delete a map; characters and features on it stay in the table, standing nowhere, but the inventories lying in its cells go.", NAME_ARG, tool_map_delete},
+		{"map_delete", "Delete a map; characters and features on it stay in the table, standing nowhere, but the inventories lying in its cells go and its triggers stay in no place.", NAME_ARG, tool_map_delete},
 		{
 			"map_resize",
-			"Resize a map (1..64). New cells take the set's default terrain. Refused while a character, a feature or a cell inventory is in the part that would be cut off.",
+			"Resize a map (1..64). New cells take the set's default terrain. Refused while a character, a feature, a cell inventory or a trigger is in the part that would be cut off.",
 			`{"type":"object","properties":{"name":{"type":"string"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["name","width","height"]}`,
 			tool_map_resize,
 		},
@@ -36,7 +36,7 @@ actor_tools :: proc() -> []Tool {
 		},
 		{
 			"map_get",
-			"Read a window of a map (default all): rows of symbols, a legend of symbol to terrain (the first 90 terrains of the set), and the characters, features and cell inventories (with their entries) in the window.",
+			"Read a window of a map (default all): rows of symbols, a legend of symbol to terrain (the first 90 terrains of the set), and the characters, features, cell inventories (with their entries) and triggers in the window.",
 			`{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["name"]}`,
 			tool_map_get,
 		},
@@ -131,7 +131,7 @@ actor_tools :: proc() -> []Tool {
 		{"player_set", "Make a character the world's player; an empty or missing id means nobody.", `{"type":"object","properties":{"id":{"type":"string"}}}`, tool_player_set},
 		{
 			"play_walk",
-			"Try a layout: walk a character (default the player) from where it stands. moves is a string of u, d, l, r or a list of up/down/left/right. Reports each step (moved, solid, outside, occupied, feature) and where it ends, and items_at: the steps that ended on a cell holding an inventory (a step onto one is never refused); the world is not changed.",
+			"Try a layout: walk a character (default the player) from where it stands. moves is a string of u, d, l, r or a list of up/down/left/right. Reports each step (moved, solid, outside, occupied, feature) and where it ends, items_at (the steps that ended on a cell holding an inventory; a step onto one is never refused) and triggered (every trigger a step set off: kind entered or bumped, with the reason feature, character or solid for a bump); the world is not changed.",
 			`{"type":"object","properties":{"moves":{"type":["string","array"],"items":{"type":"string"}},"id":{"type":"string"}},"required":["moves"]}`,
 			tool_play_walk,
 		},
@@ -244,7 +244,7 @@ tool_map_list :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 			strings.write_string(&b, ",")
 		}
 		m := &w.maps[i]
-		fmt.sbprintf(&b, `{{"name":%s,"set":%s,"width":%d,"height":%d,"characters":%d,"features":%d,"inventories":%d}}`, quote(cm.name_str(&m.name)), quote(cm.name_str(&m.set)), m.width, m.height, cm.world_map_character_count(w, i), cm.world_map_feature_count(w, i), cm.world_map_inventory_count(w, i))
+		fmt.sbprintf(&b, `{{"name":%s,"set":%s,"width":%d,"height":%d,"characters":%d,"features":%d,"inventories":%d,"triggers":%d}}`, quote(cm.name_str(&m.name)), quote(cm.name_str(&m.set)), m.width, m.height, cm.world_map_character_count(w, i), cm.world_map_feature_count(w, i), cm.world_map_inventory_count(w, i), cm.world_map_trigger_count(w, i))
 	}
 	strings.write_string(&b, "]}")
 	return ok_result(strings.to_string(b))
@@ -442,6 +442,16 @@ tool_map_get :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 				first = false
 			}
 		}
+	}
+	strings.write_string(&b, `],"triggers":[`)
+	first = true
+	for ti in 0 ..< w.trigger_count {
+		t := &w.triggers[ti]
+		if t.place != .Cell || cm.name_str(&t.map_name) != cm.name_str(&m.name) || t.x < x0 || t.y < y0 || t.x >= x0 + cols || t.y >= y0 + rows {
+			continue
+		}
+		fmt.sbprintf(&b, `%s{{"id":%s,"name":%s,"type":%s,"x":%d,"y":%d}}`, first ? "" : ",", quote(cm.uuid_to_string(t.uuid)), quote(cm.name_str(&t.name)), quote(cm.name_str(&t.type)), t.x, t.y)
+		first = false
 	}
 	strings.write_string(&b, "]}")
 	return ok_result(strings.to_string(b))
@@ -1116,12 +1126,20 @@ tool_play_walk :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 	fmt.sbprintf(&b, `{{"map":%s,"start":{{"x":%d,"y":%d}},"results":[`, quote(cm.name_str(&w.maps[start.map_index].name)), start.x, start.y)
 	blocked := 0
 	touched := strings.builder_make(context.temp_allocator)
+	fired := strings.builder_make(context.temp_allocator)
 	for d, i in steps {
 		result := rt.play_step(ps, w, ci, d.x, d.y)
 		if result != .Moved {
 			blocked += 1
 		}
 		fmt.sbprintf(&b, `%s%s`, i > 0 ? "," : "", quote(move_text(result)))
+		for {
+			ev, got := rt.play_take_triggered(ps)
+			if !got {
+				break
+			}
+			fmt.sbprintf(&fired, `%s{{"step":%d,"trigger":%s,"id":%s,"kind":%s,"reason":%s,"x":%d,"y":%d}}`, strings.builder_len(fired) > 0 ? "," : "", i, quote(cm.name_str(&w.triggers[ev.trigger].name)), quote(cm.uuid_to_string(w.triggers[ev.trigger].uuid)), quote(ev.kind == .Entered ? "entered" : "bumped"), quote(bump_text(ev.reason)), ev.x, ev.y)
+		}
 		for {
 			c, got := rt.play_take_contact(ps)
 			if !got {
@@ -1131,8 +1149,22 @@ tool_play_walk :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 		}
 	}
 	end := rt.play_position(ps, ci)
-	fmt.sbprintf(&b, `],"end":{{"x":%d,"y":%d}},"blocked":%d,"items_at":[%s]}}`, end.x, end.y, blocked, strings.to_string(touched))
+	fmt.sbprintf(&b, `],"end":{{"x":%d,"y":%d}},"blocked":%d,"items_at":[%s],"triggered":[%s]}}`, end.x, end.y, blocked, strings.to_string(touched), strings.to_string(fired))
 	return ok_result(strings.to_string(b))
+}
+
+bump_text :: proc(r: rt.Bump_Reason) -> string {
+	switch r {
+	case .None:
+		return ""
+	case .Feature:
+		return "feature"
+	case .Character:
+		return "character"
+	case .Solid:
+		return "solid"
+	}
+	return "?"
 }
 
 move_text :: proc(r: rt.Move_Result) -> string {

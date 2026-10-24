@@ -262,7 +262,7 @@ Input schema: `{"type":"object","properties":{"set":{"type":"string"},"name":{"t
 
 ## `map_list`
 
-List the maps: name, terrain set, size, characters, features and cell inventories on it.
+List the maps: name, terrain set, size, characters, features, cell inventories and triggers on it.
 
 Input schema: `{"type":"object","properties":{}}`
 
@@ -280,13 +280,13 @@ Input schema: `{"type":"object","properties":{"name":{"type":"string"},"new_name
 
 ## `map_delete`
 
-Delete a map; characters and features on it stay in the table, standing nowhere, but the inventories lying in its cells go.
+Delete a map; characters and features on it stay in the table, standing nowhere, but the inventories lying in its cells go and its triggers stay in no place.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`
 
 ## `map_resize`
 
-Resize a map (1..64). New cells take the set's default terrain. Refused while a character, a feature or a cell inventory is in the part that would be cut off.
+Resize a map (1..64). New cells take the set's default terrain. Refused while a character, a feature, a cell inventory or a trigger is in the part that would be cut off.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["name","width","height"]}`
 
@@ -298,7 +298,7 @@ Input schema: `{"type":"object","properties":{"name":{"type":"string"},"set":{"t
 
 ## `map_get`
 
-Read a window of a map (default all): rows of symbols, a legend of symbol to terrain (the first 90 terrains of the set), and the characters, features and cell inventories (with their entries) in the window.
+Read a window of a map (default all): rows of symbols, a legend of symbol to terrain (the first 90 terrains of the set), and the characters, features, cell inventories (with their entries) and triggers in the window.
 
 Input schema: `{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["name"]}`
 
@@ -418,7 +418,7 @@ Input schema: `{"type":"object","properties":{"id":{"type":"string"}}}`
 
 ## `play_walk`
 
-Try a layout: walk a character (default the player) from where it stands. moves is a string of u, d, l, r or a list of up/down/left/right. Reports each step (moved, solid, outside, occupied, feature) and where it ends, and items_at: the steps that ended on a cell holding an inventory (a step onto one is never refused); the world is not changed.
+Try a layout: walk a character (default the player) from where it stands. moves is a string of u, d, l, r or a list of up/down/left/right. Reports each step (moved, solid, outside, occupied, feature) and where it ends, items_at (the steps that ended on a cell holding an inventory; a step onto one is never refused) and triggered (every trigger a step set off: kind entered or bumped, with the reason feature, character or solid for a bump); the world is not changed.
 
 Input schema: `{"type":"object","properties":{"moves":{"type":["string","array"],"items":{"type":"string"}},"id":{"type":"string"}},"required":["moves"]}`
 
@@ -566,11 +566,89 @@ Throw away an owner's whole inventory.
 
 Input schema: `{"type":"object","properties":{"character":{"type":"string"},"feature":{"type":"string"},"map":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"}}}`
 
+## `trigger_type_list`
+
+List the trigger types: name, sprite, tags and numeric properties with their defaults.
+
+Input schema: `{"type":"object","properties":{}}`
+
+## `trigger_type_new`
+
+Add a trigger type (up to 64). sprite_set and sprite name the picture (both or neither); tags lists the tags every trigger of the type has. Add properties with trigger_type_prop_set.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"sprite_set":{"type":"string"},"sprite":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["name"]}`
+
+## `trigger_type_edit`
+
+Change a trigger type; only the fields given change. Triggers of the type follow a rename.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"new_name":{"type":"string"},"sprite_set":{"type":"string"},"sprite":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["name"]}`
+
+## `trigger_type_delete`
+
+Delete a trigger type unless a trigger has it.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`
+
+## `trigger_type_prop_set`
+
+Give a trigger type a numeric property (up to 16, whole numbers that fit in 32 bits) or change its default value; new_name renames it. Triggers without their own value follow the default.
+
+Input schema: `{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"value":{"type":"integer"},"new_name":{"type":"string"}},"required":["type","name"]}`
+
+## `trigger_type_prop_delete`
+
+Remove a property from a trigger type; its triggers lose their value for it.
+
+Input schema: `{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"}},"required":["type","name"]}`
+
+## `trigger_list`
+
+List triggers (all, or those in cells of map, or those on one feature): id, name, type, where (a cell, or the feature it is on), its own tag settings and its values of its type's properties. A trigger never blocks, any number can share a cell or a feature.
+
+Input schema: `{"type":"object","properties":{"map":{"type":"string"},"feature":{"type":"string"}}}`
+
+## `trigger_new`
+
+Add a trigger of a type (up to 2048), in no place. Returns its id. tags_set / tags_cleared are its own tag settings; props is an object of property name (of the type) to its value for this trigger. Put it somewhere with trigger_place or trigger_attach.
+
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}},"props":{"type":"object"}},"required":["name","type"]}`
+
+## `trigger_edit`
+
+Change a trigger by id; only the fields given change (name, type, tags_set, tags_cleared, props). A new type makes it forget its property values; props sets values of its (new) type's properties.
+
+Input schema: `{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"type":{"type":"string"},"tags_set":{"type":"array","items":{"type":"string"}},"tags_cleared":{"type":"array","items":{"type":"string"}},"props":{"type":"object"}},"required":["id"]}`
+
+## `trigger_delete`
+
+Delete a trigger.
+
+Input schema: `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`
+
+## `trigger_place`
+
+Put a trigger in a map cell (taking it from its cell or feature). Nothing in the cell stops it: triggers, characters, features and items may all be there.
+
+Input schema: `{"type":"object","properties":{"id":{"type":"string"},"map":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"}},"required":["id","map","x","y"]}`
+
+## `trigger_attach`
+
+Put a trigger on a feature (taking it from its cell): it has no cell of its own and goes wherever the feature goes. It fires when the feature refuses a step.
+
+Input schema: `{"type":"object","properties":{"id":{"type":"string"},"feature":{"type":"string"}},"required":["id","feature"]}`
+
+## `trigger_unplace`
+
+Take a trigger out of its cell or off its feature.
+
+Input schema: `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`
+
 ## `render_map`
 
-Draw a map (or a window of it: x, y, width, height in cells) as a PNG, with the items lying in its cells, its features and its characters. zoom is pixels per tile pixel (default: the largest that keeps the picture within 512 pixels, at most 1024). grid true draws magenta cell lines so cells can be counted; items false / features false / characters false leave them out.
+Draw a map (or a window of it: x, y, width, height in cells) as a PNG, with the triggers and items lying in its cells, its features and its characters. zoom is pixels per tile pixel (default: the largest that keeps the picture within 512 pixels, at most 1024). grid true draws magenta cell lines so cells can be counted; triggers false / items false / features false / characters false leave them out.
 
-Input schema: `{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"},"zoom":{"type":"integer"},"grid":{"type":"boolean"},"characters":{"type":"boolean"},"features":{"type":"boolean"},"items":{"type":"boolean"}},"required":["name"]}`
+Input schema: `{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"},"zoom":{"type":"integer"},"grid":{"type":"boolean"},"characters":{"type":"boolean"},"features":{"type":"boolean"},"items":{"type":"boolean"},"triggers":{"type":"boolean"}},"required":["name"]}`
 
 ## `render_tile`
 

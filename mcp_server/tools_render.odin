@@ -15,8 +15,8 @@ render_tools :: proc() -> []Tool {
 	@(static) table := [?]Tool {
 		{
 			"render_map",
-			"Draw a map (or a window of it: x, y, width, height in cells) as a PNG, with the items lying in its cells, its features and its characters. zoom is pixels per tile pixel (default: the largest that keeps the picture within 512 pixels, at most 1024). grid true draws magenta cell lines so cells can be counted; items false / features false / characters false leave them out.",
-			`{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"},"zoom":{"type":"integer"},"grid":{"type":"boolean"},"characters":{"type":"boolean"},"features":{"type":"boolean"},"items":{"type":"boolean"}},"required":["name"]}`,
+			"Draw a map (or a window of it: x, y, width, height in cells) as a PNG, with the triggers and items lying in its cells, its features and its characters. zoom is pixels per tile pixel (default: the largest that keeps the picture within 512 pixels, at most 1024). grid true draws magenta cell lines so cells can be counted; triggers false / items false / features false / characters false leave them out.",
+			`{"type":"object","properties":{"name":{"type":"string"},"x":{"type":"integer"},"y":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"},"zoom":{"type":"integer"},"grid":{"type":"boolean"},"characters":{"type":"boolean"},"features":{"type":"boolean"},"items":{"type":"boolean"},"triggers":{"type":"boolean"}},"required":["name"]}`,
 			tool_render_map,
 		},
 		{
@@ -99,6 +99,9 @@ tool_render_map :: proc(s: ^Server, args: json.Object) -> Tool_Result {
 	canvas := cm.rgb_canvas_make(pw, ph, cm.Color{})
 	r := cm.rgb_canvas_renderer(&canvas)
 	cm.world_draw_terrain(&r, w, d)
+	if _, has := args["triggers"]; !has || arg_bool(args, "triggers") {
+		cm.world_draw_authored_triggers(&r, w, d)
+	}
 	if _, has := args["items"]; !has || arg_bool(args, "items") {
 		cm.world_draw_authored_inventories(&r, w, d)
 	}
