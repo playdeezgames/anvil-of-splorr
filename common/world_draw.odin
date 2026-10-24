@@ -237,6 +237,55 @@ world_draw_authored_inventories :: proc(r: ^Renderer, w: ^World, d: World_Draw) 
 	}
 }
 
+// The sprite a trigger draws (through its type), or nil.
+world_trigger_sprite :: proc(w: ^World, ti: int) -> ^Sprite {
+	if ti < 0 || ti >= w.trigger_count {
+		return nil
+	}
+	tt := world_find_trigger_type(w, name_str(&w.triggers[ti].type))
+	return tt >= 0 ? world_trigger_type_sprite(w, &w.trigger_types[tt]) : nil
+}
+
+// Draws trigger `ti` into `area`, like `world_draw_feature`: its sprite's tile image without the
+// sprite's transparent colour, or a block of `missing` when it has no picture. Nothing is drawn outside `clip`.
+world_draw_trigger :: proc(r: ^Renderer, w: ^World, ti: int, area: Rect, clip: Rect, missing: Color) {
+	if area.w <= 0 || area.h <= 0 || ti < 0 || ti >= w.trigger_count {
+		return
+	}
+	cs: Clip_State
+	cr := clipped_renderer(&cs, r, clip)
+	if sp := world_trigger_sprite(w, ti); sp != nil {
+		if img := world_sprite_image(w, sp); img != nil {
+			canvas_draw_thumbnail(&cr, area, img, &w.palette, sp.transparent)
+			return
+		}
+	}
+	renderer_fill_rect(&cr, area.x, area.y, area.w, area.h, missing)
+}
+
+// Draws the triggers that sit in the cells of the window's map (not those on features, which go where
+// their feature goes), over the terrain and under the inventories, features and characters; several
+// in one cell draw one over the other in table order.
+world_draw_authored_triggers :: proc(r: ^Renderer, w: ^World, d: World_Draw) {
+	if d.cell_w <= 0 || d.cell_h <= 0 || d.map_index < 0 || d.map_index >= w.map_count {
+		return
+	}
+	map_name := name_str(&w.maps[d.map_index].name)
+	for ti in 0 ..< w.trigger_count {
+		t := &w.triggers[ti]
+		if t.place != .Cell || name_str(&t.map_name) != map_name {
+			continue
+		}
+		if t.x < d.col || t.y < d.row || t.x >= d.col + d.cols || t.y >= d.row + d.rows {
+			continue
+		}
+		area := world_cell_rect(d, t.x, t.y)
+		if _, visible := rect_intersect(area, d.clip); visible {
+			world_draw_trigger(r, w, ti, area, d.clip, d.missing)
+		}
+	}
+}
+
 // The sprite an item type draws, or nil.
 world_item_type_sprite_of :: proc(w: ^World, ti: int) -> ^Sprite {
 	if ti < 0 || ti >= w.item_type_count {

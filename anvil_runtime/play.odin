@@ -4,7 +4,7 @@ import cm "../common"
 
 // The state of a game being played, kept apart from the world: where every character is now. It
 // starts as a copy of the authored placements (`play_init`) and a game changes only this, so the
-// loaded world stays exactly as the editors wrote it. About 1.1 MB (the inventories' entries and the property values are most
+// loaded world stays exactly as the editors wrote it. About 1.3 MB (the inventories' entries, the property values and the triggers are most
 // of it): a global or `new()`, copy it only when you mean to, and `play_init` it again to start over.
 //
 // Characters are the world's table, by index (see `player`, `character_type`); a character is in
@@ -39,6 +39,14 @@ Play_State :: struct {
 	// Numeric properties (props.odin): each character's and feature's own values, as the game has changed them.
 	character_values:  [cm.WORLD_MAX_CHARACTERS]Prop_Overrides,
 	feature_values:    [cm.WORLD_MAX_FEATURES]Prop_Overrides,
+	// Triggers (triggers.odin): where each is now, its values, and the events `play_step` queued.
+	trigger_count:     int,
+	trigger_places:    [cm.WORLD_MAX_TRIGGERS]Trigger_Pos,
+	trigger_values:    [cm.WORLD_MAX_TRIGGERS]Prop_Overrides,
+	triggered:         [MAX_COLLISIONS]Triggered,
+	triggered_head:    int,
+	triggered_count:   int,
+	triggered_lost:    int,
 }
 
 MAX_COLLISIONS :: 64
@@ -70,6 +78,7 @@ play_init :: proc(ps: ^Play_State, w: ^World) {
 	ps.feature_count = w.feature_count
 	play_init_items(ps, w)
 	play_init_values(ps, w)
+	play_init_triggers(ps, w)
 	for mi in 0 ..< w.map_count {
 		m := &w.maps[mi]
 		for y in 0 ..< m.height {
@@ -207,6 +216,8 @@ play_can_step :: proc(ps: ^Play_State, w: ^World, ci, dx, dy: int) -> (result: M
 // other characters block it, and running into a feature or a character queues a `Collision` for the
 // game (`play_take_collision`); a game that lets the player walk onto a pickup looks at
 // `play_character_at` for the target first and removes the pickup (`play_unplace`) before stepping.
+// Triggers hear of it too (triggers.odin): `Entered` for a step that succeeds, `Bumped` for one that is
+// refused, queued for `play_take_triggered`.
 play_step :: proc(ps: ^Play_State, w: ^World, ci, dx, dy: int) -> Move_Result {
 	result, tx, ty := play_can_step(ps, w, ci, dx, dy)
 	switch result {
@@ -223,6 +234,7 @@ play_step :: proc(ps: ^Play_State, w: ^World, ci, dx, dy: int) -> Move_Result {
 		push_collision(ps, {ci, .Character, play_character_at(ps, mi, tx, ty), mi, tx, ty, dx, dy})
 	case .Not_Placed, .Outside, .Solid:
 	}
+	trigger_events(ps, ci, result, tx, ty, dx, dy)
 	return result
 }
 

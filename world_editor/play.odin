@@ -75,9 +75,10 @@ begin_play :: proc(e: ^Editor) {
 @(private = "file")
 step_player :: proc(e: ^Editor, dx, dy: int) {
 	result, tx, ty := rt.play_can_step(&e.play, &e.world, e.play_player, dx, dy)
+	rt.play_step(&e.play, &e.world, e.play_player, dx, dy) // (a refused step queues bumps for the triggers too)
+	defer announce_triggers(e)
 	switch result {
 	case .Moved:
-		rt.play_step(&e.play, &e.world, e.play_player, dx, dy)
 		e.play_steps += 1
 		e.note = ""
 		if _, touched := rt.play_take_contact(&e.play); touched {
@@ -98,6 +99,22 @@ step_player :: proc(e: ^Editor, dx, dy: int) {
 		e.note = fmt.tprintf("BLOCKED BY %s", name[:min(len(name), 20)])
 	case .Not_Placed:
 		e.note = NOTE_PLAYER_OFF_MAP
+	}
+}
+
+// Takes the trigger events the last step queued: stepping onto a trigger says so (a refused step keeps
+// its BLOCKED note).
+@(private = "file")
+announce_triggers :: proc(e: ^Editor) {
+	for {
+		ev, ok := rt.play_take_triggered(&e.play)
+		if !ok {
+			break
+		}
+		if ev.kind == .Entered {
+			name := cm.name_str(&e.world.triggers[ev.trigger].name)
+			e.note = fmt.tprintf("TRIGGER: %s", name[:min(len(name), 20)])
+		}
 	}
 }
 
@@ -177,6 +194,7 @@ draw_play :: proc(e: ^Editor, r: ^cm.Renderer) {
 	cm.renderer_clear(r, BG)
 	d := play_window(e)
 	rt.draw_terrain(r, &e.world, d)
+	rt.draw_triggers(r, &e.world, &e.play, d)
 	rt.draw_inventories(r, &e.world, &e.play, d)
 	rt.draw_features(r, &e.world, &e.play, d)
 	rt.draw_characters(r, &e.world, &e.play, d)

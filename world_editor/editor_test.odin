@@ -2349,3 +2349,34 @@ test_inside_a_hub_section_nothing_but_the_info_line_is_drawn_in_its_rows :: proc
 		testing.expectf(t, count(e) == top, "%v: something else is drawn on the info line's rows", s)
 	}
 }
+
+@(test)
+test_playing_over_a_trigger_names_it_and_a_refused_step_keeps_its_note :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	e := with_content() // map "start": 3 x 3, everything grass
+	defer free(e)
+	add_player(e, 1, 1)
+	tt := cm.world_add_trigger_type(&e.world, "spikes")
+	trap := cm.world_add_trigger(&e.world, tt, "Hall trap")
+	cm.world_place_trigger(&e.world, e.world.triggers[trap].uuid, 0, 2, 1)
+	e.world.maps[0].cells[2][1] = 1 // a rock (solid) at 1,2, below the player
+	other := cm.world_add_trigger(&e.world, tt, "Rock watch")
+	cm.world_place_trigger(&e.world, e.world.triggers[other].uuid, 0, 1, 2)
+	before := cm.world_to_json(&e.world)
+	press(e, .Yellow)
+	testing.expect_value(t, e.mode, Mode.Play)
+	press(e, .Down) // refused (solid): the trigger there hears of it, the note stays BLOCKED
+	testing.expect_value(t, e.note, "BLOCKED: SOLID")
+	press(e, .Right) // onto the trap
+	testing.expect_value(t, e.note, "TRIGGER: Hall trap")
+	testing.expect_value(t, e.play_steps, 1)
+	press(e, .Left)
+	testing.expect_value(t, e.note, "")
+	// The screen draws inside the surface with triggers about, and playing never touches the world.
+	log: Draw_Log
+	r := logging_renderer(&log)
+	draw_play(e, &r)
+	testing.expect_value(t, log.out_of_bounds, 0)
+	press(e, .Red)
+	testing.expect_value(t, cm.world_to_json(&e.world), before)
+}
