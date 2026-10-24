@@ -47,6 +47,15 @@ Mouse_Wheel :: struct {
 	dy: int,
 }
 
+// A key or pad button pressed while a tool is capturing a new binding (the controls editor). It is not
+// an Input_Event: tools never see raw input unless they ask (Tool.wants_raw), and then the frontends
+// hand the press to Tool.handle_raw *instead of* turning it into a command.
+Raw_Input :: struct {
+	from_pad: bool,
+	key:      string, // keyboard: the KeyboardEvent.code name, or "" for a key outside the shared vocabulary
+	button:   int, // pad: the standard-layout button index
+}
+
 // Pointer coordinates are logical (SCREEN_W x SCREEN_H) pixels.
 Input_Event :: union {
 	Command,

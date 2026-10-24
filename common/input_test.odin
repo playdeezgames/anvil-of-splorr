@@ -169,3 +169,31 @@ test_label_errors :: proc(t: ^testing.T) {
 	_, err = parse(`{"labels": []}`)
 	testing.expect(t, strings.contains(err, `"labels" must be an object`))
 }
+
+@(test)
+test_saving_keeps_the_notes_of_the_file_it_replaces :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	original := `{"_note": "mine", "_extra": [1, 2], "gamepad": {"_pads": "x", "up": 12}, "keyboard": {"_keys": "y", "red": "KeyQ"}, "labels": {"_l": "z"}}`
+	m, err := input_map_from_json(transmute([]u8)original)
+	testing.expect_value(t, err, "")
+	set_key_name(&m.keys[.Green], "KeyG")
+	m.pad[.Blue] = NO_BUTTON
+	text := input_map_to_json_keeping(m, transmute([]u8)original)
+	for note in ([]string{`"_note": "mine"`, `"_extra": [1,2]`, `"_pads": "x"`, `"_keys": "y"`, `"_l": "z"`}) {
+		testing.expectf(t, strings.contains(text, note), "%s is lost in %s", note, text)
+	}
+	testing.expect(t, !strings.contains(text, "Gamepad values are standard-layout")) // the standard note only when there is none
+	back, err2 := input_map_from_json(transmute([]u8)text)
+	testing.expect_value(t, err2, "")
+	testing.expect(t, back == m)
+	text2 := input_map_to_json_keeping(back, transmute([]u8)text) // saving again changes nothing
+	testing.expect_value(t, text2, text)
+	// No original, or one that is not a file: the standard note, and still a valid file.
+	for bad in ([]string{"", "not json", "[1]"}) {
+		plain := input_map_to_json_keeping(m, transmute([]u8)bad)
+		testing.expect(t, strings.contains(plain, "_note"))
+		round, e := input_map_from_json(transmute([]u8)plain)
+		testing.expect(t, e == "" && round == m)
+	}
+	testing.expect_value(t, input_map_to_json(m), input_map_to_json_keeping(m, nil))
+}

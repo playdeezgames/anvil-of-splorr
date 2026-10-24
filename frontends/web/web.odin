@@ -272,12 +272,24 @@ handle_key :: proc(e: js.Event, down: bool) {
 	if e.key.ctrl || e.key.alt || e.key.meta {
 		return // leave browser shortcuts alone
 	}
+	if cm.tool_wants_raw(&tool) { 	// a tool capturing a new binding gets every press, bound or not
+		js.event_prevent_default()
+		if down && !e.key.repeat {
+			cm.tool_raw(&tool, cm.Raw_Input{key = known_code(e.key.code)})
+		}
+		return
+	}
 	if a, ok := cm.action_for_key(&imap, e.key.code); ok {
 		js.event_prevent_default() // Tab, arrows and space would otherwise move focus / scroll
 		if down {
 			tool.handle_event(tool.data, cm.Command{action = a})
 		}
 	}
+}
+
+// The key's code if it is in the shared vocabulary (see input_map.odin), else "".
+known_code :: proc(code: string) -> string {
+	return cm.is_known_key_code(code) ? code : ""
 }
 
 on_key_down :: proc(e: js.Event) {handle_key(e, true)}

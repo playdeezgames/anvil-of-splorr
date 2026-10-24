@@ -190,7 +190,14 @@ handle_sdl_event :: proc(tool: ^cm.Tool, ev: ^sdl.Event) {
 			window_closed = true
 		}
 	case .KEYDOWN:
-		if a, ok := cm.action_for_key(&imap, key_code(ev.key.keysym.scancode)); ok {
+		code := key_code(ev.key.keysym.scancode)
+		if cm.tool_wants_raw(tool) { 	// a tool capturing a new binding gets every press, bound or not
+			if ev.key.repeat == 0 {
+				cm.tool_raw(tool, cm.Raw_Input{key = code})
+			}
+			return
+		}
+		if a, ok := cm.action_for_key(&imap, code); ok {
 			handle(tool, cm.Command{action = a})
 		}
 	case .MOUSEMOTION:

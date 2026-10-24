@@ -2,6 +2,7 @@ package common
 
 import "core:encoding/json"
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 
 // Which keyboard keys and gamepad buttons mean which command. Stored as input_map.json, which the
@@ -151,9 +152,44 @@ action_for_key :: proc(m: ^Input_Map, code: string) -> (Action, bool) {
 NOTE :: "Gamepad values are standard-layout button indices (the Gamepad Tester shows them); keyboard values are KeyboardEvent.code names such as KeyR or ArrowUp. Use null to unbind a command; a command left out keeps its default. Labels are what the tools call each command on screen (max 12 characters), e.g. SPACE or A BUTTON."
 
 input_map_to_json :: proc(map_in: Input_Map, allocator := context.temp_allocator) -> string {
+	return input_map_to_json_keeping(map_in, nil, allocator)
+}
+
+// Like input_map_to_json, but the notes (entries whose name starts with "_") of an existing file,
+// at the top and inside each section, are written back, so rebinding in an editor does not cost the
+// notes a person wrote. Without `original` (or when it is not a usable file) the standard note is used.
+input_map_to_json_keeping :: proc(map_in: Input_Map, original: []u8, allocator := context.temp_allocator) -> string {
 	m := map_in
+	top: [dynamic]string
+	top.allocator = context.temp_allocator
+	inside: [3][dynamic]string // gamepad, keyboard, labels
+	for &i in inside {
+		i.allocator = context.temp_allocator
+	}
+	if len(original) > 0 {
+		if val, perr := json.parse(original, .JSON, true, context.temp_allocator); perr == .None {
+			if root, is_obj := val.(json.Object); is_obj {
+				collect_notes(root, &top)
+				for name, k in ([3]string{"gamepad", "keyboard", "labels"}) {
+					if section, ok := root[name].(json.Object); ok {
+						collect_notes(section, &inside[k])
+					}
+				}
+			}
+		}
+	}
 	b := strings.builder_make(allocator)
-	fmt.sbprintf(&b, "{{\n  \"_note\": \"%s\",\n  \"gamepad\": {{\n", NOTE)
+	strings.write_string(&b, "{\n")
+	if len(top) == 0 {
+		fmt.sbprintf(&b, "  \"_note\": \"%s\",\n", NOTE)
+	}
+	for n in top {
+		fmt.sbprintf(&b, "  %s,\n", n)
+	}
+	strings.write_string(&b, "  \"gamepad\": {\n")
+	for n in inside[0] {
+		fmt.sbprintf(&b, "    %s,\n", n)
+	}
 	for a in Action {
 		sep := a == max(Action) ? "" : ","
 		if m.pad[a] == NO_BUTTON {
@@ -163,6 +199,9 @@ input_map_to_json :: proc(map_in: Input_Map, allocator := context.temp_allocator
 		}
 	}
 	strings.write_string(&b, "  },\n  \"keyboard\": {\n")
+	for n in inside[1] {
+		fmt.sbprintf(&b, "    %s,\n", n)
+	}
 	for a in Action {
 		sep := a == max(Action) ? "" : ","
 		if m.keys[a].len == 0 {
@@ -172,12 +211,34 @@ input_map_to_json :: proc(map_in: Input_Map, allocator := context.temp_allocator
 		}
 	}
 	strings.write_string(&b, "  },\n  \"labels\": {\n")
+	for n in inside[2] {
+		fmt.sbprintf(&b, "    %s,\n", n)
+	}
 	for a in Action {
 		sep := a == max(Action) ? "" : ","
 		fmt.sbprintf(&b, "    \"%s\": \"%s\"%s\n", ACTION_NAMES[a], action_label(&m, a), sep)
 	}
 	strings.write_string(&b, "  }\n}\n")
 	return strings.to_string(b)
+}
+
+// The entries of `obj` whose names start with "_", as `"name": value` text, in name order.
+@(private = "file")
+collect_notes :: proc(obj: json.Object, out: ^[dynamic]string) {
+	names := make([dynamic]string, context.temp_allocator)
+	for name in obj {
+		if strings.has_prefix(name, "_") {
+			append(&names, name)
+		}
+	}
+	slice.sort(names[:])
+	for name in names {
+		key, _ := json.marshal(name, {}, context.temp_allocator)
+		value, err := json.marshal(obj[name], {}, context.temp_allocator)
+		if err == nil {
+			append(out, fmt.tprintf("%s: %s", string(key), string(value)))
+		}
+	}
 }
 
 // err == "" means success. Error text lives on the temp allocator; use or copy it right away.

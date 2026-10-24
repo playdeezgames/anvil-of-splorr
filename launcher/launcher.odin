@@ -25,8 +25,8 @@ Launcher :: struct {
 ROW_X :: 60
 ROW_W :: 200
 ROW_Y :: 44
-ROW_H :: 14
-ROW_PITCH :: 15
+ROW_H :: 12
+ROW_PITCH :: 13
 
 BG :: cm.Color{28, 28, 36}
 PANEL :: cm.Color{64, 64, 76}
@@ -167,6 +167,15 @@ tool :: proc(l: ^Launcher) -> cm.Tool {
 		},
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {launcher_handle_event((^Launcher)(data), ev)},
 		update_pads = proc(data: rawptr, pads: ^cm.Pads) {launcher_update_pads((^Launcher)(data), pads)},
+		wants_raw = proc(data: rawptr) -> bool {
+			t := running((^Launcher)(data))
+			return t != nil && t.wants_raw != nil && t.wants_raw(t.data)
+		},
+		handle_raw = proc(data: rawptr, raw: cm.Raw_Input) {
+			if t := running((^Launcher)(data)); t != nil && t.handle_raw != nil {
+				t.handle_raw(t.data, raw)
+			}
+		},
 		take_audio = proc(data: rawptr) -> (cm.Audio_Request, bool) {
 			if t := running((^Launcher)(data)); t != nil && t.take_audio != nil {
 				return t.take_audio(t.data)

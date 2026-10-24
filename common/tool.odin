@@ -11,6 +11,10 @@ Tool :: struct {
 	set_input_map: proc(data: rawptr, m: ^Input_Map), // frontend gives the live map once; its labels may change later
 	handle_event: proc(data: rawptr, ev: Input_Event),
 	update_pads:  proc(data: rawptr, pads: ^Pads), // full per-frame snapshot, for tools that show raw pads
+	// Optional raw capture (the controls editor): while wants_raw says true, every key press and pad
+	// button press goes to handle_raw instead of becoming a command (the mouse is unaffected).
+	wants_raw:    proc(data: rawptr) -> bool,
+	handle_raw:   proc(data: rawptr, raw: Raw_Input),
 	// Optional clock (games; the editors leave it nil): called once a frame, before `draw`, with the
 	// milliseconds that really passed since the previous frame (fractional, so 144 Hz does not drift).
 	// Frontends call it through `tool_update`, which clamps the step to MAX_FRAME_MS.
@@ -111,12 +115,29 @@ tool_is_dirty :: proc(t: ^Tool) -> bool {
 	return t.is_dirty != nil && t.is_dirty(t.data)
 }
 
+tool_wants_raw :: proc(t: ^Tool) -> bool {
+	return t.wants_raw != nil && t.handle_raw != nil && t.wants_raw(t.data)
+}
+
+// If the tool is capturing raw input, hands it the press and returns true (the frontend must then not
+// turn the press into a command).
+tool_raw :: proc(t: ^Tool, raw: Raw_Input) -> bool {
+	if t.wants_raw == nil || t.handle_raw == nil || !t.wants_raw(t.data) {
+		return false
+	}
+	t.handle_raw(t.data, raw)
+	return true
+}
+
 // Per-frame gamepad update: turns presses of bound standard buttons into Commands, hands the
 // raw snapshot to tools that want it (the tester), and remembers it as `prev` for the next call.
 tool_update_pads :: proc(t: ^Tool, prev, now: ^Pads, m: ^Input_Map) {
 	for i in 0 ..< MAX_PADS {
 		pressed, _ := pad_edges(&prev[i], &now[i])
 		for idx in pressed {
+			if tool_raw(t, Raw_Input{from_pad = true, button = idx}) {
+				continue
+			}
 			if a, ok := action_for_pad_button(m, idx); ok {
 				t.handle_event(t.data, Command{action = a, from_pad = true})
 			}
