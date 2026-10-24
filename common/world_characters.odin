@@ -105,7 +105,7 @@ world_new_uuid :: proc(w: ^World) -> Uuid {
 		}
 		u[6] = u[6] & 0x0F | 0x40 // version 4
 		u[8] = u[8] & 0x3F | 0x80 // variant
-		if world_find_character(w, u) < 0 && world_find_feature(w, u) < 0 && world_find_inventory(w, u) < 0 {
+		if world_find_character(w, u) < 0 && world_find_feature(w, u) < 0 && world_find_inventory(w, u) < 0 && world_find_trigger(w, u) < 0 {
 			return u
 		}
 	}
@@ -475,7 +475,7 @@ world_map_shrink_blocked :: proc(w: ^World, mi, width, height: int) -> (n: int) 
 			}
 		}
 	}
-	return n + world_map_feature_shrink_blocked(w, mi, width, height) + world_map_inventory_shrink_blocked(w, mi, width, height)
+	return n + world_map_feature_shrink_blocked(w, mi, width, height) + world_map_inventory_shrink_blocked(w, mi, width, height) + world_map_trigger_shrink_blocked(w, mi, width, height)
 }
 
 // How many characters stand on map mi.

@@ -341,19 +341,19 @@ change_set :: proc(e: ^Editor, delta: int) {
 transform :: proc(e: ^Editor, row: Setup_Row) {
 	m := current_map(e)
 	changed := false
-	#partial switch row {
+	#partial switch row { 	// (turning goes through the world: triggers sit in cells too)
 	case .Flip_Horizontal:
-		changed = cm.map_flip_horizontal(m)
+		changed = cm.world_map_turn(e.world, e.index, .Flip_Horizontal)
 	case .Flip_Vertical:
-		changed = cm.map_flip_vertical(m)
+		changed = cm.world_map_turn(e.world, e.index, .Flip_Vertical)
 	case .Rotate_Left, .Rotate_Right:
 		if m.width != m.height {
 			e.note = NOTE_NO_TURN
 			return
 		}
-		changed = row == .Rotate_Left ? cm.map_rotate_left(m) : cm.map_rotate_right(m)
+		changed = cm.world_map_turn(e.world, e.index, row == .Rotate_Left ? .Rotate_Left : .Rotate_Right)
 	case .Rotate_180:
-		changed = cm.map_rotate_180(m)
+		changed = cm.world_map_turn(e.world, e.index, .Rotate_180)
 	case .Flood_Fill:
 		changed = cm.map_flood_fill(m, e.cx, e.cy, e.terrain)
 		if !changed {

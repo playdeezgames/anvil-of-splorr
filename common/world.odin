@@ -152,6 +152,10 @@ World :: struct {
 	inventories:    [WORLD_MAX_INVENTORIES]Inventory, // held by a character, a feature or a map cell (world_items.odin)
 	entry_count:    int,
 	entries:        [WORLD_MAX_ENTRIES]Entry, // every inventory's entries, in order, in one pool
+	trigger_type_count: int,
+	trigger_types:  [WORLD_MAX_TRIGGER_TYPES]Trigger_Type,
+	trigger_count:  int,
+	triggers:       [WORLD_MAX_TRIGGERS]Trigger, // in a map cell, on a feature or nowhere (world_triggers.odin)
 	player:         Uuid, // the player's character, or none
 	uuid_state:     u64, // the generator for new uuids (see world_new_uuid)
 	tag_count:      int,
@@ -680,6 +684,7 @@ world_delete_map :: proc(w: ^World, i: int) -> bool {
 		return false
 	}
 	world_map_clear_inventories(w, i) // what lay on its cells goes with it
+	world_map_unplace_triggers(w, i) // triggers stay in the table, in no place
 	for k in i ..< w.map_count - 1 {
 		w.maps[k] = w.maps[k + 1]
 	}
@@ -695,6 +700,7 @@ world_rename_map :: proc(w: ^World, i: int, name: string) -> Name_Problem {
 	if p := world_check_map_name(w, i, name); p != .None {
 		return p
 	}
+	triggers_follow_map(w, name_str(&w.maps[i].name), name)
 	name_assign(&w.maps[i].name, name)
 	return .None
 }
@@ -904,6 +910,7 @@ world_to_json :: proc(w: ^World, allocator := context.temp_allocator) -> string 
 	write_sounds(&b, w)
 	write_features(&b, w)
 	write_items(&b, w)
+	write_triggers(&b, w)
 	write_characters(&b, w)
 	strings.write_string(&b, "}\n")
 	return strings.to_string(b)
@@ -1150,6 +1157,9 @@ world_from_json :: proc(data: []u8, dst: ^World) -> (err: string) {
 		return msg
 	}
 	if msg := read_items(root, tmp); msg != "" {
+		return msg
+	}
+	if msg := read_triggers(root, tmp); msg != "" {
 		return msg
 	}
 	tmp.uuid_state = dst.uuid_state // new uuids keep coming from the running generator

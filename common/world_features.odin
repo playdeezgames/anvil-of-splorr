@@ -247,6 +247,7 @@ world_delete_feature :: proc(w: ^World, i: int) -> bool {
 	}
 	world_unplace_feature(w, w.features[i].uuid)
 	world_delete_inventory(w, w.features[i].inventory) // what it held goes with it
+	triggers_leave_feature(w, w.features[i].uuid) // its triggers stay in the table, on nothing
 	for k in i ..< w.feature_count - 1 {
 		w.features[k] = w.features[k + 1]
 	}

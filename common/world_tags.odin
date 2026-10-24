@@ -47,7 +47,6 @@ tag_state :: proc(set, cleared: Tag_Mask, tag: int) -> Tag_State {
 }
 
 // Inherit -> Set -> Cleared -> Inherit.
-@(private = "file")
 cycled :: proc(set, cleared: Tag_Mask, tag: int) -> (Tag_Mask, Tag_Mask) {
 	b := tag_bit(tag)
 	switch tag_state(set, cleared, tag) {
@@ -153,6 +152,16 @@ world_tag_uses :: proc(w: ^World, tag: int) -> (n: int) {
 			n += 1
 		}
 	}
+	for i in 0 ..< w.trigger_type_count {
+		if w.trigger_types[i].tags & b != 0 {
+			n += 1
+		}
+	}
+	for i in 0 ..< w.trigger_count {
+		if (w.triggers[i].tags_set | w.triggers[i].tags_cleared) & b != 0 {
+			n += 1
+		}
+	}
 	for mi in 0 ..< w.map_count {
 		m := &w.maps[mi]
 		for y in 0 ..< m.height {
@@ -201,6 +210,13 @@ world_delete_tag :: proc(w: ^World, i: int) -> (uses: int, ok: bool) {
 	}
 	for k in 0 ..< w.item_type_count {
 		w.item_types[k].tags = close_gap(w.item_types[k].tags, i)
+	}
+	for k in 0 ..< w.trigger_type_count {
+		w.trigger_types[k].tags = close_gap(w.trigger_types[k].tags, i)
+	}
+	for k in 0 ..< w.trigger_count {
+		w.triggers[k].tags_set = close_gap(w.triggers[k].tags_set, i)
+		w.triggers[k].tags_cleared = close_gap(w.triggers[k].tags_cleared, i)
 	}
 	for mi in 0 ..< w.map_count {
 		m := &w.maps[mi]
