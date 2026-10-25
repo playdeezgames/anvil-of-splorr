@@ -134,7 +134,7 @@ test_every_items_layer_function_is_reachable_by_each_input :: proc(t: ^testing.T
 		case .Mouse:
 			click_rect(e, LAYER_BUTTON)
 		}
-		testing.expectf(t, e.layer == .Terrain, "%v layer", m)
+		testing.expectf(t, e.layer == .Triggers, "%v layer", m)
 		e.layer = .Items
 		switch m {
 		case .Commands:

@@ -67,6 +67,13 @@ Setup_Row :: enum {
 	Feat_Delete,
 	Cell_Open, // Items layer: open the inventory screen of the cell under the cursor
 	Cell_Clear, // Items layer: throw that cell's items away (twice: the first asks)
+	Trigger, // Triggers layer: the current trigger
+	Trig_Type,
+	Trig_Here, // the triggers in the cell under the cursor, one after the other
+	Trig_Rename,
+	Trig_New,
+	Trig_Unplace,
+	Trig_Delete,
 }
 
 Point_Tool :: enum {
@@ -98,6 +105,7 @@ Editor :: struct {
 	layer:          Layer, // what green does: paint terrain, or place and pick characters or features
 	cur_char:       int, // the current character: an index in the world's table
 	cur_feat:       int, // the current feature: an index in the world's features table
+	cur_trig:       int, // the current trigger: an index in the world's triggers table
 	back:           Mode, // where the keypad returns to
 	confirm_delete: bool, // Delete (a character) was run once: the next one is the confirmation
 	tags:           cm.Tag_List, // Tags mode: the selected tag
@@ -460,6 +468,8 @@ editor_handle_event :: proc(e: ^Editor, ev: cm.Input_Event) {
 				step_feature(e, -v.dy * FEAT_PAGE)
 			} else if e.layer == .Characters {
 				step_character(e, -v.dy * CHAR_PAGE)
+			} else if e.layer == .Triggers {
+				step_trigger(e, -v.dy * TRIG_PAGE)
 			} else if e.layer == .Items {
 				// (the list there only shows the cell's entries)
 			} else {
@@ -485,6 +495,9 @@ apply_action :: proc(e: ^Editor, a: cm.Action) {
 		return
 	}
 	if e.layer == .Items && item_action(e, a) {
+		return
+	}
+	if e.layer == .Triggers && trig_action(e, a) {
 		return
 	}
 	m := current_map(e)
@@ -605,6 +618,10 @@ pick :: proc(e: ^Editor, x, y: int) {
 		item_pick(e, x, y)
 		return
 	}
+	if e.layer == .Triggers {
+		trig_pick(e, x, y)
+		return
+	}
 	m := current_map(e)
 	if cx, cy, ok := cell_at(e, x, y); ok {
 		if e.shape == .None {
@@ -669,6 +686,10 @@ click :: proc(e: ^Editor, x, y: int) {
 	}
 	if e.layer == .Items {
 		item_click(e, x, y)
+		return
+	}
+	if e.layer == .Triggers {
+		trig_click(e, x, y)
 		return
 	}
 	m := current_map(e)

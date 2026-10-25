@@ -121,6 +121,15 @@ test_the_layer_switch_and_the_rows_each_layer_offers :: proc(t: ^testing.T) {
 	testing.expect(t, seen == {.Cell_Open, .Cell_Clear, .Zoom, .Layer}) // no tags: an inventory has none of its own
 	e.row = .Layer
 	press(e, .Green)
+	testing.expect(t, e.layer == .Triggers && e.row == .Trigger)
+	seen = {}
+	for _ in 0 ..< 12 {
+		seen += {e.row}
+		press(e, .Down)
+	}
+	testing.expect(t, seen == {.Trigger, .Trig_Type, .Trig_Here, .Trig_Rename, .Trig_New, .Trig_Unplace, .Trig_Delete, .Zoom, .Layer}) // no tags either
+	e.row = .Layer
+	press(e, .Green)
 	testing.expect(t, e.layer == .Terrain && e.row == .Terrain)
 	seen = {}
 	for _ in 0 ..< 20 {
@@ -134,6 +143,8 @@ test_the_layer_switch_and_the_rows_each_layer_offers :: proc(t: ^testing.T) {
 	testing.expect_value(t, e.layer, Layer.Features)
 	click_rect(e, LAYER_BUTTON)
 	testing.expect_value(t, e.layer, Layer.Items)
+	click_rect(e, LAYER_BUTTON)
+	testing.expect_value(t, e.layer, Layer.Triggers)
 	click_rect(e, LAYER_BUTTON)
 	testing.expect_value(t, e.layer, Layer.Terrain)
 	// Switching abandons an armed tool.
@@ -466,6 +477,7 @@ test_flips_rotations_and_resizing_carry_characters_in_the_editor :: proc(t: ^tes
 	defer free_both(e, world)
 	toggle_layer(e) // features
 	toggle_layer(e) // items
+	toggle_layer(e) // triggers
 	toggle_layer(e) // terrain tools
 	// Goo is at 1,0: a flip of the columns leaves it, a flip of the rows moves it.
 	run(e, .Flip_Vertical)
@@ -714,6 +726,7 @@ test_a_characters_tags_are_edited_from_the_map_too :: proc(t: ^testing.T) {
 	testing.expect(t, e.mode == .Setup && e.note == NOTE_NO_CHARACTERS)
 	toggle_layer(e) // features (none yet)
 	toggle_layer(e) // items
+	toggle_layer(e) // triggers
 	toggle_layer(e) // terrain
 	e.mode = .Setup
 	e.row = .Tags
@@ -741,8 +754,8 @@ test_the_tags_screen_draws_on_screen_for_both_layers :: proc(t: ^testing.T) {
 	}
 	cm.world_add_feature(world, cm.world_add_feature_type(world, "tree")) // the Features layer needs one to tag
 	for layer in Layer {
-		if layer == .Items {
-			continue // (an inventory has no tags of its own)
+		if layer == .Items || layer == .Triggers {
+			continue // (an inventory and a trigger layer have no tags of their own)
 		}
 		e.layer = layer
 		e.mode = .Setup

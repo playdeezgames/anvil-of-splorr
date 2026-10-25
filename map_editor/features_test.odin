@@ -153,6 +153,7 @@ test_the_features_layer_cycles_and_tags_a_feature :: proc(t: ^testing.T) {
 	testing.expect_value(t, e.mode, Mode.Setup)
 	// The terrain layer's tags are the cell's, as before.
 	toggle_layer(e) // items
+	toggle_layer(e) // triggers
 	toggle_layer(e)
 	testing.expect_value(t, e.layer, Layer.Terrain)
 	e.mode = .Setup

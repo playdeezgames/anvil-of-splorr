@@ -26,6 +26,15 @@ banner_text :: proc(e: ^Editor) -> string {
 		}
 		return fmt.tprintf("ITEMS   %s: OPEN", label(e, .Green))
 	}
+	if e.layer == .Triggers && e.mode != .Tags && e.mode != .Text {
+		if e.confirm_delete {
+			return fmt.tprintf("DELETE IT?  %s: CONFIRM", label(e, .Green))
+		}
+		if e.mode == .Setup {
+			return fmt.tprintf("SETUP   %s: DONE", label(e, .Red))
+		}
+		return fmt.tprintf("TRIGGERS   %s: PLACE", label(e, .Green))
+	}
 	if e.layer == .Features && e.mode != .Tags && e.mode != .Text {
 		if e.confirm_delete {
 			return fmt.tprintf("DELETE IT?  %s: CONFIRM", label(e, .Green))
@@ -96,6 +105,24 @@ help_lines :: proc(e: ^Editor) -> (lines: [MAX_HELP_LINES]string, n: int) {
 			fmt.tprintf("%s: OPEN THIS CELL'S ITEMS  %s: SETUP", l(e, .Green), l(e, .Yellow)),
 			fmt.tprintf("%s: BACK", l(e, .Red)),
 			"MOUSE: CLICK A CELL TO OPEN ITS ITEMS",
+		}
+		return lines, 4
+	}
+	if e.layer == .Triggers {
+		if e.mode == .Setup {
+			lines = {
+				fmt.tprintf("%s/%s: CHOOSE A ROW  %s: NEXT 16", l(e, .Up), l(e, .Down), l(e, .Blue)),
+				fmt.tprintf("%s/%s: CHANGE TRIGGER / TYPE / HERE", l(e, .Left), l(e, .Right)),
+				fmt.tprintf("%s: RUN RENAME / NEW / UNPLACE / DELETE / LAYER", l(e, .Green)),
+				fmt.tprintf("%s: DONE", l(e, .Red)),
+			}
+			return lines, 4
+		}
+		lines = {
+			fmt.tprintf("%s/%s/%s/%s: MOVE", l(e, .Up), l(e, .Down), l(e, .Left), l(e, .Right)),
+			fmt.tprintf("%s: PLACE HERE  %s: SETUP", l(e, .Green), l(e, .Yellow)),
+			fmt.tprintf("%s: NEXT 16 TRIGGERS  %s: BACK", l(e, .Blue), l(e, .Red)),
+			"MOUSE: CLICK PLACES; RIGHT CLICK PICKS",
 		}
 		return lines, 4
 	}
@@ -243,6 +270,18 @@ feat_buttons :: proc() -> [6]Button {
 	}
 }
 
+// The Triggers layer's buttons.
+trig_buttons :: proc() -> [6]Button {
+	return {
+		{TRIG_NEW_BUTTON, "NEW", .Trig_New, .None, .None},
+		{TRIG_UNPLACE_BUTTON, "UNPLACE", .Trig_Unplace, .None, .None},
+		{TRIG_DELETE_BUTTON, "DEL", .Trig_Delete, .None, .None},
+		{TRIG_RENAME_BUTTON, "RENAME", .Trig_Rename, .None, .None},
+		{BACK_BUTTON, "BACK", .Terrain, .None, .None},
+		{LAYER_BUTTON, "LAYER", .Layer, .None, .None},
+	}
+}
+
 // The Items layer's buttons.
 item_buttons :: proc() -> [4]Button {
 	return {
@@ -299,7 +338,8 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		player_mark = HILITE,
 	}
 	cm.world_draw_terrain(r, e.world, window) // the same code the game draws its maps with
-	cm.world_draw_authored_inventories(r, e.world, window) // what lies in a cell, under everything else
+	cm.world_draw_authored_triggers(r, e.world, window) // traps lie on the ground
+	cm.world_draw_authored_inventories(r, e.world, window) // what lies in a cell, under the rest
 	cm.world_draw_authored_features(r, e.world, window) // features under characters
 	cm.world_draw_authored_characters(r, e.world, window)
 	if cell_visible(e, e.cx, e.cy) {
@@ -331,6 +371,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		cm.draw_text(r, INFO_X, INFO_Y, e.note, WARN)
 	} else if e.layer == .Items {
 		cm.draw_text(r, INFO_X, INFO_Y, fmt.tprintf("CURSOR: %d,%d  %s%s", e.cx, e.cy, cell_items_text(e), e.dirty ? " *" : ""), TEXT)
+	} else if e.layer == .Triggers {
+		n := len(cell_triggers(e))
+		cm.draw_text(r, INFO_X, INFO_Y, fmt.tprintf("CURSOR: %d,%d  %d TRIGGER%s%s", e.cx, e.cy, n, n == 1 ? "" : "S", e.dirty ? " *" : ""), TEXT)
 	} else if e.layer == .Features {
 		what := "-"
 		if i := cm.world_feature_at(e.world, e.index, e.cx, e.cy); i >= 0 {
@@ -368,6 +411,21 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 			{COLUMNS_MINUS, COLUMNS_PLUS, .Layer, "HERE", cell_items_text(e), false},
 			{ROWS_MINUS, ROWS_PLUS, .Layer, "ON MAP", fmt.tprintf("%d CELLS", cm.world_map_inventory_count(e.world, e.index)), false},
 			{SET_MINUS, SET_PLUS, .Layer, "ITEMS", fmt.tprintf("%d", map_item_total(e)), false},
+			{ZOOM_MINUS, ZOOM_PLUS, .Zoom, "ZOOM", zoom_text, true},
+		}
+	} else if e.layer == .Triggers {
+		cur_name, cur_type, at := "NONE", "-", "-"
+		if has_triggers(e) {
+			t := current_trigger(e)
+			cur_name = fmt.tprintf("%d/%d %s", cur_trigger_index(e) + 1, trig_count(e), trigger_name(e, cur_trigger_index(e)))
+			cur_type = cm.name_str(&t.type)
+			at = trig_place_text(e, cur_trigger_index(e))
+		}
+		rows = {
+			{TERRAIN_MINUS, TERRAIN_PLUS, .Trigger, "TRIGGER", cur_name, true},
+			{COLUMNS_MINUS, COLUMNS_PLUS, .Trig_Type, "TYPE", cur_type, true},
+			{ROWS_MINUS, ROWS_PLUS, .Trig_Here, "HERE", fmt.tprintf("%d", len(cell_triggers(e))), true},
+			{SET_MINUS, SET_PLUS, .Layer, "PLACE", at, false},
 			{ZOOM_MINUS, ZOOM_PLUS, .Zoom, "ZOOM", zoom_text, true},
 		}
 	} else if e.layer == .Features {
@@ -412,7 +470,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 		}
 	}
 	// The TAGS button sits right of the zoom value, in the layers that have tags to edit.
-	if e.layer != .Items {
+	if e.layer != .Items && e.layer != .Triggers {
 		fill(r, TAGS_BUTTON, PANEL)
 		cm.draw_text(r, TAGS_BUTTON.x + (TAGS_BUTTON.w - cm.text_width("TAGS")) / 2, TAGS_BUTTON.y + 3, "TAGS", e.mode == .Setup && e.row == .Tags ? HILITE : TEXT)
 	}
@@ -438,6 +496,8 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	// The picker: the page of 16 terrains (or characters) holding the current one, which is framed.
 	if e.layer == .Items {
 		draw_item_list(e, r)
+	} else if e.layer == .Triggers {
+		draw_trigger_picker(e, r)
 	} else if e.layer == .Features {
 		draw_feature_picker(e, r)
 	} else if e.layer == .Characters {
@@ -470,7 +530,7 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 				lit = true
 			}
 			turn_blocked := e.layer == .Terrain && m.width != m.height && (btn.rc == ROT_L_BUTTON || btn.rc == ROT_R_BUTTON) // (the other layers' buttons share those places)
-			needs_char := (e.layer == .Items && btn.row == .Cell_Clear && cell_entry_count(e) == 0) || (e.layer == .Characters && !has_characters(e) && btn.row != .Char_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON) || (e.layer == .Features && !has_features(e) && btn.row != .Feat_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON)
+			needs_char := (e.layer == .Items && btn.row == .Cell_Clear && cell_entry_count(e) == 0) || (e.layer == .Characters && !has_characters(e) && btn.row != .Char_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON) || (e.layer == .Features && !has_features(e) && btn.row != .Feat_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON) || (e.layer == .Triggers && !has_triggers(e) && btn.row != .Trig_New && btn.rc != BACK_BUTTON && btn.rc != LAYER_BUTTON)
 			fill(r, btn.rc, lit ? HILITE : PANEL)
 			cm.draw_text(r, btn.rc.x + (btn.rc.w - cm.text_width(btn.txt)) / 2, btn.rc.y + (btn.rc.h - cm.GLYPH_H) / 2, btn.txt, lit ? BG : ((turn_blocked || needs_char) ? DIM : TEXT))
 		}
@@ -478,6 +538,9 @@ editor_draw :: proc(e: ^Editor, r: ^cm.Renderer) {
 	if e.layer == .Items {
 		ib := item_buttons()
 		draw_buttons(e, r, ib[:])
+	} else if e.layer == .Triggers {
+		tgb := trig_buttons()
+		draw_buttons(e, r, tgb[:])
 	} else if e.layer == .Features {
 		fb := feat_buttons()
 		draw_buttons(e, r, fb[:])
@@ -543,6 +606,25 @@ draw_feature_picker :: proc(e: ^Editor, r: ^cm.Renderer) {
 		fill(r, rc, PANEL)
 		draw_feature_sprite(e, r, rc, i, true)
 		if i == cur_feature_index(e) {
+			outline(r, rc, HILITE)
+		}
+	}
+}
+
+// The picker of the Triggers layer: the page holding the current trigger.
+draw_trigger_picker :: proc(e: ^Editor, r: ^cm.Renderer) {
+	page := cur_trigger_index(e) / TRIG_PAGE * TRIG_PAGE
+	for slot in 0 ..< PICKER_PAGE {
+		rc := picker_rect(slot)
+		i := page + slot
+		if i >= trig_count(e) {
+			fill(r, rc, cm.Color{22, 22, 28})
+			continue
+		}
+		fill(r, rc, PANEL)
+		cm.canvas_draw_checker(r, rc, cm.Color{96, 96, 108}, cm.Color{72, 72, 84}, max(2, rc.w / 4))
+		cm.world_draw_trigger(r, e.world, i, rc, cm.SURFACE, UNSET)
+		if i == cur_trigger_index(e) {
 			outline(r, rc, HILITE)
 		}
 	}

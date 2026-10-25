@@ -20,6 +20,7 @@ Layer :: enum {
 	Characters,
 	Features,
 	Items,
+	Triggers,
 }
 
 NOTE_NO_CHARACTERS :: "NO CHARACTERS YET: USE NEW"
@@ -42,10 +43,12 @@ row_offered :: proc(layer: Layer, row: Setup_Row) -> bool {
 		return layer == .Features
 	case .Cell_Open, .Cell_Clear:
 		return layer == .Items
+	case .Trigger, .Trig_Type, .Trig_Here, .Trig_Rename, .Trig_New, .Trig_Unplace, .Trig_Delete:
+		return layer == .Triggers
 	case .Zoom, .Layer:
 		return true
 	case .Tags:
-		return layer != .Items
+		return layer != .Items && layer != .Triggers
 	}
 	return true
 }
@@ -227,7 +230,7 @@ delete_character :: proc(e: ^Editor) {
 // The layer switch: terrain painting or characters. Abandons any rectangle in progress.
 toggle_layer :: proc(e: ^Editor) {
 	cancel_shape(e)
-	e.layer = Layer((int(e.layer) + 1) % len(Layer)) // terrain, characters, features, items, and round again
+	e.layer = Layer((int(e.layer) + 1) % len(Layer)) // terrain, characters, features, items, triggers, and round again
 	e.confirm_delete = false
 	switch e.layer {
 	case .Terrain:
@@ -238,6 +241,8 @@ toggle_layer :: proc(e: ^Editor) {
 		e.row = .Feature
 	case .Items:
 		e.row = .Cell_Open
+	case .Triggers:
+		e.row = .Trigger
 	}
 }
 
@@ -247,6 +252,18 @@ char_handle_text :: proc(e: ^Editor, ev: cm.Input_Event) {
 	case .Cancelled:
 		e.mode = e.back
 	case .Done:
+		if e.layer == .Triggers {
+			switch cm.world_rename_trigger(e.world, cur_trigger_index(e), cm.text_entry_text(&e.entry)) {
+			case .None:
+				e.dirty = true
+				e.mode = e.back
+			case .Empty:
+				cm.text_entry_resume(&e.entry, NOTE_NAME_EMPTY)
+			case .Too_Long, .Bad_Character, .In_Use:
+				cm.text_entry_resume(&e.entry, NOTE_NAME_BAD)
+			}
+			return
+		}
 		if e.layer == .Features {
 			switch cm.world_rename_feature(e.world, cur_feature_index(e), cm.text_entry_text(&e.entry)) {
 			case .None:
