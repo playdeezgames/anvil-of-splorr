@@ -72,3 +72,5 @@ Piece 1: (`mcp_server/`, `anvil_mcp/`, `./build.sh mcp`; the package is `mcp_ser
 - **Concurrency with a human**: if a person has the world editor open on the same file, last write wins. Out of scope; the server only writes on `world_save`.
 - **Huge worlds**: tool results must stay small (rows of a window, not whole 64x64x64 dumps); `map_get` takes a window.
 - Whether to also ship a read-only `resources` view of the world later.
+
+Triggers (`tools_triggers.odin`, `trigger_type_list/new/edit/delete/prop_set/prop_delete`, `trigger_list/new/edit/delete/place/attach/unplace`): a trigger is in a cell (`trigger_place`), on a feature (`trigger_attach`) or nowhere; `map_get`, `map_list` and `render_map` (`triggers: false` omits) show them and `play_walk` reports `triggered`. Details in `MCP_TOOLS.md`.

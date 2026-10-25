@@ -99,3 +99,22 @@ rt.play_set_character_value(&ps, w, hero, health, left - 3) // changes the play 
 ```
 
 `character_value`/`feature_value` give what the authors set. A value equal to the type's default is stored as no value, so setting it back to the default is the same as never having changed it. The same procs with `feature` in the name work for features.
+
+## Triggers (traps)
+
+A trigger sits in a map cell or on a feature and never blocks (see `WORLD.md`). The Anvil only notifies; your game decides what happens. After a step, drain the queue:
+
+```odin
+for e, ok in rt.play_take_triggered(&ps); ok; e, ok = rt.play_take_triggered(&ps) {
+	switch e.kind {
+	case .Entered: // the mover is in cell e.x,e.y now
+		if rt.trigger_has_tag(w, e.trigger, trap_tag) && !rt.character_has_tag(w, e.mover, flies_tag) {
+			dmg, _ := rt.trigger_prop_index(w, e.trigger, "damage")
+			// ... lower the mover's health by rt.play_trigger_value(&ps, w, e.trigger, dmg)
+		}
+	case .Bumped: // the step was refused; e.reason is .Feature, .Character or .Solid
+	}
+}
+```
+
+`Entered` is queued for every trigger in the cell a successful step entered; `Bumped` for every trigger in the cell a refused step tried to enter, and, when a feature was in the way, for every trigger on that feature. `Triggered` has the mover and trigger (indexes), `kind`, `reason`, the map and cell, and the step. The queue holds 64 (oldest dropped, `triggered_lost`) and `play_init` empties it. As authored: `trigger_count`, `trigger_type`, `trigger_sprite/_image`, `trigger_has_tag`, `triggers_with_tag`, `trigger_prop_index/_default/_value`, `authored_trigger_cell/_feature`. In play (all in the `Play_State`, never the world): `play_trigger_place`, `play_triggers_in_cell`, `play_triggers_on_feature`, `play_place_trigger`, `play_attach_trigger`, `play_unplace_trigger` (a spent trap), `play_trigger_value`/`play_set_trigger_value`. Draw with `draw_triggers` after `draw_terrain` and before `draw_inventories`; skip it, or draw single ones with `cm.world_draw_trigger`, to keep a trap hidden.

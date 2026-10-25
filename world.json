@@ -19,7 +19,7 @@
     {"r": 255, "g": 255, "b": 85},
     {"r": 255, "g": 255, "b": 255}
   ],
-  "tags": ["solid", "door"],
+  "tags": ["solid", "door", "trap"],
   "tilesets": [
     {"name": "tileset", "tileset": {
   "width": 16,
@@ -253,6 +253,16 @@
   "inventories": [
     {"uuid": "f465b9a1-6a9e-486e-8f45-0980185dc406", "owner": {"kind": "cell", "map": "map", "x": 5, "y": 4}, "entries": [{"type": "gold", "count": 25}]},
     {"uuid": "ec814c72-a8b8-4bf8-9b74-a8516a89391b", "owner": {"kind": "cell", "map": "map", "x": 4, "y": 6}, "entries": [{"type": "sword", "count": 1, "props": {"durability": 40}}, {"type": "potion", "count": 3}]}
+  ],
+  "trigger_types": [
+    {"name": "spikes", "sprite_set": "things", "sprite": "rock", "tags": ["trap"], "props": [{"name": "damage", "value": 5}]},
+    {"name": "plate", "sprite_set": "things", "sprite": "coin", "tags": [], "props": [{"name": "opens", "value": 1}]}
+  ],
+  "triggers": [
+    {"uuid": "ab801d97-973f-4b84-9512-52755c82297d", "name": "Hall spikes", "type": "spikes", "tags": [], "tags_cleared": [], "props": {"damage": 8}, "map": "map", "x": 5, "y": 3},
+    {"uuid": "867f7f2b-1017-4fc3-a44f-9183a0e96634", "name": "Side spikes", "type": "spikes", "tags": [], "tags_cleared": [], "map": "map", "x": 5, "y": 4},
+    {"uuid": "ac85445a-2b8d-4ad8-979e-0b102b6001db", "name": "Gate plate", "type": "plate", "tags": [], "tags_cleared": [], "map": "map", "x": 7, "y": 3},
+    {"uuid": "0df12518-928a-43a9-aa2f-ca0dd9f1f5ed", "name": "Gate guard", "type": "plate", "tags": [], "tags_cleared": [], "feature": "2fa93a98-5575-4f8e-994d-cc00160f4eb5"}
   ],
   "character_types": [],
   "characters": [],
