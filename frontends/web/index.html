@@ -144,25 +144,78 @@ async function loadFetched() {
   }
 }
 
-// Sound. The wasm module mixes (audio_fill); this node asks it for samples whenever the browser wants
-// more. Browsers start audio only after a user gesture, so the context is made on the first key press,
-// click or touch.
+// Sound. The wasm module mixes (audio_fill). An AudioWorklet plays the samples but runs on the audio
+// thread and cannot call wasm, so it keeps a short queue and asks the main thread for more blocks
+// through its message port (no SharedArrayBuffer, so no special headers: itch.io embeds work); the
+// asking is a port message, not a timer, so a background tab is not throttled to one fill a second.
+// Where AudioWorklet is missing (or the module cannot load) a ScriptProcessorNode does the same
+// job. Browsers start audio only after a user gesture, so the context is made on the first key
+// press, click or touch.
+const AUDIO_BLOCK = 512;   // samples per block the main thread renders
+const AUDIO_AHEAD = 2048;  // samples queued or on their way before the worklet stops asking (~93 ms)
+const WORKLET_SRC = `
+class Anvil extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.queue = []; this.pos = 0; this.have = 0; this.pending = 0;
+    this.port.onmessage = (ev) => { this.queue.push(ev.data); this.have += ev.data.length; this.pending--; };
+  }
+  process(inputs, outputs) {
+    const out = outputs[0][0];
+    let i = 0;
+    while (i < out.length && this.queue.length) {
+      const b = this.queue[0];
+      const n = Math.min(out.length - i, b.length - this.pos);
+      out.set(b.subarray(this.pos, this.pos + n), i);
+      i += n; this.pos += n; this.have -= n;
+      if (this.pos >= b.length) { this.queue.shift(); this.pos = 0; }
+    }
+    out.fill(0, i); // ran dry: silence rather than noise
+    while (this.have + this.pending * ${AUDIO_BLOCK} < ${AUDIO_AHEAD}) { this.port.postMessage(0); this.pending++; }
+    return true;
+  }
+}
+registerProcessor("anvil-audio", Anvil);`;
+
+// Renders n samples from the wasm mixer into out (silence if the module has no audio).
+function fillAudio(out, rate) {
+  const exp = memory.exports;
+  if (!exp || !exp.audio_fill) { out.fill(0); return; }
+  exp.audio_fill(out.length, rate);
+  const src = new Int16Array(memory.memory.buffer, exp.audio_buffer(), out.length);
+  for (let i = 0; i < out.length; i++) out[i] = src[i] / 32768;
+}
+
+function startScriptProcessor(ctx) {
+  const node = ctx.createScriptProcessor(2048, 0, 1);
+  node.onaudioprocess = (ev) => fillAudio(ev.outputBuffer.getChannelData(0), ctx.sampleRate);
+  node.connect(ctx.destination);
+}
+
+async function startWorklet(ctx) {
+  const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: "text/javascript" }));
+  try { await ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+  const node = new AudioWorkletNode(ctx, "anvil-audio", { numberOfInputs: 0, outputChannelCount: [1] });
+  node.port.onmessage = () => {
+    const block = new Float32Array(AUDIO_BLOCK);
+    fillAudio(block, ctx.sampleRate);
+    node.port.postMessage(block, [block.buffer]);
+  };
+  node.connect(ctx.destination);
+}
+
 let audioCtx = null;
 function startAudio() {
   if (audioCtx) { if (audioCtx.state !== "running") audioCtx.resume(); return; }
   try {
     try { audioCtx = new AudioContext({ sampleRate: 22050 }); } catch (e) { audioCtx = new AudioContext(); }
-    const node = audioCtx.createScriptProcessor(2048, 0, 1);
-    node.onaudioprocess = (ev) => {
-      const out = ev.outputBuffer.getChannelData(0);
-      const exp = memory.exports;
-      if (!exp || !exp.audio_fill) { out.fill(0); return; }
-      exp.audio_fill(out.length, audioCtx.sampleRate);
-      const src = new Int16Array(memory.memory.buffer, exp.audio_buffer(), out.length);
-      for (let i = 0; i < out.length; i++) out[i] = src[i] / 32768;
-    };
-    node.connect(audioCtx.destination);
-    audioCtx.resume();
+    const ctx = audioCtx;
+    ctx.resume();
+    if (ctx.audioWorklet && typeof AudioWorkletNode !== "undefined") {
+      startWorklet(ctx).catch(() => { try { startScriptProcessor(ctx); } catch (e) {} });
+    } else {
+      startScriptProcessor(ctx);
+    }
   } catch (e) { audioCtx = null; }
 }
 for (const type of ["keydown", "pointerdown", "touchstart"]) {
