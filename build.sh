@@ -8,6 +8,7 @@
 #   web [tool]              build/web/<tool>/
 #   (APP_DIR=<dir with app.odin> [APP_NAME=] [OUT_DIR=] before native|web|run|serve builds a game's own app: see GAMES.md)
 #   serve [tool] [port]     web + http.server (default port 8000)
+#   itch [tool]             build/itch/<tool>.zip: a clean web build (index.html at the root) for itch.io's HTML5 upload
 # Builds select what to include with apps/<name>/: "suite" (default) is the main menu plus every
 # editor; "palette_editor", "image_editor", "tileset_editor", "world_editor", "glyph_editor", "font_editor" and "gamepad_tester" build a single tool on its own.
 set -euo pipefail
@@ -111,6 +112,17 @@ case "$target" in
 	native) mkdir -p "$(dirname "$native_out")" && odin build frontends/sdl2 $coll -out:"$native_out" ;;
 	run)    "$0" native "$tool" && "$native_out" "$@" ;;
 	web)    build_web ;;
+	itch)
+		# A clean web build in its own folder (nothing left over from earlier builds) and zipped so that
+		# index.html is at the top, which is what itch.io's HTML5 upload wants. zip follows the
+		# input_map.json link, so the real file goes in. Needs the zip tool.
+		command -v zip >/dev/null || { echo "itch needs the zip command" >&2; exit 2; }
+		stage="build/itch/stage/$tool"
+		rm -rf "$stage" && web_out="$stage" && build_web
+		zip_file="$PWD/build/itch/$tool.zip"
+		rm -f "$zip_file"
+		(cd "$stage" && zip -q -r -X "$zip_file" .)
+		echo "$zip_file: $(du -h "$zip_file" | cut -f1), $(unzip -Z1 "$zip_file" | wc -l) files" ;;
 	serve)  build_web && python3 -m http.server -d "$web_out" "${1:-8000}" ;;
-	*) echo "unknown target: $target (expected check, test, native, run web or serve)" >&2; exit 2 ;;
+	*) echo "unknown target: $target (expected check, test, native, run, web, itch or serve)" >&2; exit 2 ;;
 esac
