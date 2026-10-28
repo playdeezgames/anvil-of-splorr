@@ -62,6 +62,7 @@ ctx: runtime.Context
 tool: cm.Tool
 imap: cm.Input_Map
 pads, prev_pads: cm.Pads
+keys: cm.Key_Tracker
 
 renderer := cm.Renderer {
 	clear     = proc(_: rawptr, c: cm.Color) {canvas_clear(i32(c.r), i32(c.g), i32(c.b))},
@@ -84,6 +85,7 @@ main :: proc() {
 
 	js.add_window_event_listener(.Key_Down, nil, on_key_down)
 	js.add_window_event_listener(.Key_Up, nil, on_key_up)
+	js.add_window_event_listener(.Blur, nil, on_blur)
 	// Move and release go to the window so a slider drag survives leaving the canvas.
 	js.add_window_event_listener(.Mouse_Move, nil, on_mouse_move)
 	js.add_window_event_listener(.Mouse_Up, nil, on_mouse_up)
@@ -264,13 +266,20 @@ poll_gamepads :: proc() {
 		}
 	}
 	cm.tool_update_pads(&tool, &prev_pads, &pads, &imap)
+	cm.tool_update_keys(&tool, &keys, &imap)
 }
 
 // Keys reach the tool only through the input map (input_map.json); unmapped keys are untouched.
 handle_key :: proc(e: js.Event, down: bool) {
 	context = ctx
+	if !down { 	// a release always counts, even with ctrl/alt down, so a key never sticks
+		cm.keys_up(&keys, e.key.code)
+	}
 	if e.key.ctrl || e.key.alt || e.key.meta {
 		return // leave browser shortcuts alone
+	}
+	if down {
+		cm.keys_down(&keys, e.key.code)
 	}
 	if cm.tool_wants_raw(&tool) { 	// a tool capturing a new binding gets every press, bound or not
 		js.event_prevent_default()
@@ -294,6 +303,10 @@ known_code :: proc(code: string) -> string {
 
 on_key_down :: proc(e: js.Event) {handle_key(e, true)}
 on_key_up :: proc(e: js.Event) {handle_key(e, false)}
+on_blur :: proc(e: js.Event) {
+	context = ctx
+	cm.keys_clear(&keys) // no key-up arrives for keys still down when focus leaves
+}
 
 // Client coordinates -> logical surface pixels.
 to_logical :: proc(e: js.Event) -> (x, y: int) {

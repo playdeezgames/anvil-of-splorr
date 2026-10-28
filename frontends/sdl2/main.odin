@@ -51,6 +51,7 @@ open_audio :: proc() {
 	sdl.PauseAudioDevice(audio_device, false)
 }
 imap: cm.Input_Map
+keys: cm.Key_Tracker
 window_closed: bool // the window's close button is the only way to quit
 
 main :: proc() {
@@ -147,6 +148,7 @@ main :: proc() {
 		}
 		poll_pads(&pads)
 		cm.tool_update_pads(&tool, &prev_pads, &pads, &imap)
+		cm.tool_update_keys(&tool, &keys, &imap)
 		if path := cm.tool_file_name(&tool); path != "" {
 			service_files(&tool, path) // files live in the working directory, named by the running tool
 		}
@@ -189,8 +191,15 @@ handle_sdl_event :: proc(tool: ^cm.Tool, ev: ^sdl.Event) {
 		if cm.tool_allow_close(tool) {
 			window_closed = true
 		}
+	case .KEYUP:
+		cm.keys_up(&keys, key_code(ev.key.keysym.scancode))
+	case .WINDOWEVENT:
+		if ev.window.event == .FOCUS_LOST {
+			cm.keys_clear(&keys) // no key-up will arrive for keys still down
+		}
 	case .KEYDOWN:
 		code := key_code(ev.key.keysym.scancode)
+		cm.keys_down(&keys, code)
 		if cm.tool_wants_raw(tool) { 	// a tool capturing a new binding gets every press, bound or not
 			if ev.key.repeat == 0 {
 				cm.tool_raw(tool, cm.Raw_Input{key = code})

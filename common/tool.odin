@@ -11,6 +11,9 @@ Tool :: struct {
 	set_input_map: proc(data: rawptr, m: ^Input_Map), // frontend gives the live map once; its labels may change later
 	handle_event: proc(data: rawptr, ev: Input_Event),
 	update_pads:  proc(data: rawptr, pads: ^Pads), // full per-frame snapshot, for tools that show raw pads
+	// Optional: which of the eight commands the keyboard holds down this frame (every frame, so a release
+	// is seen too; see keys_held.odin). Commands keep arriving through handle_event as before.
+	update_keys:  proc(data: rawptr, held: ^Held_Keys),
 	// Optional raw capture (the controls editor): while wants_raw says true, every key press and pad
 	// button press goes to handle_raw instead of becoming a command (the mouse is unaffected).
 	wants_raw:    proc(data: rawptr) -> bool,

@@ -118,6 +118,12 @@ launcher_update_pads :: proc(l: ^Launcher, pads: ^cm.Pads) {
 	}
 }
 
+launcher_update_keys :: proc(l: ^Launcher, held: ^cm.Held_Keys) {
+	if t := running(l); t != nil && t.update_keys != nil {
+		t.update_keys(t.data, held)
+	}
+}
+
 launcher_draw :: proc(l: ^Launcher, r: ^cm.Renderer) {
 	if t := running(l); t != nil {
 		t.draw(t.data, r)
@@ -167,6 +173,7 @@ tool :: proc(l: ^Launcher) -> cm.Tool {
 		},
 		handle_event = proc(data: rawptr, ev: cm.Input_Event) {launcher_handle_event((^Launcher)(data), ev)},
 		update_pads = proc(data: rawptr, pads: ^cm.Pads) {launcher_update_pads((^Launcher)(data), pads)},
+		update_keys = proc(data: rawptr, held: ^cm.Held_Keys) {launcher_update_keys((^Launcher)(data), held)},
 		wants_raw = proc(data: rawptr) -> bool {
 			t := running((^Launcher)(data))
 			return t != nil && t.wants_raw != nil && t.wants_raw(t.data)
