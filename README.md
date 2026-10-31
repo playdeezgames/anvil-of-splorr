@@ -53,7 +53,7 @@ The recipe, the held-keys and sound APIs and the example in `testdata/external_a
 - [MCP.md](MCP.md), [MCP_TOOLS.md](MCP_TOOLS.md): the MCP server and every tool (the second is generated).
 - [CLAUDE.md](CLAUDE.md): architecture notes for working on this repo.
 - [CONTRIBUTING.md](CONTRIBUTING.md): the project is for forking, plus notes for working in a fork.
-- [ITCH.md](ITCH.md): notes on packaging the web build as a zip.
+- [PAGES.md](PAGES.md): the GitHub Pages site and how it is built. [ITCH.md](ITCH.md): notes on packaging the web build as a zip.
 
 ## Your own taste
 

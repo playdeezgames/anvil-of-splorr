@@ -8,6 +8,7 @@
 #   web [tool]              build/web/<tool>/
 #   (APP_DIR=<dir with app.odin> [APP_NAME=] [OUT_DIR=] before native|web|run|serve builds a game's own app: see GAMES.md)
 #   serve [tool] [port]     web + http.server (default port 8000)
+#   pages                   build/pages/site/: the suite as the GitHub Pages site (see PAGES.md)
 #   itch [tool]             build/itch/<tool>.zip: a clean web build (index.html at the root) for itch.io's HTML5 upload
 # Builds select what to include with apps/<name>/: "suite" (default) is the main menu plus every
 # editor; "palette_editor", "image_editor", "tileset_editor", "world_editor", "glyph_editor", "font_editor" and "gamepad_tester" build a single tool on its own.
@@ -74,7 +75,8 @@ build_web() {
 	# start (a shipped game's world); WEB_FILE_MIB=<n> raises the file buffer from its default 4 MiB.
 	fetch_meta=""
 	if [ -n "${WEB_FETCH:-}" ]; then fetch_meta="<meta name=\"anvil-fetch\" content=\"${WEB_FETCH}\">"; fi
-	sed -e "s/@TITLE@/$(cat "$title_file")/" -e "s|@FETCH@|$fetch_meta|" frontends/web/index.html > "$out/index.html"
+	# WEB_NOTE="<a href=...>..</a>" puts a line of HTML beside the Open file button (the Pages site's links); no | in it.
+	sed -e "s/@TITLE@/$(cat "$title_file")/" -e "s|@FETCH@|$fetch_meta|" -e "s|@NOTE@|${WEB_NOTE:-}|" frontends/web/index.html > "$out/index.html"
 }
 
 case "$target" in
@@ -112,6 +114,15 @@ case "$target" in
 	native) mkdir -p "$(dirname "$native_out")" && odin build frontends/sdl2 $coll -out:"$native_out" ;;
 	run)    "$0" native "$tool" && "$native_out" "$@" ;;
 	web)    build_web ;;
+	pages)
+		# The GitHub Pages site (see PAGES.md): a clean folder build/pages/site/ of real files only (a Pages
+		# artifact may not hold symlinks): the suite, about.html, and .nojekyll.
+		web_out="build/pages/site"
+		rm -rf "$web_out" && WEB_NOTE='<a href="about.html">Help</a> · <a href="https://github.com/playdeezgames/anvil-of-splorr">Source</a>' build_web
+		cp --remove-destination "$input_map" "$web_out/input_map.json"
+		cp frontends/web/about.html "$web_out/about.html"
+		touch "$web_out/.nojekyll"
+		echo "$web_out: $(du -sh "$web_out" | cut -f1), $(find "$web_out" -type f | wc -l) files, $(find "$web_out" -type l | wc -l) links" ;;
 	itch)
 		# A clean web build in its own folder (nothing left over from earlier builds) and zipped so that
 		# index.html is at the top, which is what itch.io's HTML5 upload wants. zip follows the
@@ -124,5 +135,5 @@ case "$target" in
 		(cd "$stage" && zip -q -r -X "$zip_file" .)
 		echo "$zip_file: $(du -h "$zip_file" | cut -f1), $(unzip -Z1 "$zip_file" | wc -l) files" ;;
 	serve)  build_web && python3 -m http.server -d "$web_out" "${1:-8000}" ;;
-	*) echo "unknown target: $target (expected check, test, native, run, web, itch or serve)" >&2; exit 2 ;;
+	*) echo "unknown target: $target (expected check, test, native, run, web, pages, itch or serve)" >&2; exit 2 ;;
 esac

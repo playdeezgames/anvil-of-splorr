@@ -1,0 +1,47 @@
+name: Pages
+
+# Manual only: publishing is a deliberate act (one public release a day), not a side effect of a push.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      ODIN_VERSION: dev-2026-07
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Odin
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld
+          mkdir -p "$HOME/odin"
+          curl -fsSL "https://github.com/odin-lang/Odin/releases/download/${ODIN_VERSION}/odin-linux-amd64-${ODIN_VERSION}.tar.gz" \
+            | tar -xz -C "$HOME/odin" --strip-components=1
+          echo "$HOME/odin" >> "$GITHUB_PATH"
+
+      - name: Build the site
+        run: ./build.sh pages
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/pages/site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

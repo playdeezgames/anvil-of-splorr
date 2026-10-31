@@ -45,6 +45,7 @@ Deferred features are coxswain tasks (project `anvil`); don't build them unasked
 ./build.sh run [app]             # native build + run; app defaults to suite (the main menu)
 ./build.sh native|web [app]      # build/<app> or build/web/<app>/
 ./build.sh serve [app] [port]    # web + http.server, default :8000 (use a fresh port after rebuilding: the browser caches app.wasm)
+./build.sh pages                # build/pages/site/: the GitHub Pages site (see PAGES.md); .github/workflows/pages.yml deploys it by hand
 ./build.sh itch [app]            # build/itch/<app>.zip: clean web build zipped with index.html at the top, for itch.io (see ITCH.md)
 odin test palette_editor -define:ODIN_TEST_NAMES=palette_editor.test_wheel   # single test
 ```
