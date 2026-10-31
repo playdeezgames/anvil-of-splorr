@@ -25,4 +25,4 @@ This makes a clean web build (`-o:minimal`, about 40 seconds, `app.wasm` 1.66 MB
 - Browser storage keys are prefixed `anvil-of-splorr.`, but `playdeezgames.github.io` is one origin for all that user's project pages, so storage is shared with them. `about.html` says nothing there is private.
 - No special headers are needed (no `SharedArrayBuffer`; the audio is an `AudioWorklet` fed through its message port).
 - The page asks for `game_tags.json` at start; the 404 is harmless.
-- Not checked: Firefox and touch screens.
+- Verified live 2026-10-31: loads, keyboard after a click, SAVE stores and downloads, only the `game_tags.json` 404. Not checked: Firefox and touch screens.

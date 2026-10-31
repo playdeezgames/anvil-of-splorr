@@ -2,6 +2,8 @@
 
 A suite of small editors for making the art and worlds of games, written in [Odin](https://odin-lang.org). Palettes, 4-bit pictures, tilesets, worlds (terrain, sprites, maps, characters, features, items, triggers, sounds, game parameters), glyphs and fonts, plus a controls editor and a gamepad tester, all behind one main menu. The same code runs natively (SDL2) and in the browser (wasm).
 
+**Try it in the browser: <https://playdeezgames.github.io/anvil-of-splorr/>** (no install; see [PAGES.md](PAGES.md)).
+
 It is built to its maintainer's own specs and taste, and is shared for **forking** rather than collaboration: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## What is in it
